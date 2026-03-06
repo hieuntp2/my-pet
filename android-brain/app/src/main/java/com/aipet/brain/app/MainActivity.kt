@@ -1,16 +1,15 @@
 package com.aipet.brain.app
 
 import android.os.Bundle
-import android.widget.TextView
-import androidx.appcompat.app.AppCompatActivity
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import com.aipet.brain.app.ui.PetBrainApp
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val textView = TextView(this).apply {
-            text = "AI Pet Robot"
-            textSize = 20f
+        setContent {
+            PetBrainApp()
         }
-        setContentView(textView)
     }
 }
