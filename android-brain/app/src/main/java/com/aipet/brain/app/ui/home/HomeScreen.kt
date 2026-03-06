@@ -24,7 +24,8 @@ import com.aipet.brain.ui.avatar.model.AvatarEmotion
 @Composable
 fun HomeScreen(
     latestEvent: EventEnvelope?,
-    onNavigateToDebug: () -> Unit
+    onNavigateToDebug: () -> Unit,
+    onNavigateToCamera: () -> Unit
 ) {
     var selectedEmotionName by rememberSaveable { mutableStateOf(AvatarEmotion.NEUTRAL.name) }
     val avatarHomeState = remember {
@@ -78,8 +79,13 @@ fun HomeScreen(
             }
         }
 
-        Button(onClick = onNavigateToDebug) {
-            Text(text = "Go to Debug")
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onNavigateToCamera) {
+                Text(text = "Go to Camera")
+            }
+            Button(onClick = onNavigateToDebug) {
+                Text(text = "Go to Debug")
+            }
         }
     }
 }

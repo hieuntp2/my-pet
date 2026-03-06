@@ -2,6 +2,7 @@ val coreKtxVersion = property("dep.coreKtx").toString()
 val activityComposeVersion = property("dep.activityCompose").toString()
 val composeBomVersion = property("dep.composeBom").toString()
 val roomVersion = property("dep.room").toString()
+val cameraXVersion = property("dep.cameraX").toString()
 val junitVersion = property("dep.junit4").toString()
 
 plugins {
@@ -64,6 +65,11 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.ui:ui-tooling-preview")
     implementation("androidx.compose.material3:material3")
+
+    implementation("androidx.camera:camera-core:$cameraXVersion")
+    implementation("androidx.camera:camera-camera2:$cameraXVersion")
+    implementation("androidx.camera:camera-lifecycle:$cameraXVersion")
+    implementation("androidx.camera:camera-view:$cameraXVersion")
 
     implementation("androidx.room:room-runtime:$roomVersion")
 

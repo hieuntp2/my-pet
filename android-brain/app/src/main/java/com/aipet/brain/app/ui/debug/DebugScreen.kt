@@ -17,6 +17,7 @@ fun DebugScreen(
     latestEvent: EventEnvelope?,
     onNavigateToHome: () -> Unit,
     onNavigateToEventViewer: () -> Unit,
+    onNavigateToCamera: () -> Unit,
     onEmitTestEvent: () -> Unit
 ) {
     Column(
@@ -48,6 +49,13 @@ fun DebugScreen(
             modifier = Modifier.padding(bottom = 12.dp)
         ) {
             Text(text = "Open Event Viewer")
+        }
+
+        Button(
+            onClick = onNavigateToCamera,
+            modifier = Modifier.padding(bottom = 12.dp)
+        ) {
+            Text(text = "Open Camera")
         }
 
         Button(onClick = onNavigateToHome) {
