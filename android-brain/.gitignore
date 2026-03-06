@@ -1,0 +1,9 @@
+# Build artifacts
+build/
+
+# IDE
+.idea/
+*.iml
+
+# Local configuration
+local.properties
