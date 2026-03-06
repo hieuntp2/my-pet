@@ -33,16 +33,18 @@ class RoomEventStore(
             eventId = eventId,
             type = type.name,
             timestampMs = timestampMs,
-            payloadJson = payloadJson
+            payloadJson = EventEnvelope.normalizePayloadJson(payloadJson),
+            schemaVersion = EventEnvelope.normalizeSchemaVersion(schemaVersion)
         )
     }
 
     private fun EventEntity.toEnvelope(): EventEnvelope {
         return EventEnvelope(
             eventId = eventId,
-            type = EventType.valueOf(type),
+            type = EventType.fromRawValue(type),
             timestampMs = timestampMs,
-            payloadJson = payloadJson
+            payloadJson = EventEnvelope.normalizePayloadJson(payloadJson),
+            schemaVersion = EventEnvelope.normalizeSchemaVersion(schemaVersion)
         )
     }
 }

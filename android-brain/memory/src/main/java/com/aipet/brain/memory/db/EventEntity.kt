@@ -14,5 +14,7 @@ data class EventEntity(
     @ColumnInfo(name = "timestamp_ms")
     val timestampMs: Long,
     @ColumnInfo(name = "payload_json")
-    val payloadJson: String = "{}"
+    val payloadJson: String = "{}",
+    @ColumnInfo(name = "schema_version")
+    val schemaVersion: Int = 1
 )

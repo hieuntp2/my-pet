@@ -1,3 +1,7 @@
+val roomVersion = property("dep.room").toString()
+val junitVersion = property("dep.junit4").toString()
+val coroutinesTestVersion = property("dep.coroutinesTest").toString()
+
 plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.android")
@@ -6,25 +10,28 @@ plugins {
 
 android {
     namespace = "com.aipet.brain.memory"
-    compileSdk = 34
+    compileSdk = property("android.compileSdk").toString().toInt()
 
     defaultConfig {
-        minSdk = 26
+        minSdk = property("android.minSdk").toString().toInt()
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.toVersion(property("android.jvmTarget").toString())
+        targetCompatibility = JavaVersion.toVersion(property("android.jvmTarget").toString())
     }
     kotlinOptions {
-        jvmTarget = "17"
+        jvmTarget = property("android.jvmTarget").toString()
     }
 }
 
 dependencies {
     implementation(project(":brain"))
 
-    implementation("androidx.room:room-runtime:2.6.1")
-    implementation("androidx.room:room-ktx:2.6.1")
-    kapt("androidx.room:room-compiler:2.6.1")
+    implementation("androidx.room:room-runtime:$roomVersion")
+    implementation("androidx.room:room-ktx:$roomVersion")
+    kapt("androidx.room:room-compiler:$roomVersion")
+
+    testImplementation("junit:junit:$junitVersion")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:$coroutinesTestVersion")
 }

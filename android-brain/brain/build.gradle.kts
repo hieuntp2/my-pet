@@ -1,3 +1,6 @@
+val coroutinesVersion = property("dep.coroutines").toString()
+val junitVersion = property("dep.junit4").toString()
+
 plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.android")
@@ -5,21 +8,23 @@ plugins {
 
 android {
     namespace = "com.aipet.brain.brain"
-    compileSdk = 34
+    compileSdk = property("android.compileSdk").toString().toInt()
 
     defaultConfig {
-        minSdk = 26
+        minSdk = property("android.minSdk").toString().toInt()
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.toVersion(property("android.jvmTarget").toString())
+        targetCompatibility = JavaVersion.toVersion(property("android.jvmTarget").toString())
     }
     kotlinOptions {
-        jvmTarget = "17"
+        jvmTarget = property("android.jvmTarget").toString()
     }
 }
 
 dependencies {
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutinesVersion")
+
+    testImplementation("junit:junit:$junitVersion")
 }

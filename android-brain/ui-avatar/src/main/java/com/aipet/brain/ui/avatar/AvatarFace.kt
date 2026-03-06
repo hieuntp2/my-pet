@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -24,28 +23,17 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
-import com.aipet.brain.ui.avatar.model.AvatarEmotion
 import com.aipet.brain.ui.avatar.model.AvatarEyeState
 import com.aipet.brain.ui.avatar.model.AvatarMouthState
 import com.aipet.brain.ui.avatar.model.AvatarState
+import com.aipet.brain.ui.avatar.model.AvatarStateRules
 
 @Composable
 fun AvatarFace(
     avatarState: AvatarState,
     modifier: Modifier = Modifier
 ) {
-    val eyeState = when (avatarState.emotion) {
-        AvatarEmotion.SLEEPY -> if (avatarState.eyeState == AvatarEyeState.OPEN) AvatarEyeState.HALF_OPEN else avatarState.eyeState
-        AvatarEmotion.SURPRISED -> if (avatarState.eyeState == AvatarEyeState.CLOSED || avatarState.eyeState == AvatarEyeState.BLINK) AvatarEyeState.OPEN else avatarState.eyeState
-        else -> avatarState.eyeState
-    }
-
-    val mouthState = when (avatarState.emotion) {
-        AvatarEmotion.HAPPY -> if (avatarState.mouthState == AvatarMouthState.NEUTRAL) AvatarMouthState.SMILE else avatarState.mouthState
-        AvatarEmotion.SURPRISED -> if (avatarState.mouthState == AvatarMouthState.NEUTRAL) AvatarMouthState.OPEN else avatarState.mouthState
-        else -> avatarState.mouthState
-    }
-
+    val renderState = AvatarStateRules.normalizeForRender(avatarState)
     val strokeColor = MaterialTheme.colorScheme.onSurface
     val faceColor = MaterialTheme.colorScheme.surfaceVariant
 
@@ -70,11 +58,11 @@ fun AvatarFace(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                AvatarEye(eyeState = eyeState, color = strokeColor)
-                AvatarEye(eyeState = eyeState, color = strokeColor)
+                AvatarEye(eyeState = renderState.eyeState, color = strokeColor)
+                AvatarEye(eyeState = renderState.eyeState, color = strokeColor)
             }
 
-            AvatarMouth(mouthState = mouthState, color = strokeColor)
+            AvatarMouth(mouthState = renderState.mouthState, color = strokeColor)
         }
     }
 }

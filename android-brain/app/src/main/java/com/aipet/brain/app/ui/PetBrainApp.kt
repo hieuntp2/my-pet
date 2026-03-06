@@ -8,6 +8,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.room.Room
@@ -31,10 +32,14 @@ private enum class AppScreen {
 @Composable
 fun PetBrainApp() {
     val appContext = LocalContext.current.applicationContext
-    var currentScreen by remember { mutableStateOf(AppScreen.Home) }
+    var currentScreenName by rememberSaveable { mutableStateOf(AppScreen.Home.name) }
+    val currentScreen = currentScreenName.toAppScreen()
     var latestEvent by remember { mutableStateOf<EventEnvelope?>(null) }
     val database = remember(appContext) {
-        Room.databaseBuilder(appContext, AppDatabase::class.java, "pet_brain.db").build()
+        Room.databaseBuilder(appContext, AppDatabase::class.java, AppDatabase.DB_NAME)
+            .addMigrations(AppDatabase.MIGRATION_1_2)
+            .fallbackToDestructiveMigrationOnDowngrade()
+            .build()
     }
     val eventStore: EventStore = remember(database) {
         RoomEventStore(database.eventDao())
@@ -59,13 +64,13 @@ fun PetBrainApp() {
             when (currentScreen) {
                 AppScreen.Home -> HomeScreen(
                     latestEvent = latestEvent,
-                    onNavigateToDebug = { currentScreen = AppScreen.Debug }
+                    onNavigateToDebug = { currentScreenName = AppScreen.Debug.name }
                 )
 
                 AppScreen.Debug -> DebugScreen(
                     latestEvent = latestEvent,
-                    onNavigateToHome = { currentScreen = AppScreen.Home },
-                    onNavigateToEventViewer = { currentScreen = AppScreen.EventViewer },
+                    onNavigateToHome = { currentScreenName = AppScreen.Home.name },
+                    onNavigateToEventViewer = { currentScreenName = AppScreen.EventViewer.name },
                     onEmitTestEvent = {
                         coroutineScope.launch {
                             eventBus.publish(
@@ -80,9 +85,13 @@ fun PetBrainApp() {
 
                 AppScreen.EventViewer -> EventViewerScreen(
                     eventStore = eventStore,
-                    onNavigateBack = { currentScreen = AppScreen.Debug }
+                    onNavigateBack = { currentScreenName = AppScreen.Debug.name }
                 )
             }
         }
     }
+}
+
+private fun String.toAppScreen(): AppScreen {
+    return AppScreen.entries.firstOrNull { it.name == this } ?: AppScreen.Home
 }

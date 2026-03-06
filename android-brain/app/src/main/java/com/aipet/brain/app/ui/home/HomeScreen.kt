@@ -9,7 +9,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -22,13 +26,20 @@ fun HomeScreen(
     latestEvent: EventEnvelope?,
     onNavigateToDebug: () -> Unit
 ) {
-    val avatarHomeState = remember { AvatarHomeState() }
+    var selectedEmotionName by rememberSaveable { mutableStateOf(AvatarEmotion.NEUTRAL.name) }
+    val avatarHomeState = remember {
+        AvatarHomeState()
+    }
+
+    LaunchedEffect(selectedEmotionName, avatarHomeState) {
+        avatarHomeState.setEmotion(selectedEmotionName.toAvatarEmotion())
+    }
 
     LaunchedEffect(avatarHomeState) {
         avatarHomeState.runBlinkLoop()
     }
 
-    LaunchedEffect(avatarHomeState, "idle") {
+    LaunchedEffect(avatarHomeState, "idle_loop") {
         avatarHomeState.runIdleLoop()
     }
 
@@ -53,16 +64,16 @@ fun HomeScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.padding(bottom = 24.dp)
         ) {
-            Button(onClick = { avatarHomeState.setEmotion(AvatarEmotion.NEUTRAL) }) {
+            Button(onClick = { selectedEmotionName = AvatarEmotion.NEUTRAL.name }) {
                 Text(text = "Neutral")
             }
-            Button(onClick = { avatarHomeState.setEmotion(AvatarEmotion.HAPPY) }) {
+            Button(onClick = { selectedEmotionName = AvatarEmotion.HAPPY.name }) {
                 Text(text = "Happy")
             }
-            Button(onClick = { avatarHomeState.setEmotion(AvatarEmotion.CURIOUS) }) {
+            Button(onClick = { selectedEmotionName = AvatarEmotion.CURIOUS.name }) {
                 Text(text = "Curious")
             }
-            Button(onClick = { avatarHomeState.setEmotion(AvatarEmotion.SLEEPY) }) {
+            Button(onClick = { selectedEmotionName = AvatarEmotion.SLEEPY.name }) {
                 Text(text = "Sleepy")
             }
         }
@@ -71,4 +82,8 @@ fun HomeScreen(
             Text(text = "Go to Debug")
         }
     }
+}
+
+private fun String.toAvatarEmotion(): AvatarEmotion {
+    return AvatarEmotion.entries.firstOrNull { it.name == this } ?: AvatarEmotion.NEUTRAL
 }

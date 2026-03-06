@@ -5,18 +5,18 @@ plugins {
 
 android {
     namespace = "com.aipet.brain.perception"
-    compileSdk = 34
+    compileSdk = property("android.compileSdk").toString().toInt()
 
     defaultConfig {
-        minSdk = 26
+        minSdk = property("android.minSdk").toString().toInt()
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_17
-        targetCompatibility = JavaVersion.VERSION_17
+        sourceCompatibility = JavaVersion.toVersion(property("android.jvmTarget").toString())
+        targetCompatibility = JavaVersion.toVersion(property("android.jvmTarget").toString())
     }
     kotlinOptions {
-        jvmTarget = "17"
+        jvmTarget = property("android.jvmTarget").toString()
     }
 }
 
