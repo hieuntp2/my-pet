@@ -17,6 +17,9 @@ fun DebugScreen(
     latestEvent: EventEnvelope?,
     onNavigateToHome: () -> Unit,
     onNavigateToEventViewer: () -> Unit,
+    onNavigateToObservationViewer: () -> Unit,
+    onNavigateToProfileAssociations: () -> Unit,
+    onNavigateToPersons: () -> Unit,
     onNavigateToCamera: () -> Unit,
     onEmitTestEvent: () -> Unit
 ) {
@@ -52,10 +55,31 @@ fun DebugScreen(
         }
 
         Button(
+            onClick = onNavigateToObservationViewer,
+            modifier = Modifier.padding(bottom = 12.dp)
+        ) {
+            Text(text = "Open Observations")
+        }
+
+        Button(
+            onClick = onNavigateToProfileAssociations,
+            modifier = Modifier.padding(bottom = 12.dp)
+        ) {
+            Text(text = "Open Profile Associations")
+        }
+
+        Button(
             onClick = onNavigateToCamera,
             modifier = Modifier.padding(bottom = 12.dp)
         ) {
             Text(text = "Open Camera")
+        }
+
+        Button(
+            onClick = onNavigateToPersons,
+            modifier = Modifier.padding(bottom = 12.dp)
+        ) {
+            Text(text = "Open Persons")
         }
 
         Button(onClick = onNavigateToHome) {

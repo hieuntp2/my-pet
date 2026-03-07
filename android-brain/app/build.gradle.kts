@@ -4,6 +4,7 @@ val composeBomVersion = property("dep.composeBom").toString()
 val roomVersion = property("dep.room").toString()
 val cameraXVersion = property("dep.cameraX").toString()
 val junitVersion = property("dep.junit4").toString()
+val coroutinesTestVersion = property("dep.coroutinesTest").toString()
 
 plugins {
     id("com.android.application")
@@ -74,6 +75,7 @@ dependencies {
     implementation("androidx.room:room-runtime:$roomVersion")
 
     testImplementation("junit:junit:$junitVersion")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:$coroutinesTestVersion")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

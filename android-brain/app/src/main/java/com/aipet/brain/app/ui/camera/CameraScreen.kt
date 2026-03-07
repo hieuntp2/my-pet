@@ -30,6 +30,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -46,22 +47,35 @@ import com.aipet.brain.perception.camera.FrameAnalyzer
 import com.aipet.brain.perception.camera.FrameDiagnostics
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import kotlinx.coroutines.launch
 
 @Composable
 fun CameraScreen(
     hasRequestedPermission: Boolean,
     onPermissionRequestTracked: () -> Unit,
     onFrameDiagnostics: (FrameDiagnostics) -> Unit,
+    onRecordPersonLikeObservation: suspend (String?) -> Result<Unit>,
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val onFrameDiagnosticsState = rememberUpdatedState(onFrameDiagnostics)
     var permissionState by remember(context, hasRequestedPermission) {
         mutableStateOf(resolveCameraPermissionState(context, hasRequestedPermission))
     }
+    var latestDiagnostics by remember { mutableStateOf<FrameDiagnostics?>(null) }
+    var recordingObservation by remember { mutableStateOf(false) }
+    var observationMessage by remember { mutableStateOf<String?>(null) }
+    val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(context, hasRequestedPermission) {
         permissionState = resolveCameraPermissionState(context, hasRequestedPermission)
+    }
+
+    LaunchedEffect(permissionState) {
+        if (permissionState != CameraPermissionUiState.Granted) {
+            latestDiagnostics = null
+        }
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -73,6 +87,12 @@ fun CameraScreen(
     val requestPermission = {
         onPermissionRequestTracked()
         permissionLauncher.launch(Manifest.permission.CAMERA)
+    }
+    val handleFrameDiagnostics = remember {
+        { diagnostics: FrameDiagnostics ->
+            latestDiagnostics = diagnostics
+            onFrameDiagnosticsState.value(diagnostics)
+        }
     }
 
     DisposableEffect(lifecycleOwner, context, hasRequestedPermission) {
@@ -145,13 +165,57 @@ fun CameraScreen(
                     text = "Live preview is running.",
                     modifier = Modifier.padding(top = 4.dp)
                 )
-                CameraPreview(
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .padding(vertical = 8.dp),
-                    onFrameDiagnostics = onFrameDiagnostics
-                )
+                        .padding(vertical = 8.dp)
+                ) {
+                    CameraPreview(
+                        modifier = Modifier.fillMaxSize(),
+                        onFrameDiagnostics = handleFrameDiagnostics
+                    )
+                    CameraDiagnosticsOverlay(
+                        diagnostics = latestDiagnostics,
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                        .padding(12.dp)
+                    )
+                }
+
+                Button(
+                    onClick = {
+                        if (recordingObservation) {
+                            return@Button
+                        }
+                        recordingObservation = true
+                        observationMessage = "Recording person-like observation..."
+                        val note = latestDiagnostics?.let { diagnostics ->
+                            "frame=${diagnostics.width}x${diagnostics.height}, " +
+                                "processingMs=${diagnostics.processingDurationMs}"
+                        } ?: "camera_preview_active"
+                        coroutineScope.launch {
+                            val recordResult = onRecordPersonLikeObservation(note)
+                            observationMessage = recordResult.fold(
+                                onSuccess = { "Person-like observation recorded." },
+                                onFailure = { error ->
+                                    "Observation record failed: ${error.message ?: "Unknown error"}"
+                                }
+                            )
+                            recordingObservation = false
+                        }
+                    },
+                    modifier = Modifier.padding(top = 8.dp)
+                ) {
+                    Text(text = if (recordingObservation) "Recording..." else "Record Person-like Observation")
+                }
+
+                if (observationMessage != null) {
+                    Text(
+                        text = observationMessage.orEmpty(),
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
             }
         }
 

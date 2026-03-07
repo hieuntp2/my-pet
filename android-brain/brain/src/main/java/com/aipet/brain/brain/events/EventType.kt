@@ -4,6 +4,7 @@ enum class EventType {
     APP_STARTED,
     TEST_EVENT,
     CAMERA_FRAME_RECEIVED,
+    PERCEPTION_OBSERVATION_RECORDED,
     UNKNOWN;
 
     companion object {
