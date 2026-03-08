@@ -18,8 +18,22 @@ interface PersonDao {
     @Query("SELECT * FROM persons WHERE person_id = :personId LIMIT 1")
     suspend fun getById(personId: String): PersonEntity?
 
-    @Query("SELECT * FROM persons ORDER BY updated_at_ms DESC, person_id ASC")
+    @Query(
+        """
+        SELECT * FROM persons
+        ORDER BY familiarity_score DESC, updated_at_ms DESC, person_id ASC
+        """
+    )
     suspend fun listAll(): List<PersonEntity>
+
+    @Query(
+        """
+        SELECT * FROM persons
+        ORDER BY familiarity_score DESC, updated_at_ms DESC, person_id ASC
+        LIMIT :limit
+        """
+    )
+    suspend fun listTopByFamiliarity(limit: Int): List<PersonEntity>
 
     @Query("SELECT * FROM persons WHERE is_owner = 1 ORDER BY updated_at_ms DESC LIMIT 1")
     suspend fun getOwner(): PersonEntity?
@@ -46,6 +60,21 @@ interface PersonDao {
     suspend fun incrementSeenCount(
         personId: String,
         seenAtMs: Long,
+        updatedAtMs: Long
+    ): Int
+
+    @Query(
+        """
+        UPDATE persons
+        SET
+            familiarity_score = MIN(1.0, MAX(0.0, familiarity_score + :delta)),
+            updated_at_ms = :updatedAtMs
+        WHERE person_id = :personId
+        """
+    )
+    suspend fun incrementFamiliarity(
+        personId: String,
+        delta: Float,
         updatedAtMs: Long
     ): Int
 

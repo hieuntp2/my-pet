@@ -28,24 +28,26 @@ class RoomPersonStoreTest {
     }
 
     @Test
-    fun listAll_returnsPersonsOrderedByUpdatedAtDesc() = runTest {
+    fun listAll_returnsPersonsOrderedByFamiliarityDesc() = runTest {
         val store = RoomPersonStore(FakePersonDao())
-        val older = testPerson(
-            personId = "person-older",
-            displayName = "Older",
-            updatedAtMs = 1_000L
+        val lowerFamiliarity = testPerson(
+            personId = "person-lower",
+            displayName = "Lower",
+            updatedAtMs = 2_000L,
+            familiarityScore = 0.3f
         )
-        val newer = testPerson(
-            personId = "person-newer",
-            displayName = "Newer",
-            updatedAtMs = 2_000L
+        val higherFamiliarity = testPerson(
+            personId = "person-higher",
+            displayName = "Higher",
+            updatedAtMs = 1_000L,
+            familiarityScore = 0.8f
         )
 
-        store.insert(older)
-        store.insert(newer)
+        store.insert(lowerFamiliarity)
+        store.insert(higherFamiliarity)
         val allPersons = store.listAll()
 
-        assertEquals(listOf("person-newer", "person-older"), allPersons.map { it.personId })
+        assertEquals(listOf("person-higher", "person-lower"), allPersons.map { it.personId })
     }
 
     @Test
@@ -150,6 +152,27 @@ class RoomPersonStoreTest {
 
         assertEquals(null, updated)
     }
+
+    @Test
+    fun increaseFamiliarity_updatesScoreAndClampsToOne() = runTest {
+        val store = RoomPersonStore(FakePersonDao())
+        val person = testPerson(
+            personId = "person-1",
+            displayName = "Alex",
+            familiarityScore = 0.98f
+        )
+        store.insert(person)
+
+        val updated = store.increaseFamiliarity(
+            personId = person.personId,
+            delta = 0.1f,
+            updatedAtMs = 9_000L
+        )
+
+        assertNotNull(updated)
+        assertEquals(1.0f, updated?.familiarityScore)
+        assertEquals(9_000L, updated?.updatedAtMs)
+    }
 }
 
 private class FakePersonDao : PersonDao {
@@ -176,9 +199,14 @@ private class FakePersonDao : PersonDao {
 
     override suspend fun listAll(): List<PersonEntity> {
         return personsById.values.sortedWith(
-            compareByDescending<PersonEntity> { it.updatedAtMs }
+            compareByDescending<PersonEntity> { it.familiarityScore }
+                .thenByDescending { it.updatedAtMs }
                 .thenBy { it.personId }
         )
+    }
+
+    override suspend fun listTopByFamiliarity(limit: Int): List<PersonEntity> {
+        return listAll().take(limit.coerceAtLeast(0))
     }
 
     override suspend fun getOwner(): PersonEntity? {
@@ -229,6 +257,19 @@ private class FakePersonDao : PersonDao {
         )
         return 1
     }
+
+    override suspend fun incrementFamiliarity(
+        personId: String,
+        delta: Float,
+        updatedAtMs: Long
+    ): Int {
+        val existing = personsById[personId] ?: return 0
+        personsById[personId] = existing.copy(
+            familiarityScore = (existing.familiarityScore + delta).coerceIn(0f, 1f),
+            updatedAtMs = updatedAtMs
+        )
+        return 1
+    }
 }
 
 private fun testPerson(
@@ -239,7 +280,8 @@ private fun testPerson(
     createdAtMs: Long = 1_000L,
     updatedAtMs: Long = 1_000L,
     lastSeenAtMs: Long? = null,
-    seenCount: Int = 0
+    seenCount: Int = 0,
+    familiarityScore: Float = 0f
 ): PersonRecord {
     return PersonRecord(
         personId = personId,
@@ -249,6 +291,7 @@ private fun testPerson(
         createdAtMs = createdAtMs,
         updatedAtMs = updatedAtMs,
         lastSeenAtMs = lastSeenAtMs,
-        seenCount = seenCount
+        seenCount = seenCount,
+        familiarityScore = familiarityScore
     )
 }

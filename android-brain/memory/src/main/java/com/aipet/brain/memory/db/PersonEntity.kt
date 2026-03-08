@@ -29,5 +29,7 @@ data class PersonEntity(
     @ColumnInfo(name = "last_seen_at_ms")
     val lastSeenAtMs: Long?,
     @ColumnInfo(name = "seen_count")
-    val seenCount: Int
+    val seenCount: Int,
+    @ColumnInfo(name = "familiarity_score")
+    val familiarityScore: Float = 0f
 )

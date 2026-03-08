@@ -1,5 +1,6 @@
 val coroutinesVersion = property("dep.coroutines").toString()
 val junitVersion = property("dep.junit4").toString()
+val coroutinesTestVersion = property("dep.coroutinesTest").toString()
 
 plugins {
     id("com.android.library")
@@ -27,4 +28,5 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutinesVersion")
 
     testImplementation("junit:junit:$junitVersion")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:$coroutinesTestVersion")
 }

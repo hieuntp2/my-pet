@@ -213,6 +213,7 @@ private fun PersonListItem(
             Text(text = "Nickname: ${person.nickname ?: "-"}")
             Text(text = "Owner: ${if (person.isOwner) "Yes" else "No"}")
             Text(text = "Seen count: ${person.seenCount}")
+            Text(text = "Familiarity: ${person.familiarityScore.toDisplayPercent()}")
             Text(text = "Last seen: ${person.lastSeenAtMs.toLastSeenText(formatter)}")
             Text(text = "Id: ${person.personId}")
             Row(
@@ -244,4 +245,8 @@ private fun Long?.toLastSeenText(
     } else {
         formatter.format(Instant.ofEpochMilli(this))
     }
+}
+
+private fun Float.toDisplayPercent(): String {
+    return "${(coerceIn(0f, 1f) * 100f).toInt()}%"
 }

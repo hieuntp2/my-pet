@@ -13,7 +13,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.room.Room
-import com.aipet.brain.app.behavior.BehaviorStateMachine
 import com.aipet.brain.app.reactions.OwnerSeenReactionEngine
 import com.aipet.brain.app.reactions.PersonSeenEventPublisher
 import com.aipet.brain.app.ui.camera.CameraScreen
@@ -30,14 +29,23 @@ import com.aipet.brain.app.ui.persons.TeachSampleImageStorage
 import com.aipet.brain.app.ui.persons.TeachPersonScreen
 import com.aipet.brain.app.ui.profiles.ProfileAssociationsScreen
 import com.aipet.brain.app.ui.settings.SettingsScreen
+import com.aipet.brain.app.ui.traits.TraitsScreen
 import com.aipet.brain.app.settings.CameraSelection
 import com.aipet.brain.app.settings.CameraSelectionStore
 import com.aipet.brain.brain.events.CameraFrameReceivedPayload
 import com.aipet.brain.brain.events.EventEnvelope
 import com.aipet.brain.brain.events.EventType
 import com.aipet.brain.brain.events.InMemoryEventBus
+import com.aipet.brain.brain.events.UserInteractedPetEventPayload
+import com.aipet.brain.brain.memory.WorkingMemoryStore
+import com.aipet.brain.brain.memory.WorkingMemoryUpdater
 import com.aipet.brain.brain.observations.ObservationRecorder
 import com.aipet.brain.brain.observations.ObservationSource
+import com.aipet.brain.brain.relationship.FamiliarityEngine
+import com.aipet.brain.brain.relationship.FamiliarityStore
+import com.aipet.brain.brain.state.BrainInteractionLoop
+import com.aipet.brain.brain.state.BrainStateStore
+import com.aipet.brain.brain.traits.TraitsEngine
 import com.aipet.brain.memory.db.AppDatabase
 import com.aipet.brain.memory.events.EventStore
 import com.aipet.brain.memory.events.RoomEventStore
@@ -49,6 +57,7 @@ import com.aipet.brain.memory.teachsessioncompletion.RoomTeachSessionCompletionS
 import com.aipet.brain.memory.teachsessioncompletion.TeachSessionCompletionStore
 import com.aipet.brain.memory.teachsamples.RoomTeachSampleStore
 import com.aipet.brain.memory.teachsamples.TeachSampleStore
+import com.aipet.brain.memory.traits.RoomTraitsSnapshotRepository
 import com.aipet.brain.perception.camera.FrameDiagnostics
 import java.util.UUID
 import kotlinx.coroutines.launch
@@ -62,6 +71,7 @@ private enum class AppScreen {
     ProfileAssociations,
     Camera,
     Persons,
+    Traits,
     TeachPerson,
     PersonEditor
 }
@@ -89,7 +99,9 @@ fun PetBrainApp() {
                 AppDatabase.MIGRATION_7_8,
                 AppDatabase.MIGRATION_8_9,
                 AppDatabase.MIGRATION_9_10,
-                AppDatabase.MIGRATION_10_11
+                AppDatabase.MIGRATION_10_11,
+                AppDatabase.MIGRATION_11_12,
+                AppDatabase.MIGRATION_12_13
             )
             .fallbackToDestructiveMigrationOnDowngrade()
             .build()
@@ -133,11 +145,17 @@ fun PetBrainApp() {
     val ownerSeenReactionEngine = remember(eventBus) {
         OwnerSeenReactionEngine(eventBus)
     }
-    val behaviorStateMachine = remember {
-        BehaviorStateMachine()
+    val brainStateStore = remember {
+        BrainStateStore()
     }
-    val behaviorStateSnapshot by behaviorStateMachine.observeBehaviorState().collectAsState(
-        initial = behaviorStateMachine.getCurrentBehaviorState()
+    val brainInteractionLoop = remember(eventBus, brainStateStore) {
+        BrainInteractionLoop(
+            eventBus = eventBus,
+            brainStateStore = brainStateStore
+        )
+    }
+    val brainStateSnapshot by brainStateStore.observe().collectAsState(
+        initial = brainStateStore.currentSnapshot()
     )
     val cameraSelectionStore = remember(appContext) {
         CameraSelectionStore.create(appContext)
@@ -148,7 +166,52 @@ fun PetBrainApp() {
     val observationRecorder = remember(eventBus) {
         ObservationRecorder(eventBus)
     }
+    val traitsRepository = remember(database) {
+        RoomTraitsSnapshotRepository(database.traitsSnapshotDao())
+    }
+    val traitsEngine = remember(eventBus, traitsRepository) {
+        TraitsEngine(
+            repository = traitsRepository,
+            eventBus = eventBus
+        )
+    }
+    val familiarityStore = remember(personStore) {
+        object : FamiliarityStore {
+            override suspend fun increaseFamiliarity(
+                personId: String,
+                delta: Float,
+                updatedAtMs: Long
+            ): Boolean {
+                return personStore.increaseFamiliarity(
+                    personId = personId,
+                    delta = delta,
+                    updatedAtMs = updatedAtMs
+                ) != null
+            }
+        }
+    }
+    val familiarityEngine = remember(eventBus, familiarityStore) {
+        FamiliarityEngine(
+            eventBus = eventBus,
+            familiarityStore = familiarityStore
+        )
+    }
+    val workingMemoryStore = remember {
+        WorkingMemoryStore()
+    }
+    val workingMemoryUpdater = remember(eventBus, workingMemoryStore) {
+        WorkingMemoryUpdater(
+            eventBus = eventBus,
+            workingMemoryStore = workingMemoryStore
+        )
+    }
+    val currentWorkingMemory by workingMemoryStore.observe().collectAsState(
+        initial = workingMemoryStore.currentSnapshot()
+    )
+    val recentInteractions by eventStore.observeLatest(limit = 5).collectAsState(initial = emptyList())
+    val currentTraits by traitsEngine.observeTraits().collectAsState(initial = null)
     val coroutineScope = rememberCoroutineScope()
+    var topPersons by remember { mutableStateOf(emptyList<com.aipet.brain.memory.persons.PersonRecord>()) }
 
     LaunchedEffect(eventBus) {
         eventBus.observe().collect { event ->
@@ -165,19 +228,61 @@ fun PetBrainApp() {
         ownerSeenReactionEngine.observePersonSeenUpdates()
     }
 
-    LaunchedEffect(eventBus, behaviorStateMachine) {
-        behaviorStateMachine.observeEventsAndApplyTransitions(eventBus)
+    LaunchedEffect(brainInteractionLoop) {
+        brainInteractionLoop.observeEventsAndApplyTransitions()
+    }
+
+    LaunchedEffect(brainInteractionLoop, "inactivity_loop") {
+        brainInteractionLoop.runInactivityMonitor()
+    }
+
+    LaunchedEffect(traitsEngine) {
+        traitsEngine.initializeIfNeeded()
+    }
+
+    LaunchedEffect(traitsEngine, "traits_rules") {
+        traitsEngine.observeEventsAndApplyRules()
+    }
+
+    LaunchedEffect(familiarityEngine) {
+        familiarityEngine.observeEventsAndApplyRules()
+    }
+
+    LaunchedEffect(workingMemoryUpdater) {
+        workingMemoryUpdater.observeEventsAndUpdateMemory()
     }
 
     LaunchedEffect(eventBus, "app_started") {
         eventBus.publish(EventEnvelope.create(type = EventType.APP_STARTED))
     }
 
+    LaunchedEffect(personStore, latestEvent?.eventId) {
+        topPersons = personStore.listTopByFamiliarity(limit = 5)
+    }
+
     MaterialTheme {
         Surface {
             when (currentScreen) {
                 AppScreen.Home -> HomeScreen(
+                    currentBrainState = brainStateSnapshot.currentState,
                     latestEvent = latestEvent,
+                    recentInteractions = recentInteractions,
+                    topPersons = topPersons,
+                    onPetInteraction = {
+                        coroutineScope.launch {
+                            val timestampMs = System.currentTimeMillis()
+                            eventBus.publish(
+                                EventEnvelope.create(
+                                    type = EventType.USER_INTERACTED_PET,
+                                    payloadJson = UserInteractedPetEventPayload(
+                                        interactedAtMs = timestampMs,
+                                        source = "home_pet_button"
+                                    ).toJson(),
+                                    timestampMs = timestampMs
+                                )
+                            )
+                        }
+                    },
                     onNavigateToDebug = { currentScreenName = AppScreen.Debug.name },
                     onNavigateToCamera = { currentScreenName = AppScreen.Camera.name }
                 )
@@ -186,17 +291,26 @@ fun PetBrainApp() {
                     latestEvent = latestEvent,
                     latestOwnerSeenEvent = latestOwnerSeenEvent,
                     latestOwnerGreetingEvent = latestOwnerGreetingEvent,
-                    currentBehaviorState = behaviorStateSnapshot.currentState.name,
-                    lastBehaviorTransition = behaviorStateSnapshot.lastTransition?.let { transition ->
-                        "${transition.fromState.name} -> ${transition.toState.name} (${transition.reason.name})"
-                    } ?: "None",
+                    currentBrainState = brainStateSnapshot.currentState.name,
+                    currentWorkingMemory = currentWorkingMemory,
                     onNavigateToHome = { currentScreenName = AppScreen.Home.name },
                     onNavigateToSettings = { currentScreenName = AppScreen.Settings.name },
                     onNavigateToEventViewer = { currentScreenName = AppScreen.EventViewer.name },
                     onNavigateToObservationViewer = { currentScreenName = AppScreen.ObservationViewer.name },
                     onNavigateToProfileAssociations = { currentScreenName = AppScreen.ProfileAssociations.name },
                     onNavigateToPersons = { currentScreenName = AppScreen.Persons.name },
+                    onNavigateToTraits = { currentScreenName = AppScreen.Traits.name },
                     onNavigateToCamera = { currentScreenName = AppScreen.Camera.name },
+                    onForceSleep = {
+                        coroutineScope.launch {
+                            brainInteractionLoop.forceSleep()
+                        }
+                    },
+                    onForceWake = {
+                        coroutineScope.launch {
+                            brainInteractionLoop.forceWake()
+                        }
+                    },
                     onEmitTestEvent = {
                         coroutineScope.launch {
                             eventBus.publish(
@@ -207,6 +321,11 @@ fun PetBrainApp() {
                             )
                         }
                     }
+                )
+
+                AppScreen.Traits -> TraitsScreen(
+                    currentTraits = currentTraits,
+                    onNavigateBack = { currentScreenName = AppScreen.Debug.name }
                 )
 
                 AppScreen.Settings -> SettingsScreen(

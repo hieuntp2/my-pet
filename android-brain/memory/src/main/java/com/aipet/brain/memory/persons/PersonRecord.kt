@@ -8,5 +8,6 @@ data class PersonRecord(
     val createdAtMs: Long,
     val updatedAtMs: Long,
     val lastSeenAtMs: Long?,
-    val seenCount: Int
+    val seenCount: Int,
+    val familiarityScore: Float = 0f
 )

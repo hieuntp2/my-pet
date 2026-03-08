@@ -13,9 +13,10 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         FaceProfileObservationLinkEntity::class,
         FaceProfileEmbeddingEntity::class,
         TeachSampleEntity::class,
-        TeachSessionCompletionEntity::class
+        TeachSessionCompletionEntity::class,
+        TraitsSnapshotEntity::class
     ],
-    version = 11,
+    version = 13,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -24,6 +25,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun faceProfileDao(): FaceProfileDao
     abstract fun teachSampleDao(): TeachSampleDao
     abstract fun teachSessionCompletionDao(): TeachSessionCompletionDao
+    abstract fun traitsSnapshotDao(): TraitsSnapshotDao
 
     companion object {
         const val DB_NAME: String = "pet_brain.db"
@@ -48,6 +50,7 @@ abstract class AppDatabase : RoomDatabase() {
                         `created_at_ms` INTEGER NOT NULL,
                         `updated_at_ms` INTEGER NOT NULL,
                         `last_seen_at_ms` INTEGER,
+                        `familiarity_score` REAL NOT NULL DEFAULT 0.0,
                         PRIMARY KEY(`person_id`)
                     )
                     """.trimIndent()
@@ -212,6 +215,36 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS `index_teach_session_completion_updated_at_ms` ON `teach_session_completion` (`updated_at_ms`)"
+                )
+            }
+        }
+
+        val MIGRATION_11_12: Migration = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `traits_snapshot` (
+                        `snapshot_id` TEXT NOT NULL,
+                        `captured_at_ms` INTEGER NOT NULL,
+                        `curiosity` REAL NOT NULL,
+                        `sociability` REAL NOT NULL,
+                        `energy` REAL NOT NULL,
+                        `patience` REAL NOT NULL,
+                        `boldness` REAL NOT NULL,
+                        PRIMARY KEY(`snapshot_id`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_traits_snapshot_captured_at_ms` ON `traits_snapshot` (`captured_at_ms`)"
+                )
+            }
+        }
+
+        val MIGRATION_12_13: Migration = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE persons ADD COLUMN familiarity_score REAL NOT NULL DEFAULT 0.0"
                 )
             }
         }

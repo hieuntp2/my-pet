@@ -41,6 +41,15 @@ class RoomPersonStore(
         }
     }
 
+    override suspend fun listTopByFamiliarity(limit: Int): List<PersonRecord> {
+        if (limit <= 0) {
+            return emptyList()
+        }
+        return personDao.listTopByFamiliarity(limit = limit).map { entity ->
+            entity.toRecord()
+        }
+    }
+
     override suspend fun getOwner(): PersonRecord? {
         return personDao.getOwner()?.toRecord()
     }
@@ -75,6 +84,29 @@ class RoomPersonStore(
         return personDao.getById(normalizedPersonId)?.toRecord()
     }
 
+    override suspend fun increaseFamiliarity(
+        personId: String,
+        delta: Float,
+        updatedAtMs: Long
+    ): PersonRecord? {
+        if (!delta.isFinite()) {
+            return null
+        }
+        val normalizedPersonId = personId.trim()
+        if (normalizedPersonId.isBlank()) {
+            return null
+        }
+        val updated = personDao.incrementFamiliarity(
+            personId = normalizedPersonId,
+            delta = delta,
+            updatedAtMs = updatedAtMs
+        ) > 0
+        if (!updated) {
+            return null
+        }
+        return personDao.getById(normalizedPersonId)?.toRecord()
+    }
+
     private fun PersonRecord.toEntity(isOwner: Boolean): PersonEntity {
         return PersonEntity(
             personId = personId,
@@ -84,7 +116,8 @@ class RoomPersonStore(
             createdAtMs = createdAtMs,
             updatedAtMs = updatedAtMs,
             lastSeenAtMs = lastSeenAtMs,
-            seenCount = seenCount
+            seenCount = seenCount,
+            familiarityScore = familiarityScore
         )
     }
 
@@ -97,7 +130,8 @@ class RoomPersonStore(
             createdAtMs = createdAtMs,
             updatedAtMs = updatedAtMs,
             lastSeenAtMs = lastSeenAtMs,
-            seenCount = seenCount
+            seenCount = seenCount,
+            familiarityScore = familiarityScore
         )
     }
 }

@@ -9,31 +9,33 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.aipet.brain.brain.events.EventEnvelope
+import com.aipet.brain.brain.state.BrainState
+import com.aipet.brain.memory.persons.PersonRecord
 import com.aipet.brain.ui.avatar.AvatarFace
-import com.aipet.brain.ui.avatar.model.AvatarEmotion
 
 @Composable
 fun HomeScreen(
+    currentBrainState: BrainState,
     latestEvent: EventEnvelope?,
+    recentInteractions: List<EventEnvelope>,
+    topPersons: List<PersonRecord>,
+    onPetInteraction: () -> Unit,
     onNavigateToDebug: () -> Unit,
     onNavigateToCamera: () -> Unit
 ) {
-    var selectedEmotionName by rememberSaveable { mutableStateOf(AvatarEmotion.NEUTRAL.name) }
     val avatarHomeState = remember {
         AvatarHomeState()
     }
 
-    LaunchedEffect(selectedEmotionName, avatarHomeState) {
-        avatarHomeState.setEmotion(selectedEmotionName.toAvatarEmotion())
+    LaunchedEffect(currentBrainState, avatarHomeState) {
+        avatarHomeState.setEmotion(
+            BrainStateAvatarMapper.toAvatarEmotion(currentBrainState)
+        )
     }
 
     LaunchedEffect(avatarHomeState) {
@@ -61,23 +63,22 @@ fun HomeScreen(
             modifier = Modifier.padding(vertical = 24.dp)
         )
 
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        Button(
+            onClick = onPetInteraction,
             modifier = Modifier.padding(bottom = 24.dp)
         ) {
-            Button(onClick = { selectedEmotionName = AvatarEmotion.NEUTRAL.name }) {
-                Text(text = "Neutral")
-            }
-            Button(onClick = { selectedEmotionName = AvatarEmotion.HAPPY.name }) {
-                Text(text = "Happy")
-            }
-            Button(onClick = { selectedEmotionName = AvatarEmotion.CURIOUS.name }) {
-                Text(text = "Curious")
-            }
-            Button(onClick = { selectedEmotionName = AvatarEmotion.SLEEPY.name }) {
-                Text(text = "Sleepy")
-            }
+            Text(text = "Pet")
         }
+
+        RecentInteractionsCard(
+            interactions = recentInteractions,
+            modifier = Modifier.padding(bottom = 24.dp)
+        )
+
+        TopPersonsCard(
+            persons = topPersons,
+            modifier = Modifier.padding(bottom = 24.dp)
+        )
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(onClick = onNavigateToCamera) {
@@ -88,8 +89,4 @@ fun HomeScreen(
             }
         }
     }
-}
-
-private fun String.toAvatarEmotion(): AvatarEmotion {
-    return AvatarEmotion.entries.firstOrNull { it.name == this } ?: AvatarEmotion.NEUTRAL
 }
