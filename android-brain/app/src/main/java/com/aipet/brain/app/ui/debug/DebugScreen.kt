@@ -31,6 +31,7 @@ fun DebugScreen(
     onNavigateToPersons: () -> Unit,
     onNavigateToTraits: () -> Unit,
     onNavigateToCamera: () -> Unit,
+    onNavigateToAudioDebug: () -> Unit,
     onForceSleep: () -> Unit,
     onForceWake: () -> Unit,
     onEmitTestEvent: () -> Unit
@@ -121,6 +122,10 @@ fun DebugScreen(
         DebugActionButton(
             label = "Open Camera",
             onClick = onNavigateToCamera
+        )
+        DebugActionButton(
+            label = "Open Audio Debug",
+            onClick = onNavigateToAudioDebug
         )
         DebugActionButton(
             label = "Open Settings",

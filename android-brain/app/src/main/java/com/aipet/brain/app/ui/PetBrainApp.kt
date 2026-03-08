@@ -15,6 +15,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.room.Room
 import com.aipet.brain.app.reactions.OwnerSeenReactionEngine
 import com.aipet.brain.app.reactions.PersonSeenEventPublisher
+import com.aipet.brain.app.ui.audio.AudioDebugScreen
 import com.aipet.brain.app.ui.camera.CameraScreen
 import com.aipet.brain.app.ui.debug.DebugScreen
 import com.aipet.brain.app.ui.debug.EventViewerScreen
@@ -65,6 +66,7 @@ import kotlinx.coroutines.launch
 private enum class AppScreen {
     Home,
     Debug,
+    AudioDebug,
     Settings,
     EventViewer,
     ObservationViewer,
@@ -82,6 +84,7 @@ fun PetBrainApp() {
     var currentScreenName by rememberSaveable { mutableStateOf(AppScreen.Home.name) }
     var editingPersonId by rememberSaveable { mutableStateOf<String?>(null) }
     var hasRequestedCameraPermission by rememberSaveable { mutableStateOf(false) }
+    var hasRequestedMicrophonePermission by rememberSaveable { mutableStateOf(false) }
     var teachSessionId by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }
     val currentScreen = currentScreenName.toAppScreen()
     var latestEvent by remember { mutableStateOf<EventEnvelope?>(null) }
@@ -301,6 +304,7 @@ fun PetBrainApp() {
                     onNavigateToPersons = { currentScreenName = AppScreen.Persons.name },
                     onNavigateToTraits = { currentScreenName = AppScreen.Traits.name },
                     onNavigateToCamera = { currentScreenName = AppScreen.Camera.name },
+                    onNavigateToAudioDebug = { currentScreenName = AppScreen.AudioDebug.name },
                     onForceSleep = {
                         coroutineScope.launch {
                             brainInteractionLoop.forceSleep()
@@ -321,6 +325,12 @@ fun PetBrainApp() {
                             )
                         }
                     }
+                )
+
+                AppScreen.AudioDebug -> AudioDebugScreen(
+                    hasRequestedPermission = hasRequestedMicrophonePermission,
+                    onPermissionRequestTracked = { hasRequestedMicrophonePermission = true },
+                    onNavigateBack = { currentScreenName = AppScreen.Debug.name }
                 )
 
                 AppScreen.Traits -> TraitsScreen(
