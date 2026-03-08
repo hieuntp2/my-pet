@@ -1,11 +1,14 @@
 package com.aipet.brain.app.ui.persons
 
+import com.aipet.brain.app.reactions.PersonSeenEventPublisher
+import com.aipet.brain.app.reactions.PersonSeenSource
 import com.aipet.brain.memory.persons.PersonRecord
 import com.aipet.brain.memory.persons.PersonStore
 import java.util.UUID
 
 internal class PersonFlowController(
     private val personStore: PersonStore,
+    private val personSeenEventPublisher: PersonSeenEventPublisher? = null,
     private val nowProvider: () -> Long = { System.currentTimeMillis() },
     private val idProvider: () -> String = { UUID.randomUUID().toString() }
 ) {
@@ -35,6 +38,10 @@ internal class PersonFlowController(
         )
         personStore.insert(personRecord)
         return PersonSaveResult.Success(personRecord.personId)
+    }
+
+    suspend fun saveTaughtPerson(input: PersonEditorInput): PersonSaveResult {
+        return createPerson(input)
     }
 
     suspend fun updatePerson(
@@ -98,6 +105,10 @@ internal class PersonFlowController(
             seenAtMs = nowProvider()
         )
         return if (updated != null) {
+            personSeenEventPublisher?.publishPersonSeen(
+                person = updated,
+                source = PersonSeenSource.DIRECT_PERSON_DEBUG_ACTION
+            )
             PersonSeenRecordResult.Success(updated)
         } else {
             PersonSeenRecordResult.Failure("Unable to record person seen.")

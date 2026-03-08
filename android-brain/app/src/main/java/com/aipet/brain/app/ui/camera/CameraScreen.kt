@@ -43,6 +43,7 @@ import androidx.core.content.ContextCompat
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.aipet.brain.app.settings.CameraSelection
 import com.aipet.brain.perception.camera.FrameAnalyzer
 import com.aipet.brain.perception.camera.FrameDiagnostics
 import java.util.concurrent.ExecutorService
@@ -52,6 +53,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun CameraScreen(
     hasRequestedPermission: Boolean,
+    selectedCamera: CameraSelection,
     onPermissionRequestTracked: () -> Unit,
     onFrameDiagnostics: (FrameDiagnostics) -> Unit,
     onRecordPersonLikeObservation: suspend (String?) -> Result<Unit>,
@@ -165,6 +167,10 @@ fun CameraScreen(
                     text = "Live preview is running.",
                     modifier = Modifier.padding(top = 4.dp)
                 )
+                Text(
+                    text = "Requested camera: ${selectedCamera.displayName}",
+                    modifier = Modifier.padding(top = 4.dp)
+                )
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -173,6 +179,7 @@ fun CameraScreen(
                 ) {
                     CameraPreview(
                         modifier = Modifier.fillMaxSize(),
+                        selectedCamera = selectedCamera,
                         onFrameDiagnostics = handleFrameDiagnostics
                     )
                     CameraDiagnosticsOverlay(
@@ -228,6 +235,7 @@ fun CameraScreen(
 @Composable
 private fun CameraPreview(
     modifier: Modifier = Modifier,
+    selectedCamera: CameraSelection,
     onFrameDiagnostics: (FrameDiagnostics) -> Unit
 ) {
     val context = LocalContext.current
@@ -257,7 +265,14 @@ private fun CameraPreview(
         }
     }
 
-    DisposableEffect(lifecycleOwner, previewView, context, analysisExecutor, frameAnalyzer) {
+    DisposableEffect(
+        lifecycleOwner,
+        previewView,
+        context,
+        analysisExecutor,
+        frameAnalyzer,
+        selectedCamera
+    ) {
         var disposed = false
         val cameraProviderFuture = ProcessCameraProvider.getInstance(context)
         cameraProviderFuture.addListener(
@@ -276,11 +291,22 @@ private fun CameraPreview(
                         .also { useCase ->
                             useCase.setAnalyzer(analysisExecutor, frameAnalyzer)
                         }
+                    val availability = resolveCameraAvailability(provider)
+                    val cameraToUse = CameraSelectionResolver.resolve(
+                        selectedCamera = selectedCamera,
+                        availability = availability
+                    )
+                    if (cameraToUse == null) {
+                        errorMessage = "No usable camera is available on this device."
+                        cameraProvider = provider
+                        imageAnalysis = analysisUseCase
+                        return@addListener
+                    }
 
                     provider.unbindAll()
                     provider.bindToLifecycle(
                         lifecycleOwner,
-                        CameraSelector.DEFAULT_BACK_CAMERA,
+                        cameraToUse.toCameraSelector(),
                         previewUseCase,
                         analysisUseCase
                     )
@@ -371,6 +397,26 @@ private tailrec fun Context.findActivity(): Activity? {
 private fun ExecutorService.shutdownSafely() {
     if (!isShutdown) {
         shutdown()
+    }
+}
+
+private fun resolveCameraAvailability(provider: ProcessCameraProvider): CameraAvailability {
+    val hasFront = runCatching {
+        provider.hasCamera(CameraSelector.DEFAULT_FRONT_CAMERA)
+    }.getOrDefault(false)
+    val hasBack = runCatching {
+        provider.hasCamera(CameraSelector.DEFAULT_BACK_CAMERA)
+    }.getOrDefault(false)
+    return CameraAvailability(
+        hasFrontCamera = hasFront,
+        hasBackCamera = hasBack
+    )
+}
+
+private fun CameraSelection.toCameraSelector(): CameraSelector {
+    return when (this) {
+        CameraSelection.FRONT -> CameraSelector.DEFAULT_FRONT_CAMERA
+        CameraSelection.BACK -> CameraSelector.DEFAULT_BACK_CAMERA
     }
 }
 

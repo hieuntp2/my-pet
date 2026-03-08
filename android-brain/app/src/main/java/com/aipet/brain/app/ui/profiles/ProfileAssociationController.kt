@@ -1,16 +1,20 @@
 package com.aipet.brain.app.ui.profiles
 
+import com.aipet.brain.app.reactions.PersonSeenEventPublisher
+import com.aipet.brain.app.reactions.PersonSeenSource
 import com.aipet.brain.memory.profiles.FaceProfileObservationLinkRecord
 import com.aipet.brain.memory.profiles.FaceProfileEmbeddingRecord
 import com.aipet.brain.memory.profiles.FaceProfileRecord
 import com.aipet.brain.memory.profiles.FaceProfileStore
 import com.aipet.brain.memory.profiles.LinkedProfileSeenPropagationResult
+import com.aipet.brain.memory.profiles.LinkedProfileSeenPropagationStatus
 import com.aipet.brain.memory.persons.PersonRecord
 import com.aipet.brain.memory.persons.PersonStore
 
 internal class ProfileAssociationController(
     private val faceProfileStore: FaceProfileStore,
-    private val personStore: PersonStore
+    private val personStore: PersonStore,
+    private val personSeenEventPublisher: PersonSeenEventPublisher? = null
 ) {
     suspend fun createProfileCandidate(
         label: String?,
@@ -42,6 +46,10 @@ internal class ProfileAssociationController(
 
     suspend fun listProfileObservations(profileId: String): List<FaceProfileObservationLinkRecord> {
         return faceProfileStore.listProfileObservations(profileId)
+    }
+
+    suspend fun listProfilesForObservation(observationId: String): List<FaceProfileRecord> {
+        return faceProfileStore.listProfilesForObservation(observationId)
     }
 
     suspend fun addEmbeddingToProfile(
@@ -92,10 +100,20 @@ internal class ProfileAssociationController(
         observationId: String,
         seenAtMs: Long = System.currentTimeMillis()
     ): LinkedProfileSeenPropagationResult {
-        return faceProfileStore.recordKnownPersonSeenFromLinkedProfile(
+        val result = faceProfileStore.recordKnownPersonSeenFromLinkedProfile(
             profileId = profileId,
             observationId = observationId,
             seenAtMs = seenAtMs
         )
+        val updatedPerson = result.person
+        if (result.status == LinkedProfileSeenPropagationStatus.SUCCESS && updatedPerson != null) {
+            personSeenEventPublisher?.publishPersonSeen(
+                person = updatedPerson,
+                source = PersonSeenSource.LINKED_PROFILE_OBSERVATION_BRIDGE,
+                profileId = result.profileId,
+                observationId = result.observationId
+            )
+        }
+        return result
     }
 }

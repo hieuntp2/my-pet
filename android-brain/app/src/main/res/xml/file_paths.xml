@@ -3,4 +3,7 @@
     <files-path
         name="event_exports"
         path="event-exports/" />
+    <files-path
+        name="teach_samples"
+        path="teach_samples/" />
 </paths>

@@ -3,8 +3,11 @@ val activityComposeVersion = property("dep.activityCompose").toString()
 val composeBomVersion = property("dep.composeBom").toString()
 val roomVersion = property("dep.room").toString()
 val cameraXVersion = property("dep.cameraX").toString()
+val dataStoreVersion = property("dep.dataStore").toString()
 val junitVersion = property("dep.junit4").toString()
 val coroutinesTestVersion = property("dep.coroutinesTest").toString()
+val androidJunitVersion = "1.1.5"
+val espressoVersion = "3.5.1"
 
 plugins {
     id("com.android.application")
@@ -71,11 +74,25 @@ dependencies {
     implementation("androidx.camera:camera-camera2:$cameraXVersion")
     implementation("androidx.camera:camera-lifecycle:$cameraXVersion")
     implementation("androidx.camera:camera-view:$cameraXVersion")
+    implementation("androidx.datastore:datastore-preferences:$dataStoreVersion")
 
     implementation("androidx.room:room-runtime:$roomVersion")
 
     testImplementation("junit:junit:$junitVersion")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:$coroutinesTestVersion")
+    testImplementation("androidx.datastore:datastore-preferences-core:$dataStoreVersion")
+
+    androidTestImplementation(platform("androidx.compose:compose-bom:$composeBomVersion"))
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    androidTestImplementation("androidx.test.ext:junit:$androidJunitVersion")
+    androidTestImplementation("androidx.test.espresso:espresso-core:$espressoVersion")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+}
+
+tasks.register("connectedTeachSessionPersistenceDebugAndroidTest") {
+    group = "verification"
+    description = "Runs connected Android instrumentation validation for teach-session persistence flows (requires a connected emulator/device)."
+    dependsOn("connectedDebugAndroidTest")
 }

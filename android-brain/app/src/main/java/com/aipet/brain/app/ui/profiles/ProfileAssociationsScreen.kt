@@ -23,12 +23,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.aipet.brain.app.reactions.PersonSeenEventPublisher
 import com.aipet.brain.app.ui.debug.ObservationEventMapper
 import com.aipet.brain.memory.events.EventStore
 import com.aipet.brain.memory.profiles.FaceProfileEmbeddingRecord
 import com.aipet.brain.memory.profiles.FaceProfileObservationLinkRecord
 import com.aipet.brain.memory.profiles.FaceProfileRecord
 import com.aipet.brain.memory.profiles.FaceProfileStore
+import com.aipet.brain.memory.profiles.LinkedProfileSeenPropagationResult
 import com.aipet.brain.memory.profiles.LinkedProfileSeenPropagationStatus
 import com.aipet.brain.memory.persons.PersonRecord
 import com.aipet.brain.memory.persons.PersonStore
@@ -42,16 +44,18 @@ private const val PROFILE_OBSERVATION_LIST_LIMIT = 80
 private const val PROFILE_EMBEDDING_LIST_LIMIT = 20
 
 @Composable
-fun ProfileAssociationsScreen(
+internal fun ProfileAssociationsScreen(
     faceProfileStore: FaceProfileStore,
     personStore: PersonStore,
+    personSeenEventPublisher: PersonSeenEventPublisher,
     eventStore: EventStore,
     onNavigateBack: () -> Unit
 ) {
-    val controller = remember(faceProfileStore, personStore) {
+    val controller = remember(faceProfileStore, personStore, personSeenEventPublisher) {
         ProfileAssociationController(
             faceProfileStore = faceProfileStore,
-            personStore = personStore
+            personStore = personStore,
+            personSeenEventPublisher = personSeenEventPublisher
         )
     }
     val coroutineScope = rememberCoroutineScope()
@@ -66,6 +70,7 @@ fun ProfileAssociationsScreen(
     var persons by remember { mutableStateOf<List<PersonRecord>>(emptyList()) }
     var linkedPersonForSelectedProfile by remember { mutableStateOf<PersonRecord?>(null) }
     var linkedProfilesForSelectedPerson by remember { mutableStateOf<List<FaceProfileRecord>>(emptyList()) }
+    var observationProfiles by remember { mutableStateOf<Map<String, List<FaceProfileRecord>>>(emptyMap()) }
     var loadingProfiles by remember { mutableStateOf(true) }
     var actionMessage by remember { mutableStateOf<String?>(null) }
     var embeddingInput by remember { mutableStateOf("0.12, 0.34, 0.56, 0.78") }
@@ -81,6 +86,19 @@ fun ProfileAssociationsScreen(
     val observationById = remember(recentObservations) {
         recentObservations.associateBy { observation -> observation.observationId }
     }
+    val personsById = remember(persons) {
+        persons.associateBy { person -> person.personId }
+    }
+
+    suspend fun refreshObservationProfiles() {
+        if (recentObservations.isEmpty()) {
+            observationProfiles = emptyMap()
+            return
+        }
+        observationProfiles = recentObservations.associate { observation ->
+            observation.observationId to controller.listProfilesForObservation(observation.observationId)
+        }
+    }
 
     suspend fun refreshProfiles() {
         loadingProfiles = true
@@ -94,6 +112,7 @@ fun ProfileAssociationsScreen(
             else -> loadedProfiles.first().profileId
         }
         loadingProfiles = false
+        refreshObservationProfiles()
     }
 
     suspend fun refreshLinks() {
@@ -126,6 +145,30 @@ fun ProfileAssociationsScreen(
         } ?: emptyList()
     }
 
+    suspend fun bridgeMessage(result: LinkedProfileSeenPropagationResult): String {
+        return when (result.status) {
+            LinkedProfileSeenPropagationStatus.SUCCESS -> {
+                refreshPersons()
+                refreshPersonResolutionState()
+                refreshObservationProfiles()
+                val updatedPerson = result.person
+                if (updatedPerson != null) {
+                    "Updated seen state for ${updatedPerson.displayName}: seenCount=${updatedPerson.seenCount}, lastSeenAt=${updatedPerson.lastSeenAtMs}."
+                } else {
+                    "Linked profile observation propagated to known person seen state."
+                }
+            }
+            LinkedProfileSeenPropagationStatus.PROFILE_NOT_FOUND ->
+                "Bridge failed: selected profile was not found."
+            LinkedProfileSeenPropagationStatus.OBSERVATION_NOT_LINKED ->
+                "Bridge skipped: observation is not linked to the selected profile."
+            LinkedProfileSeenPropagationStatus.PROFILE_UNRESOLVED ->
+                "Bridge skipped: selected profile is unresolved and not linked to a known person."
+            LinkedProfileSeenPropagationStatus.PERSON_NOT_FOUND ->
+                "Bridge failed: linked person record was not found."
+        }
+    }
+
     fun parseEmbeddingInput(raw: String): List<Float>? {
         val tokens = raw.split(",")
             .map { token -> token.trim() }
@@ -149,6 +192,10 @@ fun ProfileAssociationsScreen(
         refreshLinks()
         refreshEmbeddings()
         refreshPersonResolutionState()
+    }
+
+    LaunchedEffect(recentObservations) {
+        refreshObservationProfiles()
     }
 
     Column(
@@ -397,6 +444,8 @@ fun ProfileAssociationsScreen(
                 modifier = Modifier.weight(1f, fill = false)
             ) {
                 items(items = recentObservations, key = { observation -> observation.observationId }) { observation ->
+                    val linkedProfilesForObservation = observationProfiles[observation.observationId].orEmpty()
+                    val directlyBridgeableProfile = linkedProfilesForObservation.singleOrNull()
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(12.dp)) {
                             Text(text = "Observation ID: ${observation.observationId}")
@@ -408,6 +457,26 @@ fun ProfileAssociationsScreen(
                                 }"
                             )
                             Text(text = "Note: ${observation.note ?: "-"}")
+                            Text(
+                                text = when (linkedProfilesForObservation.size) {
+                                    0 -> "Linked profiles: none"
+                                    1 -> "Linked profile: ${linkedProfilesForObservation.first().profileId}"
+                                    else -> "Linked profiles: ${linkedProfilesForObservation.joinToString { profile -> profile.profileId }}"
+                                },
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                            linkedProfilesForObservation.forEach { linkedProfile ->
+                                val linkedPerson = linkedProfile.linkedPersonId?.let { personId ->
+                                    personsById[personId]
+                                }
+                                Text(
+                                    text = if (linkedPerson != null) {
+                                        "Profile ${linkedProfile.profileId} resolves to ${linkedPerson.displayName}."
+                                    } else {
+                                        "Profile ${linkedProfile.profileId} is unresolved."
+                                    }
+                                )
+                            }
                             Button(
                                 onClick = {
                                     coroutineScope.launch {
@@ -422,6 +491,7 @@ fun ProfileAssociationsScreen(
                                         )
                                         actionMessage = if (linked) {
                                             refreshLinks()
+                                            refreshObservationProfiles()
                                             "Linked observation ${observation.observationId} to profile $profileId."
                                         } else {
                                             "Link failed. Check selected profile and observation."
@@ -431,6 +501,28 @@ fun ProfileAssociationsScreen(
                                 modifier = Modifier.padding(top = 8.dp)
                             ) {
                                 Text(text = "Link to Selected Profile")
+                            }
+                            if (directlyBridgeableProfile != null) {
+                                Button(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            actionMessage = bridgeMessage(
+                                                controller.recordKnownPersonSeenFromLinkedProfile(
+                                                    profileId = directlyBridgeableProfile.profileId,
+                                                    observationId = observation.observationId
+                                                )
+                                            )
+                                        }
+                                    },
+                                    modifier = Modifier.padding(top = 8.dp)
+                                ) {
+                                    Text(text = "Run Linked Profile Bridge")
+                                }
+                            } else if (linkedProfilesForObservation.size > 1) {
+                                Text(
+                                    text = "Multiple profiles link to this observation. Use explicit profile selection below before propagating.",
+                                    modifier = Modifier.padding(top = 8.dp)
+                                )
                             }
                         }
                     }
@@ -477,26 +569,7 @@ fun ProfileAssociationsScreen(
                                             profileId = profileId,
                                             observationId = link.observationId
                                         )
-                                        actionMessage = when (bridgeResult.status) {
-                                            LinkedProfileSeenPropagationStatus.SUCCESS -> {
-                                                refreshPersons()
-                                                refreshPersonResolutionState()
-                                                val updatedPerson = bridgeResult.person
-                                                if (updatedPerson != null) {
-                                                    "Updated seen state for ${updatedPerson.displayName}: seenCount=${updatedPerson.seenCount}, lastSeenAt=${updatedPerson.lastSeenAtMs}."
-                                                } else {
-                                                    "Linked profile observation propagated to known person seen state."
-                                                }
-                                            }
-                                            LinkedProfileSeenPropagationStatus.PROFILE_NOT_FOUND ->
-                                                "Bridge failed: selected profile was not found."
-                                            LinkedProfileSeenPropagationStatus.OBSERVATION_NOT_LINKED ->
-                                                "Bridge skipped: observation is not linked to the selected profile."
-                                            LinkedProfileSeenPropagationStatus.PROFILE_UNRESOLVED ->
-                                                "Bridge skipped: selected profile is unresolved and not linked to a known person."
-                                            LinkedProfileSeenPropagationStatus.PERSON_NOT_FOUND ->
-                                                "Bridge failed: linked person record was not found."
-                                        }
+                                        actionMessage = bridgeMessage(bridgeResult)
                                     }
                                 },
                                 modifier = Modifier.padding(top = 8.dp)

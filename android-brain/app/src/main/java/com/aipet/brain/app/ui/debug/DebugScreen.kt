@@ -15,7 +15,12 @@ import com.aipet.brain.brain.events.EventEnvelope
 @Composable
 fun DebugScreen(
     latestEvent: EventEnvelope?,
+    latestOwnerSeenEvent: EventEnvelope?,
+    latestOwnerGreetingEvent: EventEnvelope?,
+    currentBehaviorState: String,
+    lastBehaviorTransition: String,
     onNavigateToHome: () -> Unit,
+    onNavigateToSettings: () -> Unit,
     onNavigateToEventViewer: () -> Unit,
     onNavigateToObservationViewer: () -> Unit,
     onNavigateToProfileAssociations: () -> Unit,
@@ -37,6 +42,22 @@ fun DebugScreen(
         )
         Text(
             text = "Latest id: ${latestEvent?.eventId ?: "-"}",
+            modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
+        )
+        Text(
+            text = "Owner detected: ${if (latestOwnerSeenEvent != null) "Yes" else "No"}",
+            modifier = Modifier.padding(top = 4.dp)
+        )
+        Text(
+            text = "Greeting triggered: ${if (latestOwnerGreetingEvent != null) "Yes" else "No"}",
+            modifier = Modifier.padding(top = 4.dp, bottom = 8.dp)
+        )
+        Text(
+            text = "Current behavior state: $currentBehaviorState",
+            modifier = Modifier.padding(top = 4.dp)
+        )
+        Text(
+            text = "Last transition: $lastBehaviorTransition",
             modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
         )
 
@@ -73,6 +94,13 @@ fun DebugScreen(
             modifier = Modifier.padding(bottom = 12.dp)
         ) {
             Text(text = "Open Camera")
+        }
+
+        Button(
+            onClick = onNavigateToSettings,
+            modifier = Modifier.padding(bottom = 12.dp)
+        ) {
+            Text(text = "Open Settings")
         }
 
         Button(

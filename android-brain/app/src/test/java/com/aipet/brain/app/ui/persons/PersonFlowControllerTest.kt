@@ -54,6 +54,31 @@ class PersonFlowControllerTest {
     }
 
     @Test
+    fun createPerson_savedRecordIsReturnedByLoadPersons() = runTest {
+        val fakeStore = FakePersonStore()
+        val controller = PersonFlowController(
+            personStore = fakeStore,
+            nowProvider = { 9_000L },
+            idProvider = { "person-from-teach-flow" }
+        )
+
+        val saveResult = controller.createPerson(
+            PersonEditorInput(
+                displayName = "Robin",
+                nickname = ""
+            )
+        )
+        val persons = controller.loadPersons()
+
+        assertEquals(PersonSaveResult.Success("person-from-teach-flow"), saveResult)
+        assertEquals(1, persons.size)
+        assertEquals("person-from-teach-flow", persons.single().personId)
+        assertEquals("Robin", persons.single().displayName)
+        assertEquals(9_000L, persons.single().createdAtMs)
+        assertEquals(9_000L, persons.single().updatedAtMs)
+    }
+
+    @Test
     fun updatePerson_updatesBasicFields() = runTest {
         val fakeStore = FakePersonStore()
         val existing = testPerson(

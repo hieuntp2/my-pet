@@ -7,7 +7,7 @@ import com.aipet.brain.brain.events.EventType
 class ObservationRecorder(
     private val eventBus: EventBus
 ) {
-    suspend fun recordObservation(observation: PerceptionObservation) {
+    suspend fun recordObservation(observation: PerceptionObservation): PerceptionObservation {
         eventBus.publish(
             EventEnvelope.create(
                 type = EventType.PERCEPTION_OBSERVATION_RECORDED,
@@ -15,14 +15,15 @@ class ObservationRecorder(
                 timestampMs = observation.observedAtMs
             )
         )
+        return observation
     }
 
     suspend fun recordPersonLikeObservation(
         source: ObservationSource,
         note: String? = null,
         observedAtMs: Long = System.currentTimeMillis()
-    ) {
-        recordObservation(
+    ): PerceptionObservation {
+        return recordObservation(
             PerceptionObservation.create(
                 source = source,
                 observationType = ObservationType.PERSON_LIKE,

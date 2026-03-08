@@ -65,6 +65,18 @@ interface FaceProfileDao {
 
     @Query(
         """
+        SELECT face_profiles.*
+        FROM face_profiles
+        INNER JOIN face_profile_observation_links
+            ON face_profile_observation_links.profile_id = face_profiles.profile_id
+        WHERE face_profile_observation_links.observation_id = :observationId
+        ORDER BY face_profiles.updated_at_ms DESC, face_profiles.profile_id ASC
+        """
+    )
+    suspend fun listProfilesForObservation(observationId: String): List<FaceProfileEntity>
+
+    @Query(
+        """
         SELECT EXISTS(
             SELECT 1
             FROM face_profile_observation_links

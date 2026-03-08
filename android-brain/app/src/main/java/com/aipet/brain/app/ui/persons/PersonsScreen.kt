@@ -20,7 +20,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.aipet.brain.app.reactions.PersonSeenEventPublisher
 import com.aipet.brain.memory.persons.PersonRecord
 import com.aipet.brain.memory.persons.PersonStore
 import java.time.Instant
@@ -29,13 +31,20 @@ import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.launch
 
 @Composable
-fun PersonsScreen(
+internal fun PersonsScreen(
     personStore: PersonStore,
+    personSeenEventPublisher: PersonSeenEventPublisher,
     onNavigateBack: () -> Unit,
+    onNavigateToTeachPerson: () -> Unit,
     onNavigateToCreatePerson: () -> Unit,
     onNavigateToEditPerson: (String) -> Unit
 ) {
-    val controller = remember(personStore) { PersonFlowController(personStore) }
+    val controller = remember(personStore, personSeenEventPublisher) {
+        PersonFlowController(
+            personStore = personStore,
+            personSeenEventPublisher = personSeenEventPublisher
+        )
+    }
     val coroutineScope = rememberCoroutineScope()
     var persons by remember { mutableStateOf<List<PersonRecord>>(emptyList()) }
     var owner by remember { mutableStateOf<PersonRecord?>(null) }
@@ -68,6 +77,7 @@ fun PersonsScreen(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
+            .testTag(PersonsTestTags.PERSONS_SCREEN_ROOT)
     ) {
         Text(text = "Persons")
         Text(
@@ -83,6 +93,12 @@ fun PersonsScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.padding(bottom = 12.dp)
         ) {
+            Button(
+                onClick = onNavigateToTeachPerson,
+                modifier = Modifier.testTag(PersonsTestTags.PERSONS_TEACH_BUTTON)
+            ) {
+                Text(text = "Teach Person")
+            }
             Button(onClick = onNavigateToCreatePerson) {
                 Text(text = "Create Person")
             }
@@ -96,9 +112,10 @@ fun PersonsScreen(
             ) {
                 Text(text = "Refresh")
             }
-            Button(onClick = onNavigateBack) {
-                Text(text = "Back to Debug")
-            }
+        }
+
+        Button(onClick = onNavigateBack, modifier = Modifier.padding(bottom = 12.dp)) {
+            Text(text = "Back to Debug")
         }
 
         if (owner != null) {
@@ -142,7 +159,8 @@ fun PersonsScreen(
 
         LazyColumn(
             verticalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(bottom = 16.dp)
+            contentPadding = PaddingValues(bottom = 16.dp),
+            modifier = Modifier.testTag(PersonsTestTags.PERSONS_LIST_ROOT)
         ) {
             items(items = persons, key = { person -> person.personId }) { person ->
                 PersonListItem(
@@ -185,7 +203,11 @@ private fun PersonListItem(
     onRecordSeenClick: () -> Unit,
     onAssignOwnerClick: () -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(PersonsTestTags.PERSONS_LIST_ROW)
+    ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Text(text = "Name: ${person.displayName}")
             Text(text = "Nickname: ${person.nickname ?: "-"}")

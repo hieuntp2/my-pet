@@ -19,6 +19,8 @@ interface FaceProfileStore {
 
     suspend fun listProfileObservations(profileId: String): List<FaceProfileObservationLinkRecord>
 
+    suspend fun listProfilesForObservation(observationId: String): List<FaceProfileRecord>
+
     suspend fun addEmbeddingToProfile(
         profileId: String,
         values: List<Float>,

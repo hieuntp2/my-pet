@@ -11,15 +11,19 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         PersonEntity::class,
         FaceProfileEntity::class,
         FaceProfileObservationLinkEntity::class,
-        FaceProfileEmbeddingEntity::class
+        FaceProfileEmbeddingEntity::class,
+        TeachSampleEntity::class,
+        TeachSessionCompletionEntity::class
     ],
-    version = 7,
+    version = 11,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun eventDao(): EventDao
     abstract fun personDao(): PersonDao
     abstract fun faceProfileDao(): FaceProfileDao
+    abstract fun teachSampleDao(): TeachSampleDao
+    abstract fun teachSessionCompletionDao(): TeachSessionCompletionDao
 
     companion object {
         const val DB_NAME: String = "pet_brain.db"
@@ -135,6 +139,79 @@ abstract class AppDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
                     "ALTER TABLE persons ADD COLUMN seen_count INTEGER NOT NULL DEFAULT 0"
+                )
+            }
+        }
+
+        val MIGRATION_7_8: Migration = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `teach_samples` (
+                        `sample_id` TEXT NOT NULL,
+                        `session_id` TEXT NOT NULL,
+                        `observation_id` TEXT NOT NULL,
+                        `observed_at_ms` INTEGER NOT NULL,
+                        `source` TEXT NOT NULL,
+                        `note` TEXT,
+                        `image_uri` TEXT NOT NULL,
+                        `created_at_ms` INTEGER NOT NULL,
+                        PRIMARY KEY(`sample_id`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_teach_samples_session_id` ON `teach_samples` (`session_id`)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_teach_samples_created_at_ms` ON `teach_samples` (`created_at_ms`)"
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_teach_samples_observation_id` ON `teach_samples` (`observation_id`)"
+                )
+            }
+        }
+
+        val MIGRATION_8_9: Migration = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE teach_samples ADD COLUMN quality_status TEXT NOT NULL DEFAULT 'UNASSESSED'"
+                )
+                db.execSQL(
+                    "ALTER TABLE teach_samples ADD COLUMN quality_flags TEXT NOT NULL DEFAULT ''"
+                )
+                db.execSQL(
+                    "ALTER TABLE teach_samples ADD COLUMN quality_note TEXT"
+                )
+                db.execSQL(
+                    "ALTER TABLE teach_samples ADD COLUMN quality_evaluated_at_ms INTEGER"
+                )
+            }
+        }
+
+        val MIGRATION_9_10: Migration = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE teach_samples ADD COLUMN face_crop_uri TEXT"
+                )
+            }
+        }
+
+        val MIGRATION_10_11: Migration = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `teach_session_completion` (
+                        `teach_session_id` TEXT NOT NULL,
+                        `is_completed_confirmed` INTEGER NOT NULL,
+                        `confirmed_at_ms` INTEGER,
+                        `updated_at_ms` INTEGER NOT NULL,
+                        PRIMARY KEY(`teach_session_id`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_teach_session_completion_updated_at_ms` ON `teach_session_completion` (`updated_at_ms`)"
                 )
             }
         }

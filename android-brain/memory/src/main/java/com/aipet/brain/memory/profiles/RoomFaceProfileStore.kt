@@ -66,6 +66,16 @@ class RoomFaceProfileStore(
         }
     }
 
+    override suspend fun listProfilesForObservation(observationId: String): List<FaceProfileRecord> {
+        val normalizedObservationId = observationId.trim()
+        if (normalizedObservationId.isBlank()) {
+            return emptyList()
+        }
+        return faceProfileDao.listProfilesForObservation(normalizedObservationId).map { entity ->
+            entity.toRecord()
+        }
+    }
+
     override suspend fun addEmbeddingToProfile(
         profileId: String,
         values: List<Float>,

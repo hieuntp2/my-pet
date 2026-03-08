@@ -80,6 +80,26 @@ class RoomFaceProfileStoreTest {
     }
 
     @Test
+    fun listProfilesForObservation_returnsProfilesLinkedToObservation() = runTest {
+        val idValues = mutableListOf("profile-1", "profile-2")
+        val nowValues = mutableListOf(3_000L, 4_000L, 5_000L, 6_000L)
+        val store = RoomFaceProfileStore(
+            faceProfileDao = FakeFaceProfileDao(),
+            personStore = FakePersonStore(),
+            nowProvider = { nowValues.removeAt(0) },
+            idProvider = { idValues.removeAt(0) }
+        )
+        store.createProfileCandidate(label = "Candidate A")
+        store.createProfileCandidate(label = "Candidate B")
+        store.linkObservationToProfile(observationId = "obs-shared", profileId = "profile-1")
+        store.linkObservationToProfile(observationId = "obs-shared", profileId = "profile-2")
+
+        val linkedProfiles = store.listProfilesForObservation("obs-shared")
+
+        assertEquals(listOf("profile-2", "profile-1"), linkedProfiles.map { it.profileId })
+    }
+
+    @Test
     fun linkObservationToProfile_returnsFalseWhenProfileDoesNotExist() = runTest {
         val store = RoomFaceProfileStore(
             faceProfileDao = FakeFaceProfileDao(),
@@ -380,6 +400,43 @@ class RoomFaceProfileStoreTest {
         assertEquals(0, personStore.getById("person-1")?.seenCount)
         assertEquals(null, personStore.getById("person-1")?.lastSeenAtMs)
     }
+
+    @Test
+    fun recordKnownPersonSeenFromLinkedProfile_reusesPersonSeenOrderingRules() = runTest {
+        val personStore = FakePersonStore()
+        personStore.insert(
+            PersonRecord(
+                personId = "person-1",
+                displayName = "Alice",
+                nickname = null,
+                isOwner = false,
+                createdAtMs = 1_000L,
+                updatedAtMs = 1_000L,
+                lastSeenAtMs = 20_000L,
+                seenCount = 2
+            )
+        )
+        val store = RoomFaceProfileStore(
+            faceProfileDao = FakeFaceProfileDao(),
+            personStore = personStore,
+            nowProvider = { 15_000L },
+            idProvider = { "profile-1" }
+        )
+        store.createProfileCandidate(label = "Candidate A")
+        store.linkProfileToPerson(profileId = "profile-1", personId = "person-1")
+        store.linkObservationToProfile(observationId = "obs-1", profileId = "profile-1")
+
+        val result = store.recordKnownPersonSeenFromLinkedProfile(
+            profileId = "profile-1",
+            observationId = "obs-1",
+            seenAtMs = 19_000L
+        )
+
+        assertEquals(LinkedProfileSeenPropagationStatus.SUCCESS, result.status)
+        assertTrue(result.propagated)
+        assertEquals(3, result.person?.seenCount)
+        assertEquals(20_000L, result.person?.lastSeenAtMs)
+    }
 }
 
 private class FakeFaceProfileDao : FaceProfileDao {
@@ -459,6 +516,18 @@ private class FakeFaceProfileDao : FaceProfileDao {
             .sortedWith(
                 compareByDescending<FaceProfileObservationLinkEntity> { it.linkedAtMs }
                     .thenBy { it.observationId }
+            )
+            .toList()
+    }
+
+    override suspend fun listProfilesForObservation(observationId: String): List<FaceProfileEntity> {
+        return links
+            .asSequence()
+            .filter { link -> link.observationId == observationId }
+            .mapNotNull { link -> profilesById[link.profileId] }
+            .sortedWith(
+                compareByDescending<FaceProfileEntity> { profile -> profile.updatedAtMs }
+                    .thenBy { profile -> profile.profileId }
             )
             .toList()
     }

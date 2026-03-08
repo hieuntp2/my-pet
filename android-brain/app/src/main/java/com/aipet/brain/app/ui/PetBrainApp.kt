@@ -4,6 +4,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -12,6 +13,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.room.Room
+import com.aipet.brain.app.behavior.BehaviorStateMachine
+import com.aipet.brain.app.reactions.OwnerSeenReactionEngine
+import com.aipet.brain.app.reactions.PersonSeenEventPublisher
 import com.aipet.brain.app.ui.camera.CameraScreen
 import com.aipet.brain.app.ui.debug.DebugScreen
 import com.aipet.brain.app.ui.debug.EventViewerScreen
@@ -19,7 +23,15 @@ import com.aipet.brain.app.ui.debug.ObservationViewerScreen
 import com.aipet.brain.app.ui.home.HomeScreen
 import com.aipet.brain.app.ui.persons.PersonEditorScreen
 import com.aipet.brain.app.ui.persons.PersonsScreen
+import com.aipet.brain.app.ui.persons.TeachPersonCapturedObservation
+import com.aipet.brain.app.ui.persons.TeachSampleFaceCropExtractor
+import com.aipet.brain.app.ui.persons.FaceCropExtractionResult
+import com.aipet.brain.app.ui.persons.TeachSampleImageStorage
+import com.aipet.brain.app.ui.persons.TeachPersonScreen
 import com.aipet.brain.app.ui.profiles.ProfileAssociationsScreen
+import com.aipet.brain.app.ui.settings.SettingsScreen
+import com.aipet.brain.app.settings.CameraSelection
+import com.aipet.brain.app.settings.CameraSelectionStore
 import com.aipet.brain.brain.events.CameraFrameReceivedPayload
 import com.aipet.brain.brain.events.EventEnvelope
 import com.aipet.brain.brain.events.EventType
@@ -33,17 +45,24 @@ import com.aipet.brain.memory.persons.PersonStore
 import com.aipet.brain.memory.persons.RoomPersonStore
 import com.aipet.brain.memory.profiles.FaceProfileStore
 import com.aipet.brain.memory.profiles.RoomFaceProfileStore
+import com.aipet.brain.memory.teachsessioncompletion.RoomTeachSessionCompletionStore
+import com.aipet.brain.memory.teachsessioncompletion.TeachSessionCompletionStore
+import com.aipet.brain.memory.teachsamples.RoomTeachSampleStore
+import com.aipet.brain.memory.teachsamples.TeachSampleStore
 import com.aipet.brain.perception.camera.FrameDiagnostics
+import java.util.UUID
 import kotlinx.coroutines.launch
 
 private enum class AppScreen {
     Home,
     Debug,
+    Settings,
     EventViewer,
     ObservationViewer,
     ProfileAssociations,
     Camera,
     Persons,
+    TeachPerson,
     PersonEditor
 }
 
@@ -53,8 +72,11 @@ fun PetBrainApp() {
     var currentScreenName by rememberSaveable { mutableStateOf(AppScreen.Home.name) }
     var editingPersonId by rememberSaveable { mutableStateOf<String?>(null) }
     var hasRequestedCameraPermission by rememberSaveable { mutableStateOf(false) }
+    var teachSessionId by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }
     val currentScreen = currentScreenName.toAppScreen()
     var latestEvent by remember { mutableStateOf<EventEnvelope?>(null) }
+    var latestOwnerSeenEvent by remember { mutableStateOf<EventEnvelope?>(null) }
+    var latestOwnerGreetingEvent by remember { mutableStateOf<EventEnvelope?>(null) }
     val database = remember(appContext) {
         Room.databaseBuilder(appContext, AppDatabase::class.java, AppDatabase.DB_NAME)
             .addMigrations(
@@ -63,7 +85,11 @@ fun PetBrainApp() {
                 AppDatabase.MIGRATION_3_4,
                 AppDatabase.MIGRATION_4_5,
                 AppDatabase.MIGRATION_5_6,
-                AppDatabase.MIGRATION_6_7
+                AppDatabase.MIGRATION_6_7,
+                AppDatabase.MIGRATION_7_8,
+                AppDatabase.MIGRATION_8_9,
+                AppDatabase.MIGRATION_9_10,
+                AppDatabase.MIGRATION_10_11
             )
             .fallbackToDestructiveMigrationOnDowngrade()
             .build()
@@ -80,9 +106,45 @@ fun PetBrainApp() {
             personStore = personStore
         )
     }
+    val teachSampleStore: TeachSampleStore = remember(database) {
+        RoomTeachSampleStore(database.teachSampleDao())
+    }
+    val teachSessionCompletionStore: TeachSessionCompletionStore = remember(database) {
+        RoomTeachSessionCompletionStore(database.teachSessionCompletionDao())
+    }
+    val persistedTeachSessionCompletion by teachSessionCompletionStore.observeBySessionId(
+        teachSessionId = teachSessionId
+    ).collectAsState(initial = null)
+    val teachSampleImageStorage = remember(appContext) {
+        TeachSampleImageStorage(appContext)
+    }
+    val teachSampleFaceCropExtractor = remember(appContext, teachSampleImageStorage) {
+        TeachSampleFaceCropExtractor(
+            appContext = appContext,
+            teachSampleImageStorage = teachSampleImageStorage
+        )
+    }
     val eventBus = remember(eventStore) {
         InMemoryEventBus(persistEvent = { event -> eventStore.save(event) })
     }
+    val personSeenEventPublisher = remember(eventBus) {
+        PersonSeenEventPublisher(eventBus)
+    }
+    val ownerSeenReactionEngine = remember(eventBus) {
+        OwnerSeenReactionEngine(eventBus)
+    }
+    val behaviorStateMachine = remember {
+        BehaviorStateMachine()
+    }
+    val behaviorStateSnapshot by behaviorStateMachine.observeBehaviorState().collectAsState(
+        initial = behaviorStateMachine.getCurrentBehaviorState()
+    )
+    val cameraSelectionStore = remember(appContext) {
+        CameraSelectionStore.create(appContext)
+    }
+    val selectedCamera by cameraSelectionStore.selectedCamera.collectAsState(
+        initial = CameraSelection.FRONT
+    )
     val observationRecorder = remember(eventBus) {
         ObservationRecorder(eventBus)
     }
@@ -91,7 +153,20 @@ fun PetBrainApp() {
     LaunchedEffect(eventBus) {
         eventBus.observe().collect { event ->
             latestEvent = event
+            when (event.type) {
+                EventType.OWNER_SEEN_DETECTED -> latestOwnerSeenEvent = event
+                EventType.ROBOT_GREETING_OWNER_TRIGGERED -> latestOwnerGreetingEvent = event
+                else -> Unit
+            }
         }
+    }
+
+    LaunchedEffect(ownerSeenReactionEngine) {
+        ownerSeenReactionEngine.observePersonSeenUpdates()
+    }
+
+    LaunchedEffect(eventBus, behaviorStateMachine) {
+        behaviorStateMachine.observeEventsAndApplyTransitions(eventBus)
     }
 
     LaunchedEffect(eventBus, "app_started") {
@@ -109,7 +184,14 @@ fun PetBrainApp() {
 
                 AppScreen.Debug -> DebugScreen(
                     latestEvent = latestEvent,
+                    latestOwnerSeenEvent = latestOwnerSeenEvent,
+                    latestOwnerGreetingEvent = latestOwnerGreetingEvent,
+                    currentBehaviorState = behaviorStateSnapshot.currentState.name,
+                    lastBehaviorTransition = behaviorStateSnapshot.lastTransition?.let { transition ->
+                        "${transition.fromState.name} -> ${transition.toState.name} (${transition.reason.name})"
+                    } ?: "None",
                     onNavigateToHome = { currentScreenName = AppScreen.Home.name },
+                    onNavigateToSettings = { currentScreenName = AppScreen.Settings.name },
                     onNavigateToEventViewer = { currentScreenName = AppScreen.EventViewer.name },
                     onNavigateToObservationViewer = { currentScreenName = AppScreen.ObservationViewer.name },
                     onNavigateToProfileAssociations = { currentScreenName = AppScreen.ProfileAssociations.name },
@@ -125,6 +207,16 @@ fun PetBrainApp() {
                             )
                         }
                     }
+                )
+
+                AppScreen.Settings -> SettingsScreen(
+                    selectedCamera = selectedCamera,
+                    onSelectCamera = { selection ->
+                        coroutineScope.launch {
+                            cameraSelectionStore.setSelectedCamera(selection)
+                        }
+                    },
+                    onNavigateBack = { currentScreenName = AppScreen.Debug.name }
                 )
 
                 AppScreen.EventViewer -> EventViewerScreen(
@@ -151,12 +243,14 @@ fun PetBrainApp() {
                 AppScreen.ProfileAssociations -> ProfileAssociationsScreen(
                     faceProfileStore = faceProfileStore,
                     personStore = personStore,
+                    personSeenEventPublisher = personSeenEventPublisher,
                     eventStore = eventStore,
                     onNavigateBack = { currentScreenName = AppScreen.Debug.name }
                 )
 
                 AppScreen.Camera -> CameraScreen(
                     hasRequestedPermission = hasRequestedCameraPermission,
+                    selectedCamera = selectedCamera,
                     onPermissionRequestTracked = { hasRequestedCameraPermission = true },
                     onFrameDiagnostics = { diagnostics ->
                         coroutineScope.launch {
@@ -184,7 +278,11 @@ fun PetBrainApp() {
 
                 AppScreen.Persons -> PersonsScreen(
                     personStore = personStore,
+                    personSeenEventPublisher = personSeenEventPublisher,
                     onNavigateBack = { currentScreenName = AppScreen.Debug.name },
+                    onNavigateToTeachPerson = {
+                        currentScreenName = AppScreen.TeachPerson.name
+                    },
                     onNavigateToCreatePerson = {
                         editingPersonId = null
                         currentScreenName = AppScreen.PersonEditor.name
@@ -192,6 +290,61 @@ fun PetBrainApp() {
                     onNavigateToEditPerson = { personId ->
                         editingPersonId = personId
                         currentScreenName = AppScreen.PersonEditor.name
+                    }
+                )
+
+                AppScreen.TeachPerson -> TeachPersonScreen(
+                    teachSessionId = teachSessionId,
+                    teachSampleStore = teachSampleStore,
+                    teachSampleImageStorage = teachSampleImageStorage,
+                    personStore = personStore,
+                    onCaptureSample = { note, imageUri ->
+                        runCatching {
+                            val observation = observationRecorder.recordPersonLikeObservation(
+                                source = ObservationSource.CAMERA,
+                                note = note
+                            )
+                            val faceCropResult = teachSampleFaceCropExtractor.extractFaceCrop(
+                                sourceImageUri = imageUri,
+                                sampleCaptureId = observation.observationId
+                            )
+                            val faceCropUri = when (faceCropResult) {
+                                is FaceCropExtractionResult.Success -> faceCropResult.faceCropUri
+                                FaceCropExtractionResult.NoFaceDetected -> null
+                                is FaceCropExtractionResult.Failed -> null
+                            }
+                            val noteWithCropStatus = appendTeachSampleCropStatusToNote(
+                                baseNote = observation.note,
+                                faceCropResult = faceCropResult
+                            )
+                            TeachPersonCapturedObservation(
+                                observationId = observation.observationId,
+                                observedAtMs = observation.observedAtMs,
+                                source = observation.source.name,
+                                note = noteWithCropStatus,
+                                imageUri = imageUri,
+                                faceCropUri = faceCropUri
+                            )
+                        }
+                    },
+                    initialCompletionConfirmedAtMs = persistedTeachSessionCompletion
+                        ?.takeIf { completion -> completion.isCompletedConfirmed }
+                        ?.confirmedAtMs,
+                    onTeachSessionCompletionConfirmed = { completedAtMs ->
+                        teachSessionCompletionStore.confirmCompletion(
+                            teachSessionId = teachSessionId,
+                            confirmedAtMs = completedAtMs
+                        )
+                    },
+                    onTeachSessionCompletionCleared = {
+                        teachSessionCompletionStore.clearCompletion(
+                            teachSessionId = teachSessionId
+                        )
+                    },
+                    onNavigateBack = { currentScreenName = AppScreen.Persons.name },
+                    onPersonSaved = {
+                        teachSessionId = UUID.randomUUID().toString()
+                        currentScreenName = AppScreen.Persons.name
                     }
                 )
 
@@ -220,4 +373,21 @@ private fun FrameDiagnostics.toCameraFramePayloadJson(): String {
         rotationDegrees = rotationDegrees,
         processingDurationMs = processingDurationMs
     ).toJson()
+}
+
+private fun appendTeachSampleCropStatusToNote(
+    baseNote: String?,
+    faceCropResult: FaceCropExtractionResult
+): String {
+    val notePrefix = baseNote?.trim().orEmpty()
+    val cropStatus = when (faceCropResult) {
+        is FaceCropExtractionResult.Success -> "face_crop=available"
+        FaceCropExtractionResult.NoFaceDetected -> "face_crop=not_detected"
+        is FaceCropExtractionResult.Failed -> "face_crop=failed"
+    }
+    return if (notePrefix.isBlank()) {
+        cropStatus
+    } else {
+        "$notePrefix;$cropStatus"
+    }
 }
