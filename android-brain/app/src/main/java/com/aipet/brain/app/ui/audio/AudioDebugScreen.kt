@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.res.Resources
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -14,6 +15,8 @@ import android.provider.Settings
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -22,6 +25,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -37,53 +41,104 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.aipet.brain.app.audio.AudioRuntimeDebugState
+import com.aipet.brain.app.audio.AudioRuntimeDebugStateProvider
+import com.aipet.brain.brain.events.EventBus
+import com.aipet.brain.brain.events.EventType
 import com.aipet.brain.app.ui.audio.model.AudioCaptureLifecycleState
 import com.aipet.brain.app.ui.audio.model.AudioCategory
 import com.aipet.brain.app.ui.audio.model.AudioDebugState
+import com.aipet.brain.app.ui.audio.model.AudioCaptureRuntimeDebugState
 import com.aipet.brain.app.ui.audio.model.AudioReadinessState
 import com.aipet.brain.app.ui.audio.model.MicrophonePermissionState
 import com.aipet.brain.perception.audio.AudioCaptureController
-import com.aipet.brain.perception.audio.AudioEnergyMetrics
+import com.aipet.brain.perception.audio.AudioCaptureLifecycleListener
+import com.aipet.brain.perception.audio.AudioEnergyMetricsListener
+import com.aipet.brain.perception.audio.AudioVadResultListener
+import com.aipet.brain.perception.audio.model.VadState
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 @Composable
 fun AudioDebugScreen(
     hasRequestedPermission: Boolean,
     onPermissionRequestTracked: () -> Unit,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    audioEventBus: EventBus? = null,
+    audioCaptureLifecycleListener: AudioCaptureLifecycleListener? = null,
+    audioEnergyMetricsListener: AudioEnergyMetricsListener? = null,
+    audioVadResultListener: AudioVadResultListener? = null,
+    audioRuntimeDebugStateProvider: AudioRuntimeDebugStateProvider? = null
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
-    val audioCaptureController = remember {
-        AudioCaptureController()
+    val audioCaptureController = remember(
+        audioCaptureLifecycleListener,
+        audioEnergyMetricsListener,
+        audioVadResultListener
+    ) {
+        AudioCaptureController(
+            lifecycleListener = audioCaptureLifecycleListener,
+            energyMetricsListener = audioEnergyMetricsListener,
+            vadResultListener = audioVadResultListener
+        )
     }
-    val playbackEngine = remember(context.applicationContext) {
-        AudioPlaybackEngine(context.applicationContext)
+    val playbackEngine = remember(context.applicationContext, audioEventBus) {
+        AudioPlaybackEngine(
+            context = context.applicationContext,
+            eventBus = audioEventBus
+        )
     }
     var latestEnergyMetrics by remember {
         mutableStateOf(audioCaptureController.latestEnergyMetrics())
     }
+    var lastEnergyUpdatedAtMs by remember {
+        mutableStateOf<Long?>(null)
+    }
+    var lastPlaybackRequestSummary by remember {
+        mutableStateOf("No manual category playback request yet.")
+    }
+    val fallbackRuntimeDebugState = remember { AudioRuntimeDebugState() }
+    val runtimeDebugStateFlow = audioRuntimeDebugStateProvider?.observeRuntimeDebugState()
+    val initialRuntimeDebugState = audioRuntimeDebugStateProvider?.currentRuntimeDebugState()
+        ?: fallbackRuntimeDebugState
+    val runtimeDebugState = runtimeDebugStateFlow?.collectAsState(
+        initial = initialRuntimeDebugState
+    )?.value ?: fallbackRuntimeDebugState
+    val playbackDebugState by playbackEngine.observeDebugState().collectAsState(
+        initial = playbackEngine.currentDebugState()
+    )
     var uiState by remember {
         mutableStateOf(
             createInitialAudioDebugState(
-                permissionState = resolveMicrophonePermissionState(context, hasRequestedPermission)
+                permissionState = resolveMicrophonePermissionState(context, hasRequestedPermission),
+                captureRuntimeState = readCaptureRuntimeDebugState(audioCaptureController)
             )
         )
     }
 
+    fun withCaptureRuntime(state: AudioDebugState): AudioDebugState {
+        return state.copy(captureRuntimeState = readCaptureRuntimeDebugState(audioCaptureController))
+    }
+
     fun updateState(nextState: AudioDebugState, reason: String) {
+        val enrichedState = withCaptureRuntime(nextState)
         val previousState = uiState
         logStateTransition(
             reason = reason,
             previous = previousState,
-            next = nextState
+            next = enrichedState
         )
-        uiState = nextState
+        uiState = enrichedState
     }
 
     fun playRandomClip(category: AudioCategory) {
-        playbackEngine.playRandomClip(category)
+        val playbackResult = playbackEngine.playRandomClipWithDetails(category)
+        lastPlaybackRequestSummary = buildPlaybackRequestSummary(playbackResult)
+        Log.d(TAG, "Manual playback request result: $lastPlaybackRequestSummary")
     }
 
     LaunchedEffect(context, hasRequestedPermission) {
@@ -117,6 +172,39 @@ fun AudioDebugScreen(
                     }
                 ),
                 reason = "permission_refresh"
+            )
+            if (permissionState !is MicrophonePermissionState.Granted) {
+                latestEnergyMetrics = null
+                lastEnergyUpdatedAtMs = null
+            }
+        }
+    }
+
+    LaunchedEffect(uiState.captureState) {
+        if (uiState.captureState != AudioCaptureLifecycleState.Active) {
+            if (!audioCaptureController.isCapturing()) {
+                latestEnergyMetrics = null
+                lastEnergyUpdatedAtMs = null
+            }
+            return@LaunchedEffect
+        }
+
+        while (audioCaptureController.isCapturing()) {
+            val latestRuntimeState = readCaptureRuntimeDebugState(audioCaptureController)
+            if (latestRuntimeState != uiState.captureRuntimeState) {
+                updateState(
+                    nextState = uiState.copy(captureRuntimeState = latestRuntimeState),
+                    reason = "capture_runtime_poll"
+                )
+            }
+            delay(RUNTIME_POLL_INTERVAL_MS)
+        }
+
+        val idleRuntimeState = readCaptureRuntimeDebugState(audioCaptureController)
+        if (idleRuntimeState != uiState.captureRuntimeState) {
+            updateState(
+                nextState = uiState.copy(captureRuntimeState = idleRuntimeState),
+                reason = "capture_runtime_idle_refresh"
             )
         }
     }
@@ -154,6 +242,10 @@ fun AudioDebugScreen(
             ),
             reason = "permission_result"
         )
+        if (permissionState !is MicrophonePermissionState.Granted) {
+            latestEnergyMetrics = null
+            lastEnergyUpdatedAtMs = null
+        }
     }
 
     val requestPermission = {
@@ -231,6 +323,8 @@ fun AudioDebugScreen(
             nextState = uiState.copy(captureState = AudioCaptureLifecycleState.Starting),
             reason = "start_requested"
         )
+        latestEnergyMetrics = null
+        lastEnergyUpdatedAtMs = null
         val startResult = audioCaptureController.startCapture()
         if (startResult.success) {
             updateState(
@@ -272,6 +366,8 @@ fun AudioDebugScreen(
                 ),
                 reason = "stop_success"
             )
+            latestEnergyMetrics = null
+            lastEnergyUpdatedAtMs = null
         } else {
             updateState(
                 nextState = uiState.copy(
@@ -298,6 +394,8 @@ fun AudioDebugScreen(
                 ),
                 reason = "release_success"
             )
+            latestEnergyMetrics = null
+            lastEnergyUpdatedAtMs = null
         } else {
             updateState(
                 nextState = uiState.copy(
@@ -352,6 +450,10 @@ fun AudioDebugScreen(
                     ),
                     reason = "resume_refresh"
                 )
+                if (permissionState !is MicrophonePermissionState.Granted) {
+                    latestEnergyMetrics = null
+                    lastEnergyUpdatedAtMs = null
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -364,6 +466,7 @@ fun AudioDebugScreen(
         audioCaptureController.setEnergyMetricsCallback { metrics ->
             mainHandler.post {
                 latestEnergyMetrics = metrics
+                lastEnergyUpdatedAtMs = System.currentTimeMillis()
             }
         }
         onDispose {
@@ -387,13 +490,14 @@ fun AudioDebugScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(text = "Audio Debug")
         Text(
-            text = "Audio capture, energy, and sound debug (C96)",
+            text = "Audio capture, VAD-light, and sound-event debug (C102)",
             modifier = Modifier.padding(top = 8.dp, bottom = 8.dp)
         )
         Text(
@@ -417,27 +521,63 @@ fun AudioDebugScreen(
             modifier = Modifier.fillMaxWidth()
         )
         Text(
-            text = "Energy Metrics",
+            text = "Capture Runtime",
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 8.dp)
         )
         Text(
-            text = "RMS: ${formatEnergyValue(latestEnergyMetrics?.rms)}",
+            text = "Source running: ${if (uiState.captureRuntimeState.isRunning) "Yes" else "No"}",
             modifier = Modifier.fillMaxWidth()
         )
         Text(
-            text = "Peak: ${formatEnergyValue(latestEnergyMetrics?.peakNormalized)}",
+            text = "Sample rate (Hz): ${formatMetricValue(uiState.captureRuntimeState.sampleRateHz)}",
             modifier = Modifier.fillMaxWidth()
         )
         Text(
-            text = "Peak amplitude: ${latestEnergyMetrics?.peakAmplitude ?: "-"}",
+            text = "Channel count: ${formatMetricValue(uiState.captureRuntimeState.channelCount)}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Frame size (samples): ${formatMetricValue(uiState.captureRuntimeState.frameSizeSamples)}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Energy Metrics",
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp)
+        )
+        AudioEnergyPanel(
+            isCaptureActive = audioCaptureController.isCapturing(),
+            metrics = latestEnergyMetrics,
+            lastUpdatedAtMs = lastEnergyUpdatedAtMs
+        )
+        Text(
+            text = "VAD state: ${formatVadStateLabel(audioCaptureController.isCapturing(), runtimeDebugState.vadState)}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Last sound event: ${formatSoundEventType(runtimeDebugState.lastSoundEventType)}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Last sound event seq: ${formatSoundEventSequence(runtimeDebugState.lastSoundEventSequence)}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Last sound event time: ${formatSoundEventTimestamp(runtimeDebugState.lastSoundEventTimestampMs)}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Note: VOICE_LIKELY is energy-based (not speech recognition).",
             modifier = Modifier.fillMaxWidth()
         )
         Text(
             text = "Last error: ${uiState.lastErrorMessage ?: "-"}",
             modifier = Modifier.fillMaxWidth()
         )
+        AudioAssetManifestSection(context = context)
 
         when (val state = uiState.permissionState) {
             MicrophonePermissionState.NotRequested -> {
@@ -540,6 +680,27 @@ fun AudioDebugScreen(
                 .fillMaxWidth()
                 .padding(top = 8.dp)
         )
+        Text(
+            text = "Playback readiness: ${formatPlaybackReadiness(playbackDebugState)}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Preload clips: ${playbackDebugState.loadedClipCount}/" +
+                "${playbackDebugState.totalClipCount} (failed=${playbackDebugState.failedClipCount})",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Last played clip: ${formatLastPlayedClip(playbackDebugState)}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Last skipped reason: ${formatLastSkippedReason(playbackDebugState)}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Last manual playback request: $lastPlaybackRequestSummary",
+            modifier = Modifier.fillMaxWidth()
+        )
 
         AudioCategory.entries.forEach { category ->
             Button(
@@ -547,7 +708,7 @@ fun AudioDebugScreen(
                 enabled = AudioAssetRegistry.hasClips(category),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(text = category.label)
+                Text(text = "Play ${category.label}")
             }
         }
 
@@ -559,6 +720,65 @@ fun AudioDebugScreen(
         ) {
             Text(text = "Back to Debug")
         }
+    }
+}
+
+@Composable
+private fun AudioAssetManifestSection(context: Context) {
+    Text(
+        text = "Audio Asset Manifest",
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp)
+    )
+    Text(
+        text = "Runtime source: flattened R.raw.* entries from AudioAssetRegistry.",
+        modifier = Modifier.fillMaxWidth()
+    )
+    Text(
+        text = "Nested duplicate folders under res/raw/<category>/ are ignored.",
+        modifier = Modifier.fillMaxWidth()
+    )
+
+    AudioCategory.entries.forEach { category ->
+        val clipMetadataList = AudioAssetRegistry.getClipMetadata(category)
+        Text(
+            text = "${category.label}: ${clipMetadataList.size} clip(s)",
+            modifier = Modifier.fillMaxWidth()
+        )
+        if (clipMetadataList.isEmpty()) {
+            Text(
+                text = "No clips configured.",
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 12.dp)
+            )
+        } else {
+            clipMetadataList.forEach { clipMetadata ->
+                val rawResourceName = resolveRawResourceName(
+                    context = context,
+                    resourceId = clipMetadata.resourceId
+                )
+                val durationLabel = clipMetadata.durationMs?.let { "$it ms" } ?: "unknown"
+                Text(
+                    text = "${clipMetadata.logicalClipName} | R.raw.$rawResourceName | duration=$durationLabel",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 12.dp)
+                )
+            }
+        }
+    }
+}
+
+private fun resolveRawResourceName(
+    context: Context,
+    resourceId: Int
+): String {
+    return try {
+        context.resources.getResourceEntryName(resourceId)
+    } catch (_: Resources.NotFoundException) {
+        "unresolved_$resourceId"
     }
 }
 
@@ -612,7 +832,10 @@ private tailrec fun Context.findActivity(): Activity? {
     }
 }
 
-private fun createInitialAudioDebugState(permissionState: MicrophonePermissionState): AudioDebugState {
+private fun createInitialAudioDebugState(
+    permissionState: MicrophonePermissionState,
+    captureRuntimeState: AudioCaptureRuntimeDebugState
+): AudioDebugState {
     return AudioDebugState(
         permissionState = permissionState,
         readinessState = if (permissionState is MicrophonePermissionState.Granted) {
@@ -625,7 +848,8 @@ private fun createInitialAudioDebugState(permissionState: MicrophonePermissionSt
             null
         } else {
             "Microphone permission is not granted."
-        }
+        },
+        captureRuntimeState = captureRuntimeState
     )
 }
 
@@ -679,15 +903,83 @@ private fun logStateTransition(
             "permission=${permissionStateLabel(previous.permissionState)} -> ${permissionStateLabel(next.permissionState)}, " +
             "readiness=${readinessStateLabel(previous.readinessState)} -> ${readinessStateLabel(next.readinessState)}, " +
             "capture=${captureStateLabel(previous.captureState)} -> ${captureStateLabel(next.captureState)}, " +
+            "runtimeRunning=${if (previous.captureRuntimeState.isRunning) "Yes" else "No"} -> " +
+            "${if (next.captureRuntimeState.isRunning) "Yes" else "No"}, " +
             "lastError=${next.lastErrorMessage ?: "-"}"
     )
 }
 
-private fun formatEnergyValue(value: Double?): String {
-    if (value == null) {
-        return "-"
+private fun readCaptureRuntimeDebugState(
+    audioCaptureController: AudioCaptureController
+): AudioCaptureRuntimeDebugState {
+    val runtimeState = audioCaptureController.captureRuntimeState()
+    return AudioCaptureRuntimeDebugState(
+        isRunning = runtimeState.isRunning,
+        sampleRateHz = runtimeState.sampleRate.takeIf { it > 0 },
+        channelCount = runtimeState.channelCount.takeIf { it > 0 },
+        frameSizeSamples = runtimeState.frameSize.takeIf { it > 0 }
+    )
+}
+
+private fun formatMetricValue(value: Int?): String {
+    return value?.toString() ?: "-"
+}
+
+private fun formatVadStateLabel(
+    isCaptureActive: Boolean,
+    vadState: VadState?
+): String {
+    if (!isCaptureActive) {
+        return "IDLE"
     }
-    return String.format(Locale.US, "%.4f", value)
+    return vadState?.name ?: VadState.SILENT.name
+}
+
+private fun formatSoundEventType(eventType: EventType?): String {
+    return eventType?.name ?: "-"
+}
+
+private fun formatSoundEventSequence(sequence: Long): String {
+    return if (sequence > 0L) {
+        sequence.toString()
+    } else {
+        "-"
+    }
+}
+
+private fun formatSoundEventTimestamp(timestampMs: Long?): String {
+    val timestamp = timestampMs ?: return "-"
+    val formatter = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
+    return "${formatter.format(Date(timestamp))} ($timestamp)"
+}
+
+private fun buildPlaybackRequestSummary(result: AudioPlaybackResult): String {
+    val categoryLabel = result.category.label
+    val clipLabel = result.clipLogicalName ?: "-"
+    val resourceLabel = result.clipResourceName?.let { "R.raw.$it" } ?: "-"
+    val clipIdLabel = result.clipResId?.toString() ?: "-"
+    val statusLabel = if (result.started) "STARTED" else "SKIPPED"
+    return "category=$categoryLabel, clip=$clipLabel, resource=$resourceLabel, " +
+        "clipResId=$clipIdLabel, status=$statusLabel, reason=${result.reason}"
+}
+
+private fun formatPlaybackReadiness(state: AudioPlaybackDebugState): String {
+    return state.readinessState.name
+}
+
+private fun formatLastPlayedClip(state: AudioPlaybackDebugState): String {
+    val category = state.lastPlayedCategory ?: return "-"
+    val clip = state.lastPlayedClipName ?: "-"
+    val timestamp = state.lastPlayedAtMs?.let(::formatSoundEventTimestamp) ?: "-"
+    return "$category / $clip @ $timestamp"
+}
+
+private fun formatLastSkippedReason(state: AudioPlaybackDebugState): String {
+    val reason = state.lastSkippedReason?.name ?: return "-"
+    val timestamp = state.lastSkippedAtMs?.let(::formatSoundEventTimestamp) ?: "-"
+    return "$reason @ $timestamp"
 }
 
 private const val TAG = "AudioDebugScreen"
+private const val RUNTIME_POLL_INTERVAL_MS = 300L
+

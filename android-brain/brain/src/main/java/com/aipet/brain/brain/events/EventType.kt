@@ -13,6 +13,17 @@ enum class EventType {
     USER_INTERACTED_PET,
     BRAIN_STATE_CHANGED,
     TRAITS_UPDATED,
+    // Phase 1.5 audio interaction events consumed by perception, behavior, and audio-response modules.
+    AUDIO_CAPTURE_STARTED,
+    AUDIO_CAPTURE_STOPPED,
+    SOUND_ENERGY_CHANGED,
+    SOUND_DETECTED,
+    VOICE_ACTIVITY_STARTED,
+    VOICE_ACTIVITY_ENDED,
+    AUDIO_RESPONSE_REQUESTED,
+    AUDIO_RESPONSE_STARTED,
+    AUDIO_RESPONSE_COMPLETED,
+    AUDIO_RESPONSE_SKIPPED,
     UNKNOWN;
 
     companion object {

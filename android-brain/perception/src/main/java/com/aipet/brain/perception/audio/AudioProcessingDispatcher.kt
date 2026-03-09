@@ -2,6 +2,7 @@ package com.aipet.brain.perception.audio
 
 import android.os.SystemClock
 import android.util.Log
+import com.aipet.brain.perception.audio.model.AudioFrame
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -10,7 +11,7 @@ class AudioProcessingDispatcher(
     private val queueCapacity: Int = 32
 ) {
     @Synchronized
-    fun start(onFrame: (AudioPcmFrame) -> Unit): Boolean {
+    fun start(onFrame: (AudioFrame) -> Unit): Boolean {
         if (isRunning.get()) {
             Log.d(TAG, "Audio processing dispatcher is already running.")
             return true
@@ -30,7 +31,7 @@ class AudioProcessingDispatcher(
         return true
     }
 
-    fun dispatch(frame: AudioPcmFrame): Boolean {
+    fun dispatch(frame: AudioFrame): Boolean {
         if (!isRunning.get()) {
             return false
         }
@@ -60,7 +61,7 @@ class AudioProcessingDispatcher(
         Log.d(TAG, "Audio processing dispatcher stopped.")
     }
 
-    private fun processLoop(onFrame: (AudioPcmFrame) -> Unit) {
+    private fun processLoop(onFrame: (AudioFrame) -> Unit) {
         while (isRunning.get()) {
             val frame = try {
                 queue.poll(POLL_TIMEOUT_MS, TimeUnit.MILLISECONDS)
@@ -94,7 +95,7 @@ class AudioProcessingDispatcher(
         droppedLogWindowStartMs = nowMs
     }
 
-    private val queue = ArrayBlockingQueue<AudioPcmFrame>(queueCapacity)
+    private val queue = ArrayBlockingQueue<AudioFrame>(queueCapacity)
     private val isRunning = AtomicBoolean(false)
     private var workerThread: Thread? = null
     private var droppedFramesSinceLog: Int = 0

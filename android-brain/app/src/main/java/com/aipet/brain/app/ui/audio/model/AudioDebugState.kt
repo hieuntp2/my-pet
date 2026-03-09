@@ -22,9 +22,26 @@ enum class AudioCaptureLifecycleState {
     Failed
 }
 
+data class AudioCaptureRuntimeDebugState(
+    val isRunning: Boolean,
+    val sampleRateHz: Int?,
+    val channelCount: Int?,
+    val frameSizeSamples: Int?
+) {
+    companion object {
+        val Unknown = AudioCaptureRuntimeDebugState(
+            isRunning = false,
+            sampleRateHz = null,
+            channelCount = null,
+            frameSizeSamples = null
+        )
+    }
+}
+
 data class AudioDebugState(
     val permissionState: MicrophonePermissionState,
     val readinessState: AudioReadinessState,
     val captureState: AudioCaptureLifecycleState,
-    val lastErrorMessage: String?
+    val lastErrorMessage: String?,
+    val captureRuntimeState: AudioCaptureRuntimeDebugState = AudioCaptureRuntimeDebugState.Unknown
 )

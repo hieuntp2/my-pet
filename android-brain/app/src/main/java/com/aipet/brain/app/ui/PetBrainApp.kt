@@ -13,6 +13,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.room.Room
+import com.aipet.brain.app.audio.AudioCaptureLifecycleEventPublisher
 import com.aipet.brain.app.reactions.OwnerSeenReactionEngine
 import com.aipet.brain.app.reactions.PersonSeenEventPublisher
 import com.aipet.brain.app.ui.audio.AudioDebugScreen
@@ -214,6 +215,12 @@ fun PetBrainApp() {
     val recentInteractions by eventStore.observeLatest(limit = 5).collectAsState(initial = emptyList())
     val currentTraits by traitsEngine.observeTraits().collectAsState(initial = null)
     val coroutineScope = rememberCoroutineScope()
+    val audioCaptureLifecycleEventPublisher = remember(eventBus, coroutineScope) {
+        AudioCaptureLifecycleEventPublisher(
+            eventBus = eventBus,
+            coroutineScope = coroutineScope
+        )
+    }
     var topPersons by remember { mutableStateOf(emptyList<com.aipet.brain.memory.persons.PersonRecord>()) }
 
     LaunchedEffect(eventBus) {
@@ -222,6 +229,7 @@ fun PetBrainApp() {
             when (event.type) {
                 EventType.OWNER_SEEN_DETECTED -> latestOwnerSeenEvent = event
                 EventType.ROBOT_GREETING_OWNER_TRIGGERED -> latestOwnerGreetingEvent = event
+                EventType.AUDIO_RESPONSE_REQUESTED -> Unit
                 else -> Unit
             }
         }
@@ -330,7 +338,12 @@ fun PetBrainApp() {
                 AppScreen.AudioDebug -> AudioDebugScreen(
                     hasRequestedPermission = hasRequestedMicrophonePermission,
                     onPermissionRequestTracked = { hasRequestedMicrophonePermission = true },
-                    onNavigateBack = { currentScreenName = AppScreen.Debug.name }
+                    onNavigateBack = { currentScreenName = AppScreen.Debug.name },
+                    audioEventBus = eventBus,
+                    audioCaptureLifecycleListener = audioCaptureLifecycleEventPublisher,
+                    audioEnergyMetricsListener = audioCaptureLifecycleEventPublisher,
+                    audioVadResultListener = audioCaptureLifecycleEventPublisher,
+                    audioRuntimeDebugStateProvider = audioCaptureLifecycleEventPublisher
                 )
 
                 AppScreen.Traits -> TraitsScreen(
@@ -520,3 +533,5 @@ private fun appendTeachSampleCropStatusToNote(
         "$notePrefix;$cropStatus"
     }
 }
+
+
