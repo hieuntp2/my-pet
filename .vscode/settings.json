@@ -1,0 +1,15 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        ".\\gradlew.bat": true,
+        "Add-Type": true,
+        "/^\\$env:JAVA_HOME = \"C:\\\\Program Files\\\\Android\\\\Android Studio\\\\jbr\"; \\$env:PATH = \"\\$env:JAVA_HOME\\\\bin;\\$env:PATH\"; Set-Location \"d:\\\\1\\. Project\\\\10\\. my-pet\\\\android-brain\"; \\.\\\\gradlew\\.bat :app:dependencies --configuration debugRuntimeClasspath 2>&1 \\| Out-File -FilePath \"C:\\\\Temp\\\\deps\\.txt\" -Encoding UTF8; Write-Host \"Done\"$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "/^\\$cameraCorePath = \"C:\\\\Users\\\\hieu\\.le\\\\\\.gradle\\\\caches\\\\modules-2\\\\files-2\\.1\\\\androidx\\.camera\\\\camera-core\"\nif \\(Test-Path \\$cameraCorePath\\) \\{\n    Get-ChildItem \\$cameraCorePath \\| Select-Object Name\n\\} else \\{\n    Write-Host \"Path not found\"\n\\}$/": {
+            "approve": true,
+            "matchCommandLine": true
+        },
+        "Test-Path": true
+    }
+}
