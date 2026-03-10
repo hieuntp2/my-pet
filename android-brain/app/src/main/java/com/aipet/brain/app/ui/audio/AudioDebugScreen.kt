@@ -31,6 +31,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,23 +44,36 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.aipet.brain.app.audio.AudioRuntimeDebugState
 import com.aipet.brain.app.audio.AudioRuntimeDebugStateProvider
+import com.aipet.brain.app.settings.KeywordSpottingConfigStore
 import com.aipet.brain.brain.events.EventBus
+import com.aipet.brain.brain.events.EventEnvelope
 import com.aipet.brain.brain.events.EventType
+import com.aipet.brain.brain.events.audio.AudioResponsePayload
+import com.aipet.brain.brain.events.audio.AudioResponseRequestPayload
+import com.aipet.brain.brain.events.audio.KeywordDetectionPayload
 import com.aipet.brain.app.ui.audio.model.AudioCaptureLifecycleState
 import com.aipet.brain.app.ui.audio.model.AudioCategory
 import com.aipet.brain.app.ui.audio.model.AudioDebugState
 import com.aipet.brain.app.ui.audio.model.AudioCaptureRuntimeDebugState
 import com.aipet.brain.app.ui.audio.model.AudioReadinessState
 import com.aipet.brain.app.ui.audio.model.MicrophonePermissionState
+import com.aipet.brain.core.common.config.KeywordSpottingConfig
+import com.aipet.brain.core.common.config.KeywordSpottingProvider
 import com.aipet.brain.perception.audio.AudioCaptureController
 import com.aipet.brain.perception.audio.AudioCaptureLifecycleListener
 import com.aipet.brain.perception.audio.AudioEnergyMetricsListener
+import com.aipet.brain.perception.audio.AudioKeywordDetectionListener
 import com.aipet.brain.perception.audio.AudioVadResultListener
+import com.aipet.brain.perception.audio.keyword.KeywordSpotterFactory
+import com.aipet.brain.perception.audio.model.KeywordDetectionResult
+import com.aipet.brain.perception.audio.model.KeywordSpotterState
 import com.aipet.brain.perception.audio.model.VadState
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
 
 @Composable
 fun AudioDebugScreen(
@@ -67,10 +81,13 @@ fun AudioDebugScreen(
     onPermissionRequestTracked: () -> Unit,
     onNavigateBack: () -> Unit,
     audioEventBus: EventBus? = null,
+    audioPlaybackEngine: AudioPlaybackEngine? = null,
     audioCaptureLifecycleListener: AudioCaptureLifecycleListener? = null,
     audioEnergyMetricsListener: AudioEnergyMetricsListener? = null,
     audioVadResultListener: AudioVadResultListener? = null,
-    audioRuntimeDebugStateProvider: AudioRuntimeDebugStateProvider? = null
+    audioKeywordDetectionListener: AudioKeywordDetectionListener? = null,
+    audioRuntimeDebugStateProvider: AudioRuntimeDebugStateProvider? = null,
+    keywordSpottingConfigStore: KeywordSpottingConfigStore
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -78,20 +95,38 @@ fun AudioDebugScreen(
     val audioCaptureController = remember(
         audioCaptureLifecycleListener,
         audioEnergyMetricsListener,
-        audioVadResultListener
+        audioVadResultListener,
+        audioKeywordDetectionListener
     ) {
         AudioCaptureController(
             lifecycleListener = audioCaptureLifecycleListener,
             energyMetricsListener = audioEnergyMetricsListener,
-            vadResultListener = audioVadResultListener
+            vadResultListener = audioVadResultListener,
+            keywordDetectionListener = audioKeywordDetectionListener
         )
     }
-    val playbackEngine = remember(context.applicationContext, audioEventBus) {
-        AudioPlaybackEngine(
-            context = context.applicationContext,
-            eventBus = audioEventBus
-        )
+    val ownedPlaybackEngine = remember(context.applicationContext, audioEventBus, audioPlaybackEngine) {
+        if (audioPlaybackEngine == null) {
+            AudioPlaybackEngine(
+                context = context.applicationContext,
+                eventBus = audioEventBus
+            )
+        } else {
+            null
+        }
     }
+    val playbackEngine = audioPlaybackEngine ?: ownedPlaybackEngine
+        ?: error("AudioPlaybackEngine must be available.")
+    val coroutineScope = rememberCoroutineScope()
+    val keywordSpottingConfig by keywordSpottingConfigStore.config.collectAsState(
+        initial = KeywordSpottingConfig.DEFAULT
+    )
+    val keywordSpotterFactory = remember { KeywordSpotterFactory() }
+    var keywordProviderRuntimeNote by remember { mutableStateOf<String?>(null) }
+    var keywordSpotterRuntimeState by remember { mutableStateOf(KeywordSpotterState.IDLE) }
+    var keywordDetectionCount by remember { mutableStateOf(0L) }
+    var lastKeywordDetection by remember { mutableStateOf<KeywordDetectionResult?>(null) }
+    var keywordSpotterLastError by remember { mutableStateOf<String?>(null) }
     var latestEnergyMetrics by remember {
         mutableStateOf(audioCaptureController.latestEnergyMetrics())
     }
@@ -99,7 +134,10 @@ fun AudioDebugScreen(
         mutableStateOf<Long?>(null)
     }
     var lastPlaybackRequestSummary by remember {
-        mutableStateOf("No manual category playback request yet.")
+        mutableStateOf("No manual EventBus playback request yet.")
+    }
+    var smokeTestState by remember {
+        mutableStateOf(AudioMvpSmokeTestState())
     }
     val fallbackRuntimeDebugState = remember { AudioRuntimeDebugState() }
     val runtimeDebugStateFlow = audioRuntimeDebugStateProvider?.observeRuntimeDebugState()
@@ -135,10 +173,87 @@ fun AudioDebugScreen(
         uiState = enrichedState
     }
 
+    fun refreshKeywordRuntimeState() {
+        keywordSpotterRuntimeState = audioCaptureController.keywordSpotterState()
+        keywordDetectionCount = audioCaptureController.keywordDetectionCount()
+        lastKeywordDetection = audioCaptureController.latestKeywordDetectionResult()
+        keywordSpotterLastError = audioCaptureController.keywordSpotterLastErrorMessage()
+    }
+
     fun playRandomClip(category: AudioCategory) {
-        val playbackResult = playbackEngine.playRandomClipWithDetails(category)
-        lastPlaybackRequestSummary = buildPlaybackRequestSummary(playbackResult)
-        Log.d(TAG, "Manual playback request result: $lastPlaybackRequestSummary")
+        val eventBus = audioEventBus
+        if (eventBus == null) {
+            val playbackResult = playbackEngine.playRandomClipWithDetails(category)
+            lastPlaybackRequestSummary = buildPlaybackRequestSummary(playbackResult)
+            Log.d(TAG, "Manual playback request result (direct fallback): $lastPlaybackRequestSummary")
+            return
+        }
+
+        val requestedAtMs = System.currentTimeMillis()
+        val requestPayload = AudioResponseRequestPayload(
+            category = category.label,
+            priority = 1,
+            interruptPolicy = "INTERRUPT_NONE",
+            cooldownKey = category.label,
+            timestamp = requestedAtMs
+        )
+        coroutineScope.launch {
+            try {
+                eventBus.publish(
+                    EventEnvelope.create(
+                        type = EventType.AUDIO_RESPONSE_REQUESTED,
+                        timestampMs = requestedAtMs,
+                        payloadJson = requestPayload.toJson()
+                    )
+                )
+                lastPlaybackRequestSummary =
+                    "event=${EventType.AUDIO_RESPONSE_REQUESTED.name}, category=${category.label}, " +
+                        "timestamp=$requestedAtMs"
+                Log.d(TAG, "Published manual ${EventType.AUDIO_RESPONSE_REQUESTED.name}: $lastPlaybackRequestSummary")
+            } catch (error: Throwable) {
+                lastPlaybackRequestSummary =
+                    "event=${EventType.AUDIO_RESPONSE_REQUESTED.name}, category=${category.label}, " +
+                        "status=FAILED, error=${error.message ?: "unknown"}"
+                Log.e(
+                    TAG,
+                    "Failed to publish manual ${EventType.AUDIO_RESPONSE_REQUESTED.name}. " +
+                        "category=${category.label}",
+                    error
+                )
+            }
+        }
+    }
+
+    fun setKeywordSpottingEnabled(enabled: Boolean) {
+        coroutineScope.launch {
+            try {
+                keywordSpottingConfigStore.setEnabled(enabled)
+                Log.d(TAG, "Keyword spotting enabled set to $enabled")
+            } catch (error: Throwable) {
+                val message = "Failed to update keyword spotting enabled state."
+                Log.e(TAG, message, error)
+                updateState(
+                    nextState = uiState.copy(lastErrorMessage = "$message ${error.message ?: "unknown error"}"),
+                    reason = "keyword_config_enabled_failed"
+                )
+            }
+        }
+    }
+
+    fun setKeywordSpottingProvider(provider: KeywordSpottingProvider) {
+        coroutineScope.launch {
+            try {
+                keywordSpottingConfigStore.setProvider(provider)
+                Log.d(TAG, "Keyword spotting provider set to ${provider.name}")
+            } catch (error: Throwable) {
+                val message = "Failed to update keyword spotting provider."
+                Log.e(TAG, message, error)
+                updateState(
+                    nextState = uiState.copy(lastErrorMessage = "$message ${error.message ?: "unknown error"}"),
+                    reason = "keyword_config_provider_failed"
+                )
+            }
+        }
     }
 
     LaunchedEffect(context, hasRequestedPermission) {
@@ -180,12 +295,43 @@ fun AudioDebugScreen(
         }
     }
 
+    LaunchedEffect(keywordSpottingConfig.enabled, keywordSpottingConfig.provider) {
+        if (!keywordSpottingConfig.enabled) {
+            audioCaptureController.setKeywordSpotter(null)
+            keywordProviderRuntimeNote = "Keyword spotting is disabled in config."
+            refreshKeywordRuntimeState()
+            return@LaunchedEffect
+        }
+
+        val selectedProvider = keywordSpottingConfig.provider
+        val selectedSpotter = keywordSpotterFactory.create(selectedProvider)
+        if (selectedSpotter == null) {
+            audioCaptureController.setKeywordSpotter(null)
+            keywordProviderRuntimeNote =
+                "Provider ${selectedProvider.displayName} is not integrated in this build."
+        } else {
+            audioCaptureController.setKeywordSpotter(selectedSpotter)
+            keywordProviderRuntimeNote =
+                "Provider ${selectedProvider.displayName} uses adapter ${selectedSpotter.spotterId}."
+        }
+        refreshKeywordRuntimeState()
+    }
+
+    LaunchedEffect(audioEventBus) {
+        smokeTestState = AudioMvpSmokeTestState()
+        val eventBus = audioEventBus ?: return@LaunchedEffect
+        eventBus.observe().collect { event ->
+            smokeTestState = smokeTestState.consume(event)
+        }
+    }
+
     LaunchedEffect(uiState.captureState) {
         if (uiState.captureState != AudioCaptureLifecycleState.Active) {
             if (!audioCaptureController.isCapturing()) {
                 latestEnergyMetrics = null
                 lastEnergyUpdatedAtMs = null
             }
+            refreshKeywordRuntimeState()
             return@LaunchedEffect
         }
 
@@ -197,6 +343,7 @@ fun AudioDebugScreen(
                     reason = "capture_runtime_poll"
                 )
             }
+            refreshKeywordRuntimeState()
             delay(RUNTIME_POLL_INTERVAL_MS)
         }
 
@@ -207,6 +354,7 @@ fun AudioDebugScreen(
                 reason = "capture_runtime_idle_refresh"
             )
         }
+        refreshKeywordRuntimeState()
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -270,6 +418,7 @@ fun AudioDebugScreen(
                 ),
                 reason = "initialize_without_permission"
             )
+            refreshKeywordRuntimeState()
             return@initializeAudio
         }
 
@@ -293,6 +442,7 @@ fun AudioDebugScreen(
                 reason = "initialize_failed"
             )
         }
+        refreshKeywordRuntimeState()
     }
 
     val startCapture = startCapture@{
@@ -305,6 +455,7 @@ fun AudioDebugScreen(
                 ),
                 reason = "start_without_permission"
             )
+            refreshKeywordRuntimeState()
             return@startCapture
         }
         if (!audioCaptureController.isInitialized()) {
@@ -316,6 +467,7 @@ fun AudioDebugScreen(
                 ),
                 reason = "start_without_initialization"
             )
+            refreshKeywordRuntimeState()
             return@startCapture
         }
 
@@ -349,6 +501,7 @@ fun AudioDebugScreen(
                 reason = "start_failed"
             )
         }
+        refreshKeywordRuntimeState()
     }
 
     val stopCapture = {
@@ -377,6 +530,7 @@ fun AudioDebugScreen(
                 reason = "stop_failed"
             )
         }
+        refreshKeywordRuntimeState()
     }
 
     val releaseAudio = {
@@ -410,6 +564,7 @@ fun AudioDebugScreen(
                 reason = "release_failed"
             )
         }
+        refreshKeywordRuntimeState()
     }
 
     DisposableEffect(lifecycleOwner, context, hasRequestedPermission) {
@@ -462,7 +617,7 @@ fun AudioDebugScreen(
         }
     }
 
-    DisposableEffect(audioCaptureController, playbackEngine, mainHandler) {
+    DisposableEffect(audioCaptureController, ownedPlaybackEngine, mainHandler) {
         audioCaptureController.setEnergyMetricsCallback { metrics ->
             mainHandler.post {
                 latestEnergyMetrics = metrics
@@ -475,7 +630,7 @@ fun AudioDebugScreen(
             if (!releaseResult.success) {
                 Log.e(TAG, releaseResult.message)
             }
-            playbackEngine.release()
+            ownedPlaybackEngine?.release()
         }
     }
 
@@ -486,6 +641,15 @@ fun AudioDebugScreen(
         !audioCaptureController.isCapturing()
     val canStop = audioCaptureController.isCapturing()
     val canRelease = audioCaptureController.isInitialized()
+    val wakeWordCheckpoint = evaluateWakeWordCheckpoint(
+        config = keywordSpottingConfig,
+        runtimeState = keywordSpotterRuntimeState,
+        runtimeNote = keywordProviderRuntimeNote,
+        wakeWordObservation = smokeTestState.lastWakeWordDetection
+    )
+    val keywordCheckpoint = evaluateKeywordCheckpoint(
+        keywordObservation = smokeTestState.lastKeywordDetection
+    )
 
     Column(
         modifier = Modifier
@@ -573,6 +737,221 @@ fun AudioDebugScreen(
             text = "Note: VOICE_LIKELY is energy-based (not speech recognition).",
             modifier = Modifier.fillMaxWidth()
         )
+        Text(
+            text = "Keyword Spotting Config",
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp)
+        )
+        Text(
+            text = "Keyword spotting enabled: ${if (keywordSpottingConfig.enabled) "Yes" else "No"}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Selected provider: ${keywordSpottingConfig.provider.displayName}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Runtime status: ${formatKeywordSpottingRuntimeStatus(keywordSpottingConfig, keywordSpotterRuntimeState, keywordProviderRuntimeNote)}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Keyword adapter state: ${keywordSpotterRuntimeState.name}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Keyword detections: $keywordDetectionCount",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Last keyword detection: ${formatKeywordDetection(lastKeywordDetection)}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Keyword adapter note: ${keywordProviderRuntimeNote ?: "-"}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Keyword adapter error: ${keywordSpotterLastError ?: "-"}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Audio MVP Smoke Test (Manual)",
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp)
+        )
+        Text(
+            text = "1) Request permission -> Initialize Audio -> Start Capture.",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "2) Speak near mic: expect VOICE_ACTIVITY_* and behavior request.",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "3) Make a short loud sound: expect surprised request path.",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "4) If supported, trigger wake word: expect WAKE_WORD_DETECTED.",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "5) Confirm request -> playback lifecycle, then Stop Capture.",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = formatSmokeCheckpoint(
+                status = if (smokeTestState.captureStartedAtMs != null) {
+                    SmokeCheckpointStatus.PASS
+                } else {
+                    SmokeCheckpointStatus.PENDING
+                },
+                label = "Capture started event observed",
+                detail = smokeTestState.captureStartedAtMs?.let(::formatSoundEventTimestamp)
+                    ?: "waiting for ${EventType.AUDIO_CAPTURE_STARTED.name}"
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = formatSmokeCheckpoint(
+                status = if (smokeTestState.captureStoppedAtMs != null) {
+                    SmokeCheckpointStatus.PASS
+                } else {
+                    SmokeCheckpointStatus.PENDING
+                },
+                label = "Capture stopped event observed",
+                detail = smokeTestState.captureStoppedAtMs?.let(::formatSoundEventTimestamp)
+                    ?: "stop capture to verify ${EventType.AUDIO_CAPTURE_STOPPED.name}"
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = formatSmokeCheckpoint(
+                status = if (smokeTestState.energyEventAtMs != null || runtimeDebugState.latestEnergyTimestampMs != null) {
+                    SmokeCheckpointStatus.PASS
+                } else {
+                    SmokeCheckpointStatus.PENDING
+                },
+                label = "Energy/VAD activity observed",
+                detail = (
+                    smokeTestState.energyEventAtMs
+                        ?: runtimeDebugState.latestEnergyTimestampMs
+                    )?.let(::formatSoundEventTimestamp)
+                    ?: "waiting for ${EventType.SOUND_ENERGY_CHANGED.name}"
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = formatSmokeCheckpoint(
+                status = if (smokeTestState.voiceActivityStartedAtMs != null) {
+                    SmokeCheckpointStatus.PASS
+                } else {
+                    SmokeCheckpointStatus.PENDING
+                },
+                label = "Voice activity observed",
+                detail = smokeTestState.voiceActivityStartedAtMs?.let(::formatSoundEventTimestamp)
+                    ?: "waiting for ${EventType.VOICE_ACTIVITY_STARTED.name}"
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = formatSmokeCheckpoint(
+                status = if (smokeTestState.lastBehaviorResponseRequest != null) {
+                    SmokeCheckpointStatus.PASS
+                } else {
+                    SmokeCheckpointStatus.PENDING
+                },
+                label = "Behavior request observed",
+                detail = smokeTestState.lastBehaviorResponseRequest?.let(::formatRequestObservation)
+                    ?: "waiting for request after sound/voice/wake stimulus"
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = formatSmokeCheckpoint(
+                status = if (smokeTestState.lastPlaybackEvent != null) {
+                    SmokeCheckpointStatus.PASS
+                } else {
+                    SmokeCheckpointStatus.PENDING
+                },
+                label = "Playback lifecycle observed",
+                detail = smokeTestState.lastPlaybackEvent?.let(::formatPlaybackObservation)
+                    ?: "waiting for ${EventType.AUDIO_RESPONSE_STARTED.name}/" +
+                        "${EventType.AUDIO_RESPONSE_COMPLETED.name}/" +
+                        "${EventType.AUDIO_RESPONSE_SKIPPED.name}"
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = formatSmokeCheckpoint(
+                status = wakeWordCheckpoint.status,
+                label = "Wake-word detected",
+                detail = wakeWordCheckpoint.detail
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = formatSmokeCheckpoint(
+                status = keywordCheckpoint.status,
+                label = "Keyword detected (optional)",
+                detail = keywordCheckpoint.detail
+            ),
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Latest sound event: ${formatLatestSmokeSoundEvent(runtimeDebugState, smokeTestState)}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Latest request event: ${formatRequestObservation(smokeTestState.lastResponseRequest)}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Latest playback outcome: ${formatPlaybackObservation(smokeTestState.lastPlaybackEvent)}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Latest wake-word event: ${formatKeywordObservation(smokeTestState.lastWakeWordDetection)}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Known limits: first playback may skip NOT_READY; cooldown/overlap guard may skip requests; keyword confidence still needs tuning.",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Button(
+            onClick = { smokeTestState = AudioMvpSmokeTestState() },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(text = "Reset Smoke Session")
+        }
+        Button(
+            onClick = { setKeywordSpottingEnabled(!keywordSpottingConfig.enabled) },
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                text = if (keywordSpottingConfig.enabled) {
+                    "Disable Keyword Spotting"
+                } else {
+                    "Enable Keyword Spotting"
+                }
+            )
+        }
+        KeywordSpottingProvider.entries.forEach { provider ->
+            Button(
+                onClick = { setKeywordSpottingProvider(provider) },
+                enabled = keywordSpottingConfig.provider != provider,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                val label = if (keywordSpottingConfig.provider == provider) {
+                    "Provider: ${provider.displayName} (Selected)"
+                } else {
+                    "Select Provider: ${provider.displayName}"
+                }
+                Text(text = label)
+            }
+        }
         Text(
             text = "Last error: ${uiState.lastErrorMessage ?: "-"}",
             modifier = Modifier.fillMaxWidth()
@@ -980,6 +1359,328 @@ private fun formatLastSkippedReason(state: AudioPlaybackDebugState): String {
     return "$reason @ $timestamp"
 }
 
+private fun formatKeywordSpottingRuntimeStatus(
+    config: KeywordSpottingConfig,
+    runtimeState: KeywordSpotterState,
+    runtimeNote: String?
+): String {
+    if (!config.enabled) {
+        return "Disabled by config. No keyword runtime path is active."
+    }
+    return when (config.provider) {
+        KeywordSpottingProvider.NONE -> "Enabled, provider=None. No adapter is active."
+        else -> {
+            runtimeNote ?: "Provider ${config.provider.displayName} selected, adapter unavailable. " +
+                "Adapter state=${runtimeState.name}."
+        }
+    }
+}
+
+private fun formatKeywordDetection(result: KeywordDetectionResult?): String {
+    val activeResult = result ?: return "-"
+    val confidenceLabel = String.format(Locale.US, "%.3f", activeResult.confidence)
+    return "${activeResult.detectionType.name} ${activeResult.keywordId} " +
+        "(text=${activeResult.keywordText ?: "-"}) " +
+        "confidence=$confidenceLabel engine=${activeResult.engineName} " +
+        "@${formatSoundEventTimestamp(activeResult.timestampMs)}"
+}
+
+private data class AudioMvpSmokeTestState(
+    val captureStartedAtMs: Long? = null,
+    val captureStoppedAtMs: Long? = null,
+    val energyEventAtMs: Long? = null,
+    val voiceActivityStartedAtMs: Long? = null,
+    val lastStimulusAtMs: Long? = null,
+    val lastSoundEventType: EventType? = null,
+    val lastSoundEventAtMs: Long? = null,
+    val lastResponseRequest: AudioResponseRequestObservation? = null,
+    val lastBehaviorResponseRequest: AudioResponseRequestObservation? = null,
+    val lastPlaybackEvent: AudioPlaybackEventObservation? = null,
+    val lastWakeWordDetection: KeywordDetectionObservation? = null,
+    val lastKeywordDetection: KeywordDetectionObservation? = null
+) {
+    fun consume(event: EventEnvelope): AudioMvpSmokeTestState {
+        return when (event.type) {
+            EventType.AUDIO_CAPTURE_STARTED -> {
+                copy(captureStartedAtMs = event.timestampMs)
+            }
+            EventType.AUDIO_CAPTURE_STOPPED -> {
+                copy(captureStoppedAtMs = event.timestampMs)
+            }
+            EventType.SOUND_ENERGY_CHANGED -> {
+                copy(energyEventAtMs = event.timestampMs)
+            }
+            EventType.SOUND_DETECTED -> {
+                copy(
+                    lastStimulusAtMs = event.timestampMs,
+                    lastSoundEventType = event.type,
+                    lastSoundEventAtMs = event.timestampMs
+                )
+            }
+            EventType.VOICE_ACTIVITY_ENDED -> {
+                copy(
+                    lastSoundEventType = event.type,
+                    lastSoundEventAtMs = event.timestampMs
+                )
+            }
+            EventType.VOICE_ACTIVITY_STARTED -> {
+                copy(
+                    voiceActivityStartedAtMs = event.timestampMs,
+                    lastStimulusAtMs = event.timestampMs,
+                    lastSoundEventType = event.type,
+                    lastSoundEventAtMs = event.timestampMs
+                )
+            }
+            EventType.WAKE_WORD_DETECTED -> {
+                copy(
+                    lastStimulusAtMs = event.timestampMs,
+                    lastSoundEventType = event.type,
+                    lastSoundEventAtMs = event.timestampMs,
+                    lastWakeWordDetection = event.toKeywordObservation()
+                )
+            }
+            EventType.KEYWORD_DETECTED -> {
+                copy(
+                    lastStimulusAtMs = event.timestampMs,
+                    lastSoundEventType = event.type,
+                    lastSoundEventAtMs = event.timestampMs,
+                    lastKeywordDetection = event.toKeywordObservation()
+                )
+            }
+            EventType.AUDIO_RESPONSE_REQUESTED -> {
+                val requestObservation = event.toRequestObservation()
+                val behaviorRequestObservation = if (
+                    isLikelyBehaviorResponseRequest(
+                        requestObservation = requestObservation,
+                        lastStimulusAtMs = lastStimulusAtMs
+                    )
+                ) {
+                    requestObservation
+                } else {
+                    lastBehaviorResponseRequest
+                }
+                copy(
+                    lastResponseRequest = requestObservation,
+                    lastBehaviorResponseRequest = behaviorRequestObservation
+                )
+            }
+            EventType.AUDIO_RESPONSE_STARTED,
+            EventType.AUDIO_RESPONSE_COMPLETED,
+            EventType.AUDIO_RESPONSE_SKIPPED -> {
+                copy(lastPlaybackEvent = event.toPlaybackObservation())
+            }
+            else -> this
+        }
+    }
+}
+
+private data class AudioResponseRequestObservation(
+    val category: String,
+    val clipId: String?,
+    val cooldownKey: String?,
+    val timestampMs: Long,
+    val payloadValid: Boolean
+)
+
+private data class AudioPlaybackEventObservation(
+    val eventType: EventType,
+    val category: String,
+    val clipId: String?,
+    val reason: String?,
+    val timestampMs: Long,
+    val payloadValid: Boolean
+)
+
+private data class KeywordDetectionObservation(
+    val eventType: EventType,
+    val keywordId: String,
+    val keywordText: String?,
+    val confidence: Float?,
+    val engine: String?,
+    val timestampMs: Long,
+    val payloadValid: Boolean
+)
+
+private enum class SmokeCheckpointStatus {
+    PASS,
+    PENDING,
+    NOT_APPLICABLE
+}
+
+private data class SmokeCheckpointEvaluation(
+    val status: SmokeCheckpointStatus,
+    val detail: String
+)
+
+private fun EventEnvelope.toRequestObservation(): AudioResponseRequestObservation {
+    val payload = AudioResponseRequestPayload.fromJson(payloadJson)
+    return AudioResponseRequestObservation(
+        category = payload?.category ?: "MALFORMED",
+        clipId = payload?.clipId,
+        cooldownKey = payload?.cooldownKey,
+        timestampMs = timestampMs,
+        payloadValid = payload != null
+    )
+}
+
+private fun EventEnvelope.toPlaybackObservation(): AudioPlaybackEventObservation {
+    val payload = AudioResponsePayload.fromJson(payloadJson)
+    return AudioPlaybackEventObservation(
+        eventType = type,
+        category = payload?.category ?: "MALFORMED",
+        clipId = payload?.clipId,
+        reason = payload?.reason,
+        timestampMs = timestampMs,
+        payloadValid = payload != null
+    )
+}
+
+private fun EventEnvelope.toKeywordObservation(): KeywordDetectionObservation {
+    val payload = KeywordDetectionPayload.fromJson(payloadJson)
+    return KeywordDetectionObservation(
+        eventType = type,
+        keywordId = payload?.keywordId ?: "MALFORMED",
+        keywordText = payload?.keywordText,
+        confidence = payload?.confidence,
+        engine = payload?.engine,
+        timestampMs = timestampMs,
+        payloadValid = payload != null
+    )
+}
+
+private fun isLikelyBehaviorResponseRequest(
+    requestObservation: AudioResponseRequestObservation,
+    lastStimulusAtMs: Long?
+): Boolean {
+    if (!requestObservation.payloadValid) {
+        return false
+    }
+    val stimulusTimestamp = lastStimulusAtMs ?: return false
+    if (requestObservation.timestampMs < stimulusTimestamp) {
+        return false
+    }
+    val elapsedSinceStimulusMs = requestObservation.timestampMs - stimulusTimestamp
+    if (elapsedSinceStimulusMs > BEHAVIOR_REQUEST_SEQUENCE_WINDOW_MS) {
+        return false
+    }
+    val normalizedCategory = requestObservation.category.trim().uppercase(Locale.US)
+    return normalizedCategory in BEHAVIOR_RESPONSE_CATEGORIES
+}
+
+private fun evaluateWakeWordCheckpoint(
+    config: KeywordSpottingConfig,
+    runtimeState: KeywordSpotterState,
+    runtimeNote: String?,
+    wakeWordObservation: KeywordDetectionObservation?
+): SmokeCheckpointEvaluation {
+    if (!config.enabled) {
+        return SmokeCheckpointEvaluation(
+            status = SmokeCheckpointStatus.NOT_APPLICABLE,
+            detail = "keyword spotting disabled"
+        )
+    }
+    if (config.provider == KeywordSpottingProvider.NONE) {
+        return SmokeCheckpointEvaluation(
+            status = SmokeCheckpointStatus.NOT_APPLICABLE,
+            detail = "provider NONE selected"
+        )
+    }
+    if (runtimeState == KeywordSpotterState.FAILED) {
+        return SmokeCheckpointEvaluation(
+            status = SmokeCheckpointStatus.PENDING,
+            detail = "adapter failed; check runtime note/error"
+        )
+    }
+    if (runtimeNote?.contains("not integrated", ignoreCase = true) == true) {
+        return SmokeCheckpointEvaluation(
+            status = SmokeCheckpointStatus.NOT_APPLICABLE,
+            detail = "selected provider not integrated"
+        )
+    }
+    if (wakeWordObservation != null) {
+        return SmokeCheckpointEvaluation(
+            status = SmokeCheckpointStatus.PASS,
+            detail = formatKeywordObservation(wakeWordObservation)
+        )
+    }
+    return SmokeCheckpointEvaluation(
+        status = SmokeCheckpointStatus.PENDING,
+        detail = "waiting for ${EventType.WAKE_WORD_DETECTED.name}"
+    )
+}
+
+private fun evaluateKeywordCheckpoint(
+    keywordObservation: KeywordDetectionObservation?
+): SmokeCheckpointEvaluation {
+    if (keywordObservation == null) {
+        return SmokeCheckpointEvaluation(
+            status = SmokeCheckpointStatus.NOT_APPLICABLE,
+            detail = "optional path; verify only if runtime emits ${EventType.KEYWORD_DETECTED.name}"
+        )
+    }
+    return SmokeCheckpointEvaluation(
+        status = SmokeCheckpointStatus.PASS,
+        detail = formatKeywordObservation(keywordObservation)
+    )
+}
+
+private fun formatSmokeCheckpoint(
+    status: SmokeCheckpointStatus,
+    label: String,
+    detail: String
+): String {
+    val prefix = when (status) {
+        SmokeCheckpointStatus.PASS -> "[OK]"
+        SmokeCheckpointStatus.PENDING -> "[WAIT]"
+        SmokeCheckpointStatus.NOT_APPLICABLE -> "[N/A]"
+    }
+    return "$prefix $label: $detail"
+}
+
+private fun formatLatestSmokeSoundEvent(
+    runtimeDebugState: AudioRuntimeDebugState,
+    smokeTestState: AudioMvpSmokeTestState
+): String {
+    val eventType = smokeTestState.lastSoundEventType ?: runtimeDebugState.lastSoundEventType
+    val timestampMs = smokeTestState.lastSoundEventAtMs ?: runtimeDebugState.lastSoundEventTimestampMs
+    return "${formatSoundEventType(eventType)} @ ${formatSoundEventTimestamp(timestampMs)}"
+}
+
+private fun formatRequestObservation(observation: AudioResponseRequestObservation?): String {
+    val activeObservation = observation ?: return "-"
+    return "category=${activeObservation.category}, clipId=${activeObservation.clipId ?: "-"}, " +
+        "cooldownKey=${activeObservation.cooldownKey ?: "-"}, " +
+        "validPayload=${if (activeObservation.payloadValid) "Yes" else "No"}, " +
+        "timestamp=${formatSoundEventTimestamp(activeObservation.timestampMs)}"
+}
+
+private fun formatPlaybackObservation(observation: AudioPlaybackEventObservation?): String {
+    val activeObservation = observation ?: return "-"
+    return "event=${activeObservation.eventType.name}, category=${activeObservation.category}, " +
+        "clipId=${activeObservation.clipId ?: "-"}, reason=${activeObservation.reason ?: "-"}, " +
+        "validPayload=${if (activeObservation.payloadValid) "Yes" else "No"}, " +
+        "timestamp=${formatSoundEventTimestamp(activeObservation.timestampMs)}"
+}
+
+private fun formatKeywordObservation(observation: KeywordDetectionObservation?): String {
+    val activeObservation = observation ?: return "-"
+    val confidenceLabel = activeObservation.confidence?.let {
+        String.format(Locale.US, "%.3f", it)
+    } ?: "-"
+    return "event=${activeObservation.eventType.name}, keywordId=${activeObservation.keywordId}, " +
+        "text=${activeObservation.keywordText ?: "-"}, confidence=$confidenceLabel, " +
+        "engine=${activeObservation.engine ?: "-"}, " +
+        "validPayload=${if (activeObservation.payloadValid) "Yes" else "No"}, " +
+        "timestamp=${formatSoundEventTimestamp(activeObservation.timestampMs)}"
+}
+
 private const val TAG = "AudioDebugScreen"
 private const val RUNTIME_POLL_INTERVAL_MS = 300L
+private const val BEHAVIOR_REQUEST_SEQUENCE_WINDOW_MS = 10_000L
+private val BEHAVIOR_RESPONSE_CATEGORIES: Set<String> = setOf(
+    "ACKNOWLEDGMENT",
+    "SURPRISED",
+    "CURIOUS",
+    "GREETING"
+)
 

@@ -22,6 +22,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlin.random.Random
 
 class AudioPlaybackEngine(
     private val context: Context,
@@ -35,8 +36,8 @@ class AudioPlaybackEngine(
 
     fun playRandomClipWithDetails(category: AudioCategory): AudioPlaybackResult {
         Log.d(TAG, "Playback requested. category=${category.label}")
-        val clipMetadata = AudioAssetRegistry.getRandomClipMetadata(category)
-        if (clipMetadata == null) {
+        val categoryClips = AudioAssetRegistry.getClipMetadata(category)
+        if (categoryClips.isEmpty()) {
             return skipPlayback(
                 category = category,
                 clipMetadata = null,
@@ -45,14 +46,12 @@ class AudioPlaybackEngine(
             )
         }
 
-        val clipResId = clipMetadata.resourceId
-        val clipResourceName = resolveRawResourceName(clipResId)
         synchronized(lock) {
             if (playbackDebugState.value.readinessState != AudioPlaybackReadinessState.READY) {
                 return skipPlaybackLocked(
                     category = category,
-                    clipMetadata = clipMetadata,
-                    clipResourceName = clipResourceName,
+                    clipMetadata = null,
+                    clipResourceName = null,
                     skipReason = AudioPlaybackSkipReason.NOT_READY,
                     reasonDetail = "soundpool is preloading"
                 )
@@ -63,8 +62,8 @@ class AudioPlaybackEngine(
             if (remainingPlaybackMs > 0L) {
                 return skipPlaybackLocked(
                     category = category,
-                    clipMetadata = clipMetadata,
-                    clipResourceName = clipResourceName,
+                    clipMetadata = null,
+                    clipResourceName = null,
                     skipReason = AudioPlaybackSkipReason.OVERLAP_GUARD,
                     reasonDetail = "overlap guard active: remainingMs=$remainingPlaybackMs"
                 )
@@ -74,21 +73,41 @@ class AudioPlaybackEngine(
             if (elapsedSinceLastPlaybackMs in 0 until cooldownMs) {
                 return skipPlaybackLocked(
                     category = category,
-                    clipMetadata = clipMetadata,
-                    clipResourceName = clipResourceName,
+                    clipMetadata = null,
+                    clipResourceName = null,
                     skipReason = AudioPlaybackSkipReason.COOLDOWN,
                     reasonDetail = "cooldown active: elapsedMs=$elapsedSinceLastPlaybackMs"
                 )
             }
 
+            val clipSelection = resolveRandomPlayableClipLocked(
+                category = category,
+                categoryClips = categoryClips
+            )
+            if (clipSelection == null) {
+                return skipPlaybackLocked(
+                    category = category,
+                    clipMetadata = null,
+                    clipResourceName = null,
+                    skipReason = AudioPlaybackSkipReason.NO_PLAYABLE_CLIP,
+                    reasonDetail = "no loaded clip available in category. " +
+                        "candidateCount=${categoryClips.size}, loadedClipCount=${loadedSoundIds.size}"
+                )
+            }
+
+            val clipMetadata = clipSelection.clipMetadata
+            val clipResId = clipMetadata.resourceId
+            val clipResourceName = resolveRawResourceName(clipResId)
             val soundId = soundIdByClipResId[clipResId]
             if (soundId == null || soundId !in loadedSoundIds) {
                 return skipPlaybackLocked(
                     category = category,
                     clipMetadata = clipMetadata,
                     clipResourceName = clipResourceName,
-                    skipReason = AudioPlaybackSkipReason.NOT_READY,
-                    reasonDetail = "manifest clip is not ready"
+                    skipReason = AudioPlaybackSkipReason.NO_PLAYABLE_CLIP,
+                    reasonDetail = "selected clip became unavailable before playback. " +
+                        "candidateCount=${clipSelection.candidateCount}, " +
+                        "playableCount=${clipSelection.playableCount}"
                 )
             }
 
@@ -169,11 +188,38 @@ class AudioPlaybackEngine(
     }
 
     private fun preloadKnownClips() {
-        AudioCategory.entries.forEach { category ->
-            AudioAssetRegistry.getClipMetadata(category).forEach { clipMetadata ->
-                preloadClip(clipMetadata)
-            }
+        AudioAssetRegistry.allClipMetadata().forEach { clipMetadata ->
+            preloadClip(clipMetadata)
         }
+    }
+
+    private fun resolveRandomPlayableClipLocked(
+        category: AudioCategory,
+        categoryClips: List<AudioClipMetadata>
+    ): ClipSelection? {
+        val playableClips = categoryClips.filter { clipMetadata ->
+            isClipPlayableLocked(clipMetadata)
+        }
+        if (playableClips.isEmpty()) {
+            return null
+        }
+
+        val selectedClip = playableClips[random.nextInt(playableClips.size)]
+        Log.d(
+            TAG,
+            "Resolved category clip. category=${category.label}, clip=${selectedClip.logicalClipName}, " +
+                "candidateCount=${categoryClips.size}, playableCount=${playableClips.size}"
+        )
+        return ClipSelection(
+            clipMetadata = selectedClip,
+            candidateCount = categoryClips.size,
+            playableCount = playableClips.size
+        )
+    }
+
+    private fun isClipPlayableLocked(clipMetadata: AudioClipMetadata): Boolean {
+        val soundId = soundIdByClipResId[clipMetadata.resourceId] ?: return false
+        return soundId in loadedSoundIds
     }
 
     private fun preloadClip(clipMetadata: AudioClipMetadata) {
@@ -471,6 +517,7 @@ class AudioPlaybackEngine(
     private val clipMetadataBySoundId: MutableMap<Int, AudioClipMetadata> = mutableMapOf()
     private val loadedSoundIds: MutableSet<Int> = mutableSetOf()
     private val clipDurationByResId: MutableMap<Int, Long> = mutableMapOf()
+    private val random = Random.Default
     private val totalManifestClipCount: Int = AudioAssetRegistry.allClipMetadata().size
     private val playbackDebugState = MutableStateFlow(
         AudioPlaybackDebugState(
@@ -533,6 +580,7 @@ enum class AudioPlaybackReadinessState {
 
 enum class AudioPlaybackSkipReason {
     CATEGORY_EMPTY,
+    NO_PLAYABLE_CLIP,
     NOT_READY,
     COOLDOWN,
     OVERLAP_GUARD,
@@ -564,3 +612,9 @@ data class AudioPlaybackResult(
 private enum class PlaybackStatus {
     STARTED
 }
+
+private data class ClipSelection(
+    val clipMetadata: AudioClipMetadata,
+    val candidateCount: Int,
+    val playableCount: Int
+)

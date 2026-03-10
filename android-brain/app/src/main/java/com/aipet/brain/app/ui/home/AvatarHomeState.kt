@@ -22,6 +22,7 @@ class AvatarHomeState(
     var selectedEmotion: AvatarEmotion by mutableStateOf(initialAvatarState.emotion)
         private set
 
+    private var temporaryEmotionOverride: AvatarEmotion? = null
     private var idleEyeOverride: AvatarEyeState? = null
     private var idleMouthOverride: AvatarMouthState? = null
     private var blinkEyeOverride: AvatarEyeState? = null
@@ -34,14 +35,36 @@ class AvatarHomeState(
 
     fun updateAvatarState(newAvatarState: AvatarState) {
         selectedEmotion = newAvatarState.emotion
-        clearOverrides()
-        currentAvatarState = AvatarStateRules.normalizeForRender(newAvatarState)
+        clearMotionOverrides()
+        if (temporaryEmotionOverride == null) {
+            currentAvatarState = AvatarStateRules.normalizeForRender(newAvatarState)
+        } else {
+            recomputeCurrentState()
+        }
     }
 
     fun setEmotion(emotion: AvatarEmotion) {
         selectedEmotion = emotion
-        clearOverrides()
+        clearMotionOverrides()
         recomputeCurrentState()
+    }
+
+    fun applyTemporaryEmotionOverride(emotion: AvatarEmotion): Boolean {
+        if (temporaryEmotionOverride == emotion) {
+            return false
+        }
+        temporaryEmotionOverride = emotion
+        recomputeCurrentState()
+        return true
+    }
+
+    fun clearTemporaryEmotionOverride(): Boolean {
+        if (temporaryEmotionOverride == null) {
+            return false
+        }
+        temporaryEmotionOverride = null
+        recomputeCurrentState()
+        return true
     }
 
     suspend fun runBlinkLoop() {
@@ -99,7 +122,8 @@ class AvatarHomeState(
     }
 
     private fun recomputeCurrentState() {
-        val baseState = AvatarStateRules.stateForEmotion(selectedEmotion)
+        val resolvedEmotion = temporaryEmotionOverride ?: selectedEmotion
+        val baseState = AvatarStateRules.stateForEmotion(resolvedEmotion)
         val resolvedState = AvatarStateRules.applyTransientOverrides(
             baseState = baseState,
             idleEyeOverride = idleEyeOverride,
@@ -109,7 +133,7 @@ class AvatarHomeState(
         currentAvatarState = AvatarStateRules.normalizeForRender(resolvedState)
     }
 
-    private fun clearOverrides() {
+    private fun clearMotionOverrides() {
         idleEyeOverride = null
         idleMouthOverride = null
         blinkEyeOverride = null

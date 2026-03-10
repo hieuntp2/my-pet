@@ -1,10 +1,13 @@
 package com.aipet.brain.brain.state
 
+import android.util.Log
 import com.aipet.brain.brain.events.BrainStateChangedEventPayload
 import com.aipet.brain.brain.events.EventBus
 import com.aipet.brain.brain.events.EventEnvelope
 import com.aipet.brain.brain.events.EventType
 import com.aipet.brain.brain.events.PersonSeenEventPayload
+import com.aipet.brain.brain.logic.audio.AudioMeaningfulStimulusPolicy
+import com.aipet.brain.brain.logic.audio.AudioStimulusMapper
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
@@ -26,7 +29,9 @@ class BrainInteractionLoop(
     private val eventBus: EventBus,
     private val brainStateStore: BrainStateStore,
     private val nowProvider: () -> Long = { System.currentTimeMillis() },
-    private val inactivityThresholdMs: Long = DEFAULT_INACTIVITY_THRESHOLD_MS
+    private val inactivityThresholdMs: Long = DEFAULT_INACTIVITY_THRESHOLD_MS,
+    private val audioStimulusMapper: AudioStimulusMapper = AudioStimulusMapper(),
+    private val audioMeaningfulStimulusPolicy: AudioMeaningfulStimulusPolicy = AudioMeaningfulStimulusPolicy()
 ) {
     private val lock = Mutex()
     private var lastMeaningfulStimulusAtMs: Long = nowProvider()
@@ -83,6 +88,14 @@ class BrainInteractionLoop(
                             )
                         }
                     }
+                }
+
+                EventType.SOUND_DETECTED,
+                EventType.VOICE_ACTIVITY_STARTED,
+                EventType.VOICE_ACTIVITY_ENDED,
+                EventType.WAKE_WORD_DETECTED,
+                EventType.KEYWORD_DETECTED -> {
+                    handleAudioStimulusForInactivity(event)
                 }
 
                 else -> Unit
@@ -156,6 +169,36 @@ class BrainInteractionLoop(
         }
     }
 
+    private suspend fun handleAudioStimulusForInactivity(event: EventEnvelope) {
+        val stimulus = audioStimulusMapper.map(event) ?: run {
+            Log.w(
+                TAG,
+                "Ignored audio event for inactivity reset due to invalid payload. eventType=${event.type.name}, " +
+                    "eventId=${event.eventId}"
+            )
+            return
+        }
+        val meaningfulStimulus = audioMeaningfulStimulusPolicy.evaluate(stimulus)
+        if (meaningfulStimulus == null) {
+            Log.d(
+                TAG,
+                "Audio stimulus ignored for inactivity reset. source=${stimulus.sourceEventType.name}, " +
+                    "stimulusTs=${stimulus.timestampMs}"
+            )
+            return
+        }
+        recordMeaningfulStimulus(meaningfulStimulus.timestampMs)
+        Log.d(
+            TAG,
+            "Meaningful audio stimulus accepted. source=${meaningfulStimulus.sourceEventType.name}, " +
+                "reason=${meaningfulStimulus.reason}, stimulusTs=${meaningfulStimulus.timestampMs}"
+        )
+        wakeIfSleeping(
+            timestampMs = meaningfulStimulus.timestampMs,
+            reason = BrainTransitionReason.STIMULUS_WAKE
+        )
+    }
+
     private suspend fun transitionTo(
         targetState: BrainState,
         reason: BrainTransitionReason,
@@ -198,6 +241,7 @@ class BrainInteractionLoop(
     }
 
     companion object {
+        private const val TAG = "BrainInteractionLoop"
         private const val DEFAULT_INACTIVITY_THRESHOLD_MS = 60_000L
         private const val DEFAULT_INACTIVITY_CHECK_INTERVAL_MS = 1_000L
     }

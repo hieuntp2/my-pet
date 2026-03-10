@@ -1,5 +1,6 @@
 package com.aipet.brain.app.ui.home
 
+import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,6 +15,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.aipet.brain.brain.events.EventEnvelope
+import com.aipet.brain.brain.events.EventType
+import com.aipet.brain.brain.events.audio.AudioResponsePayload
 import com.aipet.brain.brain.state.BrainState
 import com.aipet.brain.memory.persons.PersonRecord
 import com.aipet.brain.ui.avatar.AvatarFace
@@ -36,6 +39,57 @@ fun HomeScreen(
         avatarHomeState.setEmotion(
             BrainStateAvatarMapper.toAvatarEmotion(currentBrainState)
         )
+    }
+
+    LaunchedEffect(latestEvent?.eventId, avatarHomeState) {
+        val event = latestEvent ?: return@LaunchedEffect
+        when (event.type) {
+            EventType.AUDIO_RESPONSE_STARTED -> {
+                Log.d(TAG, "Playback event received: ${event.type.name}")
+                val payload = AudioResponsePayload.fromJson(event.payloadJson)
+                if (payload == null) {
+                    Log.w(
+                        TAG,
+                        "Ignored ${event.type.name}: invalid payload. payload=${event.payloadJson}"
+                    )
+                    return@LaunchedEffect
+                }
+                val reactionEmotion = AudioPlaybackAvatarReactionMapper
+                    .toAvatarEmotion(payload.category)
+                if (reactionEmotion == null) {
+                    Log.d(
+                        TAG,
+                        "No avatar reaction mapping for category=${payload.category}"
+                    )
+                    return@LaunchedEffect
+                }
+                val applied = avatarHomeState.applyTemporaryEmotionOverride(reactionEmotion)
+                if (applied) {
+                    Log.d(
+                        TAG,
+                        "Applied temporary avatar reaction. category=${payload.category}, " +
+                            "emotion=${reactionEmotion.name}"
+                    )
+                }
+            }
+
+            EventType.AUDIO_RESPONSE_COMPLETED -> {
+                Log.d(TAG, "Playback event received: ${event.type.name}")
+                val restored = avatarHomeState.clearTemporaryEmotionOverride()
+                if (restored) {
+                    Log.d(TAG, "Avatar temporary reaction restored after playback completion.")
+                }
+            }
+
+            EventType.AUDIO_RESPONSE_SKIPPED -> {
+                Log.d(
+                    TAG,
+                    "Playback event received: ${event.type.name}. Avatar state unchanged."
+                )
+            }
+
+            else -> Unit
+        }
     }
 
     LaunchedEffect(avatarHomeState) {
@@ -90,3 +144,5 @@ fun HomeScreen(
         }
     }
 }
+
+private const val TAG = "HomeScreen"

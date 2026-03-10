@@ -6,14 +6,20 @@ import com.aipet.brain.brain.events.EventBus
 import com.aipet.brain.brain.events.EventEnvelope
 import com.aipet.brain.brain.events.EventType
 import com.aipet.brain.brain.events.audio.AudioCaptureEventPayload
+import com.aipet.brain.brain.events.audio.KeywordDetectionEventInput
+import com.aipet.brain.brain.events.audio.KeywordDetectionEventKind
+import com.aipet.brain.brain.events.audio.KeywordDetectionEventMapper
 import com.aipet.brain.brain.events.audio.SoundEnergyPayload
 import com.aipet.brain.brain.events.audio.VoiceActivityPayload
 import com.aipet.brain.brain.events.audio.VoiceActivityState
 import com.aipet.brain.perception.audio.AudioCaptureLifecycleEvent
 import com.aipet.brain.perception.audio.AudioCaptureLifecycleListener
 import com.aipet.brain.perception.audio.AudioEnergyMetricsListener
+import com.aipet.brain.perception.audio.AudioKeywordDetectionListener
 import com.aipet.brain.perception.audio.AudioVadResultListener
 import com.aipet.brain.perception.audio.model.AudioEnergyMetrics
+import com.aipet.brain.perception.audio.model.KeywordDetectionResult
+import com.aipet.brain.perception.audio.model.KeywordDetectionType
 import com.aipet.brain.perception.audio.model.VadResult
 import com.aipet.brain.perception.audio.model.VadState
 import kotlinx.coroutines.CoroutineScope
@@ -29,6 +35,7 @@ internal class AudioCaptureLifecycleEventPublisher(
 ) : AudioCaptureLifecycleListener,
     AudioEnergyMetricsListener,
     AudioVadResultListener,
+    AudioKeywordDetectionListener,
     AudioRuntimeDebugStateProvider {
     init {
         require(energyEventIntervalMs > 0L) { "energyEventIntervalMs must be > 0" }
@@ -63,6 +70,10 @@ internal class AudioCaptureLifecycleEventPublisher(
 
         val eventTimestampMs = frameElapsedRealtimeToEpochMs(
             frameTimestampMs = metrics.frameTimestampMs
+        )
+        updateLatestEnergyMetrics(
+            metrics = metrics,
+            timestampMs = eventTimestampMs
         )
         val payloadJson = SoundEnergyPayload(
             rms = metrics.rms,
@@ -333,6 +344,85 @@ internal class AudioCaptureLifecycleEventPublisher(
         }
     }
 
+    private fun updateLatestEnergyMetrics(
+        metrics: AudioEnergyMetrics,
+        timestampMs: Long
+    ) {
+        synchronized(runtimeDebugStateLock) {
+            runtimeDebugState.value = runtimeDebugState.value.copy(
+                latestEnergySmoothed = metrics.smoothed,
+                latestEnergyRms = metrics.rms,
+                latestEnergyPeak = metrics.peak,
+                latestEnergyTimestampMs = timestampMs
+            )
+        }
+    }
+
+    override fun onKeywordDetected(result: KeywordDetectionResult) {
+        Log.d(
+            TAG,
+            "Received keyword detection. " +
+                "keywordId=${result.keywordId} " +
+                "keywordText=${result.keywordText ?: "-"} " +
+                "confidence=${String.format(java.util.Locale.US, "%.3f", result.confidence)} " +
+                "engine=${result.engineName} " +
+                "kind=${result.detectionType.name}"
+        )
+        val eventKind = when (result.detectionType) {
+            KeywordDetectionType.WAKE_WORD -> KeywordDetectionEventKind.WAKE_WORD
+            KeywordDetectionType.KEYWORD -> KeywordDetectionEventKind.KEYWORD
+        }
+        val eventInput = KeywordDetectionEventInput(
+            kind = eventKind,
+            keywordId = result.keywordId,
+            keywordText = result.keywordText,
+            confidence = result.confidence,
+            timestampMs = result.timestampMs,
+            engine = result.engineName
+        )
+        val eventEnvelope = keywordDetectionEventMapper.toEventEnvelope(eventInput)
+        if (eventEnvelope == null) {
+            Log.w(
+                TAG,
+                "Skipped keyword detection event publication due to invalid mapping input. " +
+                    "keywordId=${result.keywordId} type=${result.detectionType.name} engine=${result.engineName}"
+            )
+            return
+        }
+        publishKeywordDetectionEvent(eventEnvelope, result)
+    }
+
+    private fun publishKeywordDetectionEvent(
+        eventEnvelope: EventEnvelope,
+        result: KeywordDetectionResult
+    ) {
+        coroutineScope.launch {
+            try {
+                eventBus.publish(eventEnvelope)
+                updateLastSoundEvent(
+                    eventType = eventEnvelope.type,
+                    timestampMs = eventEnvelope.timestampMs
+                )
+                Log.d(
+                    TAG,
+                    "Published ${eventEnvelope.type.name}. " +
+                        "keywordId=${result.keywordId} " +
+                        "keywordText=${result.keywordText ?: "-"} " +
+                        "confidence=${String.format(java.util.Locale.US, "%.3f", result.confidence)} " +
+                        "engine=${result.engineName} " +
+                        "kind=${result.detectionType.name}"
+                )
+            } catch (error: Throwable) {
+                Log.e(
+                    TAG,
+                    "Failed to publish ${eventEnvelope.type.name}. " +
+                        "keywordId=${result.keywordId} engine=${result.engineName}",
+                    error
+                )
+            }
+        }
+    }
+
     private fun updateLastSoundEvent(
         eventType: EventType,
         timestampMs: Long
@@ -375,6 +465,7 @@ internal class AudioCaptureLifecycleEventPublisher(
     private val runtimeDebugStateLock = Any()
     private val runtimeDebugState = MutableStateFlow(AudioRuntimeDebugState())
     private var soundEventSequence: Long = 0L
+    private val keywordDetectionEventMapper = KeywordDetectionEventMapper()
 
     override fun currentRuntimeDebugState(): AudioRuntimeDebugState = runtimeDebugState.value
 

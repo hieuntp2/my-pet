@@ -23,5 +23,6 @@ android {
 }
 
 dependencies {
+    implementation(project(":core-common"))
     implementation("androidx.camera:camera-core:$cameraXVersion")
 }

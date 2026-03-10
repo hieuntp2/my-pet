@@ -4,9 +4,13 @@ import android.media.AudioFormat
 import android.media.MediaRecorder
 import android.os.SystemClock
 import android.util.Log
+import com.aipet.brain.perception.audio.keyword.KeywordDetectionListener
+import com.aipet.brain.perception.audio.keyword.KeywordSpotter
 import com.aipet.brain.perception.audio.model.AudioCaptureState
 import com.aipet.brain.perception.audio.model.AudioEnergyMetrics
 import com.aipet.brain.perception.audio.model.AudioFrame
+import com.aipet.brain.perception.audio.model.KeywordDetectionResult
+import com.aipet.brain.perception.audio.model.KeywordSpotterState
 import com.aipet.brain.perception.audio.model.VadResult
 import com.aipet.brain.perception.audio.model.VadState
 
@@ -14,7 +18,9 @@ class AudioCaptureController(
     private val config: AudioCaptureConfig = AudioCaptureConfig(),
     private val lifecycleListener: AudioCaptureLifecycleListener? = null,
     private val energyMetricsListener: AudioEnergyMetricsListener? = null,
-    private val vadResultListener: AudioVadResultListener? = null
+    private val vadResultListener: AudioVadResultListener? = null,
+    private val keywordDetectionListener: AudioKeywordDetectionListener? = null,
+    initialKeywordSpotter: KeywordSpotter? = null
 ) {
     @Synchronized
     fun setFrameCallback(callback: ((AudioPcmFrame) -> Unit)?) {
@@ -30,6 +36,53 @@ class AudioCaptureController(
     fun setVadResultCallback(callback: ((VadResult) -> Unit)?) {
         vadResultCallback = callback
     }
+
+    @Synchronized
+    fun setKeywordSpotter(nextSpotter: KeywordSpotter?) {
+        val currentSpotter = keywordSpotter
+        if (currentSpotter === nextSpotter) {
+            return
+        }
+
+        detachKeywordSpotter(currentSpotter)
+        keywordSpotter = nextSpotter
+        latestKeywordSpotterError = null
+        latestKeywordDetection = null
+        keywordDetectionTotal = 0L
+        lastKeywordDetectionFingerprint = null
+        latestKeywordSpotterState = nextSpotter?.state() ?: KeywordSpotterState.IDLE
+
+        if (nextSpotter == null) {
+            Log.d(TAG, "Keyword spotter detached.")
+            return
+        }
+
+        nextSpotter.setDetectionListener(spotterDetectionListener)
+        if (audioFrameSource.isRunning()) {
+            startKeywordSpotter(nextSpotter)
+        }
+        latestKeywordSpotterState = nextSpotter.state()
+        Log.d(
+            TAG,
+            "Keyword spotter attached. spotterId=${nextSpotter.spotterId} " +
+                "state=${latestKeywordSpotterState.name}"
+        )
+    }
+
+    @Synchronized
+    fun latestKeywordDetectionResult(): KeywordDetectionResult? = latestKeywordDetection
+
+    @Synchronized
+    fun keywordDetectionCount(): Long = keywordDetectionTotal
+
+    @Synchronized
+    fun keywordSpotterState(): KeywordSpotterState = latestKeywordSpotterState
+
+    @Synchronized
+    fun keywordSpotterId(): String? = keywordSpotter?.spotterId
+
+    @Synchronized
+    fun keywordSpotterLastErrorMessage(): String? = latestKeywordSpotterError
 
     @Synchronized
     fun initialize(): AudioCaptureOperationResult {
@@ -81,12 +134,16 @@ class AudioCaptureController(
                 )
             }
 
+            keywordSpotter?.let { spotter ->
+                startKeywordSpotter(spotter)
+            }
             emitCaptureStartedEvent(timestampMs = System.currentTimeMillis())
             success("Audio capture started.")
         } catch (error: Throwable) {
             audioFrameSource.stop()
             audioFrameSource.setFrameListener(null)
             audioProcessingDispatcher.stop()
+            stopKeywordSpotter()
             failure("Audio capture start failed: ${error.message ?: "unknown error"}", error)
         }
     }
@@ -101,6 +158,7 @@ class AudioCaptureController(
             audioFrameSource.stop()
             audioFrameSource.setFrameListener(null)
             audioProcessingDispatcher.stop()
+            stopKeywordSpotter()
             vadDetector.reset()
             latestVadResult = null
             lastLoggedVadState = null
@@ -111,6 +169,7 @@ class AudioCaptureController(
             audioFrameSource.stop()
             audioFrameSource.setFrameListener(null)
             audioProcessingDispatcher.stop()
+            stopKeywordSpotter()
             vadDetector.reset()
             latestVadResult = null
             lastLoggedVadState = null
@@ -124,6 +183,7 @@ class AudioCaptureController(
             audioFrameSource.stop()
             audioFrameSource.setFrameListener(null)
             audioProcessingDispatcher.stop()
+            stopKeywordSpotter()
             failure("Audio capture stop failed: ${error.message ?: "unknown error"}", error)
         }
     }
@@ -134,6 +194,7 @@ class AudioCaptureController(
         audioFrameSource.stop()
         audioFrameSource.setFrameListener(null)
         audioProcessingDispatcher.stop()
+        stopKeywordSpotter()
         vadDetector.reset()
         latestVadResult = null
         lastLoggedVadState = null
@@ -153,6 +214,7 @@ class AudioCaptureController(
             audioFrameSource.stop()
             audioFrameSource.setFrameListener(null)
             audioProcessingDispatcher.stop()
+            stopKeywordSpotter()
             failure("Audio release required forced cleanup: ${error.message ?: "unknown error"}", error)
         }
     }
@@ -205,6 +267,7 @@ class AudioCaptureController(
                 Log.e(TAG, "Audio VAD listener failed.", error)
             }
         }
+        processKeywordFrame(frame)
         if (previousVadState != vadResult.state) {
             logVadTransition(
                 previousState = previousVadState,
@@ -230,6 +293,113 @@ class AudioCaptureController(
             )
             processedFramesSinceLog = 0
             processingLogWindowStartMs = nowMs
+        }
+    }
+
+    private fun processKeywordFrame(frame: AudioFrame) {
+        val activeSpotter = keywordSpotter ?: return
+        if (latestKeywordSpotterState != KeywordSpotterState.RUNNING) {
+            return
+        }
+
+        try {
+            val detection = activeSpotter.processFrame(frame) ?: return
+            handleKeywordDetection(detection)
+        } catch (error: Throwable) {
+            latestKeywordSpotterError = "Keyword spotter runtime failure: ${error.message ?: "unknown error"}"
+            Log.e(
+                TAG,
+                "Keyword spotter processing failed. spotterId=${activeSpotter.spotterId}",
+                error
+            )
+            disableKeywordSpotter(activeSpotter)
+        }
+    }
+
+    private fun startKeywordSpotter(spotter: KeywordSpotter) {
+        try {
+            spotter.setDetectionListener(spotterDetectionListener)
+            spotter.start()
+            latestKeywordSpotterState = spotter.state()
+            latestKeywordSpotterError = null
+            Log.d(
+                TAG,
+                "Keyword spotter started. spotterId=${spotter.spotterId} " +
+                    "state=${latestKeywordSpotterState.name}"
+            )
+        } catch (error: Throwable) {
+            latestKeywordSpotterState = KeywordSpotterState.FAILED
+            latestKeywordSpotterError =
+                "Keyword spotter start failed for ${spotter.spotterId}: ${error.message ?: "unknown error"}"
+            Log.e(TAG, latestKeywordSpotterError, error)
+            disableKeywordSpotter(spotter)
+        }
+    }
+
+    private fun stopKeywordSpotter() {
+        val activeSpotter = keywordSpotter ?: return
+        try {
+            activeSpotter.stop()
+        } catch (error: Throwable) {
+            latestKeywordSpotterError =
+                "Keyword spotter stop failed for ${activeSpotter.spotterId}: ${error.message ?: "unknown error"}"
+            Log.e(TAG, latestKeywordSpotterError, error)
+        } finally {
+            latestKeywordSpotterState = KeywordSpotterState.IDLE
+        }
+    }
+
+    private fun disableKeywordSpotter(spotter: KeywordSpotter) {
+        if (keywordSpotter !== spotter) {
+            return
+        }
+        detachKeywordSpotter(spotter)
+        keywordSpotter = null
+        latestKeywordSpotterState = KeywordSpotterState.FAILED
+    }
+
+    private fun detachKeywordSpotter(spotter: KeywordSpotter?) {
+        if (spotter == null) {
+            return
+        }
+        try {
+            spotter.setDetectionListener(null)
+        } catch (error: Throwable) {
+            Log.w(TAG, "Keyword spotter listener detach failed. spotterId=${spotter.spotterId}", error)
+        }
+        try {
+            spotter.stop()
+        } catch (error: Throwable) {
+            Log.w(TAG, "Keyword spotter stop failed during detach. spotterId=${spotter.spotterId}", error)
+        }
+    }
+
+    private fun handleKeywordDetection(result: KeywordDetectionResult) {
+        val detectionFingerprint = buildString(capacity = 96) {
+            append(result.keywordId)
+            append("|")
+            append(result.timestampMs)
+            append("|")
+            append(result.engineName)
+        }
+        if (lastKeywordDetectionFingerprint == detectionFingerprint) {
+            return
+        }
+
+        lastKeywordDetectionFingerprint = detectionFingerprint
+        latestKeywordDetection = result
+        keywordDetectionTotal += 1L
+        Log.d(
+            TAG,
+            "keyword_detected id=${result.keywordId} text=${result.keywordText ?: "-"} " +
+                "confidence=${String.format(java.util.Locale.US, "%.3f", result.confidence)} " +
+                "engine=${result.engineName} type=${result.detectionType.name} " +
+                "count=$keywordDetectionTotal"
+        )
+        try {
+            keywordDetectionListener?.onKeywordDetected(result)
+        } catch (error: Throwable) {
+            Log.e(TAG, "Audio keyword detection listener failed.", error)
         }
     }
 
@@ -332,6 +502,22 @@ class AudioCaptureController(
     private var latestEnergyMetrics: AudioEnergyMetrics? = null
     @Volatile
     private var latestVadResult: VadResult? = null
+    @Volatile
+    private var keywordSpotter: KeywordSpotter? = initialKeywordSpotter
+    @Volatile
+    private var latestKeywordDetection: KeywordDetectionResult? = null
+    @Volatile
+    private var latestKeywordSpotterError: String? = null
+    @Volatile
+    private var latestKeywordSpotterState: KeywordSpotterState = initialKeywordSpotter?.state()
+        ?: KeywordSpotterState.IDLE
+    @Volatile
+    private var keywordDetectionTotal: Long = 0L
+    @Volatile
+    private var lastKeywordDetectionFingerprint: String? = null
+    private val spotterDetectionListener = KeywordDetectionListener { result ->
+        handleKeywordDetection(result)
+    }
     private val audioFrameSource = AudioRecordFrameSource(
         config = AudioRecordFrameSourceConfig(
             audioSource = config.audioSource,
@@ -391,6 +577,10 @@ interface AudioEnergyMetricsListener {
 
 interface AudioVadResultListener {
     fun onVadResult(result: VadResult)
+}
+
+interface AudioKeywordDetectionListener {
+    fun onKeywordDetected(result: KeywordDetectionResult)
 }
 
 private fun AudioFrame.toLegacyAudioPcmFrame(): AudioPcmFrame {

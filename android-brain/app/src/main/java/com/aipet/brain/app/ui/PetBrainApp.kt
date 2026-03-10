@@ -3,6 +3,7 @@ package com.aipet.brain.app.ui
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -14,9 +15,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.room.Room
 import com.aipet.brain.app.audio.AudioCaptureLifecycleEventPublisher
+import com.aipet.brain.app.audio.AudioResponseDispatcher
 import com.aipet.brain.app.reactions.OwnerSeenReactionEngine
 import com.aipet.brain.app.reactions.PersonSeenEventPublisher
 import com.aipet.brain.app.ui.audio.AudioDebugScreen
+import com.aipet.brain.app.ui.audio.AudioPlaybackEngine
 import com.aipet.brain.app.ui.camera.CameraScreen
 import com.aipet.brain.app.ui.debug.DebugScreen
 import com.aipet.brain.app.ui.debug.EventViewerScreen
@@ -34,11 +37,21 @@ import com.aipet.brain.app.ui.settings.SettingsScreen
 import com.aipet.brain.app.ui.traits.TraitsScreen
 import com.aipet.brain.app.settings.CameraSelection
 import com.aipet.brain.app.settings.CameraSelectionStore
+import com.aipet.brain.app.settings.KeywordSpottingConfigStore
 import com.aipet.brain.brain.events.CameraFrameReceivedPayload
 import com.aipet.brain.brain.events.EventEnvelope
 import com.aipet.brain.brain.events.EventType
 import com.aipet.brain.brain.events.InMemoryEventBus
 import com.aipet.brain.brain.events.UserInteractedPetEventPayload
+import com.aipet.brain.brain.logic.audio.AudioResponseRequestEmitter
+import com.aipet.brain.brain.logic.audio.AudioResponseRequestInput
+import com.aipet.brain.brain.logic.audio.AudioStimulusObserver
+import com.aipet.brain.brain.logic.audio.LoudSoundReactionRule
+import com.aipet.brain.brain.logic.audio.VoiceActivityAcknowledgmentRule
+import com.aipet.brain.brain.logic.audio.WakeWordAcknowledgmentRule
+import com.aipet.brain.brain.logic.audio.toDebugSummary
+import com.aipet.brain.brain.logic.intent.KeywordIntentCommandRule
+import com.aipet.brain.brain.logic.intent.KeywordIntentMapper
 import com.aipet.brain.brain.memory.WorkingMemoryStore
 import com.aipet.brain.brain.memory.WorkingMemoryUpdater
 import com.aipet.brain.brain.observations.ObservationRecorder
@@ -143,6 +156,18 @@ fun PetBrainApp() {
     val eventBus = remember(eventStore) {
         InMemoryEventBus(persistEvent = { event -> eventStore.save(event) })
     }
+    val audioPlaybackEngine = remember(appContext, eventBus) {
+        AudioPlaybackEngine(
+            context = appContext,
+            eventBus = eventBus
+        )
+    }
+    val audioResponseDispatcher = remember(eventBus, audioPlaybackEngine) {
+        AudioResponseDispatcher(
+            eventBus = eventBus,
+            playbackEngine = audioPlaybackEngine
+        )
+    }
     val personSeenEventPublisher = remember(eventBus) {
         PersonSeenEventPublisher(eventBus)
     }
@@ -163,6 +188,9 @@ fun PetBrainApp() {
     )
     val cameraSelectionStore = remember(appContext) {
         CameraSelectionStore.create(appContext)
+    }
+    val keywordSpottingConfigStore = remember(appContext) {
+        KeywordSpottingConfigStore.create(appContext)
     }
     val selectedCamera by cameraSelectionStore.selectedCamera.collectAsState(
         initial = CameraSelection.FRONT
@@ -209,8 +237,60 @@ fun PetBrainApp() {
             workingMemoryStore = workingMemoryStore
         )
     }
+    val audioStimulusObserver = remember(eventBus) {
+        AudioStimulusObserver(eventBus)
+    }
+    val audioResponseRequestEmitter = remember(eventBus) {
+        AudioResponseRequestEmitter(eventBus)
+    }
+    val loudSoundReactionRule = remember(audioStimulusObserver, audioResponseRequestEmitter) {
+        LoudSoundReactionRule(
+            audioStimulusObserver = audioStimulusObserver,
+            audioResponseRequestEmitter = audioResponseRequestEmitter
+        )
+    }
+    val voiceActivityAcknowledgmentRule = remember(audioStimulusObserver, audioResponseRequestEmitter) {
+        VoiceActivityAcknowledgmentRule(
+            audioStimulusObserver = audioStimulusObserver,
+            audioResponseRequestEmitter = audioResponseRequestEmitter
+        )
+    }
+    val wakeWordAcknowledgmentRule = remember(
+        audioStimulusObserver,
+        audioResponseRequestEmitter,
+        brainStateStore,
+        eventBus
+    ) {
+        WakeWordAcknowledgmentRule(
+            audioStimulusObserver = audioStimulusObserver,
+            audioResponseRequestEmitter = audioResponseRequestEmitter,
+            brainStateStore = brainStateStore,
+            eventBus = eventBus
+        )
+    }
+    val keywordIntentMapper = remember {
+        KeywordIntentMapper()
+    }
+    val keywordIntentCommandRule = remember(
+        audioStimulusObserver,
+        keywordIntentMapper,
+        audioResponseRequestEmitter,
+        eventBus,
+        brainStateStore
+    ) {
+        KeywordIntentCommandRule(
+            audioStimulusObserver = audioStimulusObserver,
+            keywordIntentMapper = keywordIntentMapper,
+            audioResponseRequestEmitter = audioResponseRequestEmitter,
+            eventBus = eventBus,
+            brainStateStore = brainStateStore
+        )
+    }
     val currentWorkingMemory by workingMemoryStore.observe().collectAsState(
         initial = workingMemoryStore.currentSnapshot()
+    )
+    val latestAudioStimulus by audioStimulusObserver.observeLatestStimulus().collectAsState(
+        initial = audioStimulusObserver.currentLatestStimulus()
     )
     val recentInteractions by eventStore.observeLatest(limit = 5).collectAsState(initial = emptyList())
     val currentTraits by traitsEngine.observeTraits().collectAsState(initial = null)
@@ -221,6 +301,12 @@ fun PetBrainApp() {
             coroutineScope = coroutineScope
         )
     }
+    val audioRuntimeDebugState by audioCaptureLifecycleEventPublisher.observeRuntimeDebugState().collectAsState(
+        initial = audioCaptureLifecycleEventPublisher.currentRuntimeDebugState()
+    )
+    val audioPlaybackDebugState by audioPlaybackEngine.observeDebugState().collectAsState(
+        initial = audioPlaybackEngine.currentDebugState()
+    )
     var topPersons by remember { mutableStateOf(emptyList<com.aipet.brain.memory.persons.PersonRecord>()) }
 
     LaunchedEffect(eventBus) {
@@ -237,6 +323,10 @@ fun PetBrainApp() {
 
     LaunchedEffect(ownerSeenReactionEngine) {
         ownerSeenReactionEngine.observePersonSeenUpdates()
+    }
+
+    LaunchedEffect(audioResponseDispatcher) {
+        audioResponseDispatcher.observeRequestsAndDispatch()
     }
 
     LaunchedEffect(brainInteractionLoop) {
@@ -263,12 +353,38 @@ fun PetBrainApp() {
         workingMemoryUpdater.observeEventsAndUpdateMemory()
     }
 
+    LaunchedEffect(audioStimulusObserver) {
+        audioStimulusObserver.observeEventsAndMapStimuli()
+    }
+
+    LaunchedEffect(loudSoundReactionRule) {
+        loudSoundReactionRule.observeStimuliAndReact()
+    }
+
+    LaunchedEffect(voiceActivityAcknowledgmentRule) {
+        voiceActivityAcknowledgmentRule.observeStimuliAndReact()
+    }
+
+    LaunchedEffect(wakeWordAcknowledgmentRule) {
+        wakeWordAcknowledgmentRule.observeStimuliAndReact()
+    }
+
+    LaunchedEffect(keywordIntentCommandRule) {
+        keywordIntentCommandRule.observeStimuliAndReact()
+    }
+
     LaunchedEffect(eventBus, "app_started") {
         eventBus.publish(EventEnvelope.create(type = EventType.APP_STARTED))
     }
 
     LaunchedEffect(personStore, latestEvent?.eventId) {
         topPersons = personStore.listTopByFamiliarity(limit = 5)
+    }
+
+    DisposableEffect(audioPlaybackEngine) {
+        onDispose {
+            audioPlaybackEngine.release()
+        }
     }
 
     MaterialTheme {
@@ -302,6 +418,9 @@ fun PetBrainApp() {
                     latestEvent = latestEvent,
                     latestOwnerSeenEvent = latestOwnerSeenEvent,
                     latestOwnerGreetingEvent = latestOwnerGreetingEvent,
+                    latestAudioStimulusSummary = latestAudioStimulus?.toDebugSummary() ?: "-",
+                    audioRuntimeDebugState = audioRuntimeDebugState,
+                    audioPlaybackDebugState = audioPlaybackDebugState,
                     currentBrainState = brainStateSnapshot.currentState.name,
                     currentWorkingMemory = currentWorkingMemory,
                     onNavigateToHome = { currentScreenName = AppScreen.Home.name },
@@ -323,6 +442,17 @@ fun PetBrainApp() {
                             brainInteractionLoop.forceWake()
                         }
                     },
+                    onEmitAudioResponseRequestFromStimulus = {
+                        coroutineScope.launch {
+                            audioResponseRequestEmitter.emitFromStimulus(
+                                AudioResponseRequestInput(
+                                    stimulus = latestAudioStimulus,
+                                    category = DEBUG_AUDIO_REQUEST_CATEGORY,
+                                    cooldownKey = DEBUG_AUDIO_REQUEST_COOLDOWN_KEY
+                                )
+                            )
+                        }
+                    },
                     onEmitTestEvent = {
                         coroutineScope.launch {
                             eventBus.publish(
@@ -340,10 +470,13 @@ fun PetBrainApp() {
                     onPermissionRequestTracked = { hasRequestedMicrophonePermission = true },
                     onNavigateBack = { currentScreenName = AppScreen.Debug.name },
                     audioEventBus = eventBus,
+                    audioPlaybackEngine = audioPlaybackEngine,
                     audioCaptureLifecycleListener = audioCaptureLifecycleEventPublisher,
                     audioEnergyMetricsListener = audioCaptureLifecycleEventPublisher,
                     audioVadResultListener = audioCaptureLifecycleEventPublisher,
-                    audioRuntimeDebugStateProvider = audioCaptureLifecycleEventPublisher
+                    audioKeywordDetectionListener = audioCaptureLifecycleEventPublisher,
+                    audioRuntimeDebugStateProvider = audioCaptureLifecycleEventPublisher,
+                    keywordSpottingConfigStore = keywordSpottingConfigStore
                 )
 
                 AppScreen.Traits -> TraitsScreen(
@@ -533,5 +666,8 @@ private fun appendTeachSampleCropStatusToNote(
         "$notePrefix;$cropStatus"
     }
 }
+
+private const val DEBUG_AUDIO_REQUEST_CATEGORY = "ACKNOWLEDGMENT"
+private const val DEBUG_AUDIO_REQUEST_COOLDOWN_KEY = "debug_audio_stimulus_request"
 
 

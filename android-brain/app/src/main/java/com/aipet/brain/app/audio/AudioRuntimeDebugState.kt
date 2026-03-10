@@ -13,6 +13,10 @@ import kotlinx.coroutines.flow.StateFlow
  */
 data class AudioRuntimeDebugState(
     val vadState: VadState? = null,
+    val latestEnergySmoothed: Double? = null,
+    val latestEnergyRms: Double? = null,
+    val latestEnergyPeak: Double? = null,
+    val latestEnergyTimestampMs: Long? = null,
     val lastSoundEventType: EventType? = null,
     val lastSoundEventTimestampMs: Long? = null,
     val lastSoundEventSequence: Long = 0L
