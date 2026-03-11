@@ -77,6 +77,7 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:$dataStoreVersion")
 
     implementation("androidx.room:room-runtime:$roomVersion")
+    implementation("androidx.room:room-ktx:$roomVersion")
 
     testImplementation("junit:junit:$junitVersion")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:$coroutinesTestVersion")

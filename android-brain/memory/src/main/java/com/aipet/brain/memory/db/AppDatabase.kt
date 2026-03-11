@@ -9,6 +9,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
     entities = [
         EventEntity::class,
         PersonEntity::class,
+        ObjectEntity::class,
         FaceProfileEntity::class,
         FaceProfileObservationLinkEntity::class,
         FaceProfileEmbeddingEntity::class,
@@ -16,12 +17,13 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TeachSessionCompletionEntity::class,
         TraitsSnapshotEntity::class
     ],
-    version = 13,
+    version = 15,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun eventDao(): EventDao
     abstract fun personDao(): PersonDao
+    abstract fun objectDao(): ObjectDao
     abstract fun faceProfileDao(): FaceProfileDao
     abstract fun teachSampleDao(): TeachSampleDao
     abstract fun teachSessionCompletionDao(): TeachSessionCompletionDao
@@ -245,6 +247,41 @@ abstract class AppDatabase : RoomDatabase() {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
                     "ALTER TABLE persons ADD COLUMN familiarity_score REAL NOT NULL DEFAULT 0.0"
+                )
+            }
+        }
+
+        val MIGRATION_13_14: Migration = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `objects` (
+                        `object_id` TEXT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `created_at_ms` INTEGER NOT NULL,
+                        PRIMARY KEY(`object_id`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_objects_name` ON `objects` (`name`)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_objects_created_at_ms` ON `objects` (`created_at_ms`)"
+                )
+            }
+        }
+
+        val MIGRATION_14_15: Migration = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE objects ADD COLUMN last_seen_at_ms INTEGER"
+                )
+                db.execSQL(
+                    "ALTER TABLE objects ADD COLUMN seen_count INTEGER NOT NULL DEFAULT 0"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_objects_last_seen_at_ms` ON `objects` (`last_seen_at_ms`)"
                 )
             }
         }

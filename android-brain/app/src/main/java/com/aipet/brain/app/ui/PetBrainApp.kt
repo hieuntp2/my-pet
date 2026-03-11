@@ -1,5 +1,6 @@
 package com.aipet.brain.app.ui
 
+import android.util.Log
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -44,6 +45,7 @@ import com.aipet.brain.brain.events.CameraFrameReceivedPayload
 import com.aipet.brain.brain.events.EventEnvelope
 import com.aipet.brain.brain.events.EventType
 import com.aipet.brain.brain.events.InMemoryEventBus
+import com.aipet.brain.brain.events.ObjectDetectedEventPayload
 import com.aipet.brain.brain.events.UserInteractedPetEventPayload
 import com.aipet.brain.brain.events.vision.FaceBoundingBoxPayload
 import com.aipet.brain.brain.events.vision.FacesDetectedEventPayload
@@ -62,16 +64,22 @@ import com.aipet.brain.brain.observations.ObservationRecorder
 import com.aipet.brain.brain.observations.ObservationSource
 import com.aipet.brain.brain.relationship.FamiliarityEngine
 import com.aipet.brain.brain.relationship.FamiliarityStore
+import com.aipet.brain.brain.recognition.PersonRecognitionService
+import com.aipet.brain.brain.recognition.RecognitionDecisionEventPublisher
+import com.aipet.brain.brain.recognition.RecognitionMemoryStatsUpdate
+import com.aipet.brain.brain.recognition.RecognitionMemoryStatsUpdater
 import com.aipet.brain.brain.state.BrainInteractionLoop
 import com.aipet.brain.brain.state.BrainStateStore
 import com.aipet.brain.brain.traits.TraitsEngine
 import com.aipet.brain.memory.db.AppDatabase
 import com.aipet.brain.memory.events.EventStore
 import com.aipet.brain.memory.events.RoomEventStore
+import com.aipet.brain.memory.objects.ObjectRepository
 import com.aipet.brain.memory.persons.PersonStore
 import com.aipet.brain.memory.persons.RoomPersonStore
 import com.aipet.brain.memory.profiles.FaceProfileStore
 import com.aipet.brain.memory.profiles.RoomFaceProfileStore
+import com.aipet.brain.memory.recognition.RoomKnownPersonEmbeddingsSource
 import com.aipet.brain.memory.teachsessioncompletion.RoomTeachSessionCompletionStore
 import com.aipet.brain.memory.teachsessioncompletion.TeachSessionCompletionStore
 import com.aipet.brain.memory.teachsamples.RoomTeachSampleStore
@@ -81,7 +89,9 @@ import com.aipet.brain.perception.camera.FrameDiagnostics
 import com.aipet.brain.perception.vision.model.DetectedFace
 import com.aipet.brain.perception.vision.model.FaceDetectionResult
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private enum class AppScreen {
     Home,
@@ -113,6 +123,7 @@ fun PetBrainApp() {
     var latestOwnerSeenEvent by remember { mutableStateOf<EventEnvelope?>(null) }
     var latestOwnerGreetingEvent by remember { mutableStateOf<EventEnvelope?>(null) }
     var lastPublishedFaceCount by remember { mutableStateOf(0) }
+    var recognitionProbeSummary by remember { mutableStateOf("not_run") }
     val database = remember(appContext) {
         Room.databaseBuilder(appContext, AppDatabase::class.java, AppDatabase.DB_NAME)
             .addMigrations(
@@ -127,7 +138,9 @@ fun PetBrainApp() {
                 AppDatabase.MIGRATION_9_10,
                 AppDatabase.MIGRATION_10_11,
                 AppDatabase.MIGRATION_11_12,
-                AppDatabase.MIGRATION_12_13
+                AppDatabase.MIGRATION_12_13,
+                AppDatabase.MIGRATION_13_14,
+                AppDatabase.MIGRATION_14_15
             )
             .fallbackToDestructiveMigrationOnDowngrade()
             .build()
@@ -138,10 +151,27 @@ fun PetBrainApp() {
     val personStore: PersonStore = remember(database) {
         RoomPersonStore(database.personDao())
     }
+    val objectRepository = remember(database) {
+        ObjectRepository(database.objectDao())
+    }
     val faceProfileStore: FaceProfileStore = remember(database, personStore) {
         RoomFaceProfileStore(
             faceProfileDao = database.faceProfileDao(),
             personStore = personStore
+        )
+    }
+    val knownPersonEmbeddingsSource = remember(database) {
+        RoomKnownPersonEmbeddingsSource(
+            personDao = database.personDao(),
+            faceProfileDao = database.faceProfileDao()
+        )
+    }
+    val personRecognitionService = remember(knownPersonEmbeddingsSource) {
+        PersonRecognitionService(
+            knownPersonEmbeddingsSource = knownPersonEmbeddingsSource,
+            decisionLogger = { message ->
+                Log.i(DEBUG_RECOGNITION_TAG, message)
+            }
         )
     }
     val teachSampleStore: TeachSampleStore = remember(database) {
@@ -164,6 +194,35 @@ fun PetBrainApp() {
     }
     val eventBus = remember(eventStore) {
         InMemoryEventBus(persistEvent = { event -> eventStore.save(event) })
+    }
+    val recognitionMemoryStatsUpdater = remember(personStore) {
+        object : RecognitionMemoryStatsUpdater {
+            override suspend fun updatePersonSeenStats(
+                personId: String,
+                timestampMs: Long
+            ): RecognitionMemoryStatsUpdate? {
+                return withContext(Dispatchers.IO) {
+                    val updatedPerson = personStore.updatePersonSeenStats(
+                        personId = personId,
+                        timestampMs = timestampMs
+                    ) ?: return@withContext null
+                    RecognitionMemoryStatsUpdate(
+                        personId = updatedPerson.personId,
+                        timestampMs = updatedPerson.lastSeenAtMs ?: timestampMs,
+                        seenCount = updatedPerson.seenCount
+                    )
+                }
+            }
+        }
+    }
+    val recognitionDecisionEventPublisher = remember(eventBus, recognitionMemoryStatsUpdater) {
+        RecognitionDecisionEventPublisher(
+            eventBus = eventBus,
+            recognitionMemoryStatsUpdater = recognitionMemoryStatsUpdater,
+            updateLogger = { message ->
+                Log.i(DEBUG_RECOGNITION_TAG, message)
+            }
+        )
     }
     val faceEmbeddingEngine = remember(appContext) {
         com.aipet.brain.perception.vision.face.embedding.TfliteFaceEmbeddingEngine(appContext.assets)
@@ -491,6 +550,76 @@ fun PetBrainApp() {
                                 )
                             )
                         }
+                    },
+                    onCreateObject = { objectName ->
+                        val normalizedName = objectName.trim()
+                        if (normalizedName.isBlank()) {
+                            Result.failure(IllegalArgumentException("Object name is required."))
+                        } else {
+                            val createdObject = objectRepository.createObject(normalizedName)
+                            if (createdObject == null) {
+                                Result.failure(IllegalStateException("Unable to create object."))
+                            } else {
+                                Log.i(
+                                    DEBUG_OBJECT_CREATE_TAG,
+                                    "Manual object created: objectId=${createdObject.objectId}, " +
+                                        "name='${createdObject.name}', createdAtMs=${createdObject.createdAtMs}"
+                                )
+                                Result.success(
+                                    "Object created: ${createdObject.name} (${createdObject.objectId})"
+                                )
+                            }
+                        }
+                    },
+                    recognitionProbeSummary = recognitionProbeSummary,
+                    onRunRecognitionProbe = {
+                        coroutineScope.launch {
+                            val probePerson = knownPersonEmbeddingsSource.loadKnownPersonEmbeddings()
+                                .firstOrNull { person ->
+                                    person.embeddings.isNotEmpty()
+                                }
+                            if (probePerson == null) {
+                                val emptyRecognitionResult = personRecognitionService.recognize(
+                                    currentEmbedding = floatArrayOf(1f)
+                                )
+                                recognitionDecisionEventPublisher.publish(
+                                    recognitionResult = emptyRecognitionResult
+                                )
+                                recognitionProbeSummary = buildString {
+                                    append("classification=${emptyRecognitionResult.classification.name}")
+                                    append(",accepted=${emptyRecognitionResult.accepted}")
+                                    append(",bestScore=${emptyRecognitionResult.bestScore}")
+                                    append(",threshold=${emptyRecognitionResult.threshold}")
+                                    append(",bestPersonId=${emptyRecognitionResult.bestPersonId ?: "none"}")
+                                    append(",evaluatedCandidates=${emptyRecognitionResult.evaluatedCandidates}")
+                                }
+                                Log.i(
+                                    DEBUG_RECOGNITION_TAG,
+                                    "Recognition probe result: $recognitionProbeSummary"
+                                )
+                                return@launch
+                            }
+
+                            val recognitionResult = personRecognitionService.recognize(
+                                currentEmbedding = probePerson.embeddings.first().values
+                            )
+                            recognitionDecisionEventPublisher.publish(
+                                recognitionResult = recognitionResult
+                            )
+                            recognitionProbeSummary = buildString {
+                                append(",classification=${recognitionResult.classification.name}")
+                                append(",accepted=${recognitionResult.accepted}")
+                                append(",queryPersonId=${probePerson.personId}")
+                                append(",bestPersonId=${recognitionResult.bestPersonId ?: "none"}")
+                                append(",bestScore=${recognitionResult.bestScore}")
+                                append(",threshold=${recognitionResult.threshold}")
+                                append(",evaluatedCandidates=${recognitionResult.evaluatedCandidates}")
+                            }
+                            Log.i(
+                                DEBUG_RECOGNITION_TAG,
+                                "Recognition probe result: $recognitionProbeSummary"
+                            )
+                        }
                     }
                 )
 
@@ -581,6 +710,77 @@ fun PetBrainApp() {
                                 )
                             )
                         }
+                    },
+                    onObjectDetected = { label, confidence, detectedAtMs ->
+                        coroutineScope.launch {
+                            val seenUpdateResult = runCatching {
+                                objectRepository.recordKnownObjectSeen(
+                                    label = label,
+                                    seenAtMs = detectedAtMs
+                                )
+                            }.onFailure { error ->
+                                Log.w(
+                                    DEBUG_OBJECT_STATS_TAG,
+                                    "Known-object stats update failed for label='$label'.",
+                                    error
+                                )
+                            }.getOrNull()
+                            when {
+                                seenUpdateResult?.wasUpdated == true -> {
+                                    val updatedObject = seenUpdateResult.objectRecord
+                                    Log.i(
+                                        DEBUG_OBJECT_STATS_TAG,
+                                        "Known-object stats updated: objectId=${updatedObject.objectId}, " +
+                                            "name='${updatedObject.name}', seenCount=${updatedObject.seenCount}, " +
+                                            "lastSeenAtMs=${updatedObject.lastSeenAtMs}"
+                                    )
+                                }
+                                seenUpdateResult != null -> {
+                                    val matchedObject = seenUpdateResult.objectRecord
+                                    Log.d(
+                                        DEBUG_OBJECT_STATS_TAG,
+                                        "Known-object stats throttled: objectId=${matchedObject.objectId}, " +
+                                            "name='${matchedObject.name}', seenCount=${matchedObject.seenCount}, " +
+                                            "lastSeenAtMs=${matchedObject.lastSeenAtMs}"
+                                    )
+                                }
+                                else -> Unit
+                            }
+                            eventBus.publish(
+                                EventEnvelope.create(
+                                    type = EventType.OBJECT_DETECTED,
+                                    timestampMs = detectedAtMs,
+                                    payloadJson = ObjectDetectedEventPayload(
+                                        label = label,
+                                        confidence = confidence,
+                                        detectedAtMs = detectedAtMs
+                                    ).toJson()
+                                )
+                            )
+                            Log.i(
+                                DEBUG_OBJECT_EVENT_TAG,
+                                "Published OBJECT_DETECTED: label='$label', " +
+                                    "confidence=$confidence, detectedAtMs=$detectedAtMs"
+                            )
+                        }
+                    },
+                    onResolveKnownObjectLabel = { canonicalLabel ->
+                        val resolvedDisplayName = objectRepository.resolveKnownObjectDisplayName(
+                            detectedCanonicalLabel = canonicalLabel
+                        )
+                        if (resolvedDisplayName != null) {
+                            Log.d(
+                                DEBUG_OBJECT_ALIAS_TAG,
+                                "Resolved camera object label: canonicalLabel='$canonicalLabel', " +
+                                    "displayLabel='$resolvedDisplayName'"
+                            )
+                        } else {
+                            Log.d(
+                                DEBUG_OBJECT_ALIAS_TAG,
+                                "No known alias for camera label: canonicalLabel='$canonicalLabel'"
+                            )
+                        }
+                        resolvedDisplayName
                     },
                     onRecordPersonLikeObservation = { note ->
                         try {
@@ -748,5 +948,10 @@ private fun appendTeachSampleCropStatusToNote(
 
 private const val DEBUG_AUDIO_REQUEST_CATEGORY = "ACKNOWLEDGMENT"
 private const val DEBUG_AUDIO_REQUEST_COOLDOWN_KEY = "debug_audio_stimulus_request"
+private const val DEBUG_RECOGNITION_TAG = "RecognitionProbe"
+private const val DEBUG_OBJECT_EVENT_TAG = "ObjectEventPublisher"
+private const val DEBUG_OBJECT_CREATE_TAG = "ObjectCreateDebug"
+private const val DEBUG_OBJECT_STATS_TAG = "ObjectSeenStats"
+private const val DEBUG_OBJECT_ALIAS_TAG = "ObjectAliasResolver"
 
 

@@ -20,6 +20,8 @@ import java.time.format.DateTimeFormatter
 internal fun CameraDiagnosticsOverlay(
     diagnostics: FrameDiagnostics?,
     faceCount: Int,
+    topObjectLabel: String,
+    topObjectConfidence: Float?,
     modifier: Modifier = Modifier
 ) {
     val timestampFormatter = remember {
@@ -42,6 +44,20 @@ internal fun CameraDiagnosticsOverlay(
             )
             Text(
                 text = "Face count: $faceCount",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White
+            )
+            Text(
+                text = "Object: $topObjectLabel",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White
+            )
+            Text(
+                text = "Object confidence: ${
+                    topObjectConfidence?.let { confidence ->
+                        String.format(java.util.Locale.US, "%.3f", confidence)
+                    } ?: "n/a"
+                }",
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.White
             )

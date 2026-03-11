@@ -25,6 +25,8 @@ android {
 }
 
 dependencies {
+    implementation(project(":core-common"))
+
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:$coroutinesVersion")
 
     testImplementation("junit:junit:$junitVersion")

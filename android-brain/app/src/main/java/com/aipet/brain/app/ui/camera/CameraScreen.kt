@@ -10,6 +10,7 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.net.Uri
 import android.provider.Settings
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
@@ -50,7 +51,10 @@ import com.aipet.brain.perception.camera.FrameDiagnostics
 import com.aipet.brain.perception.vision.FaceDetectionPipeline
 import com.aipet.brain.perception.vision.model.FaceCropResult
 import com.aipet.brain.perception.vision.model.FaceDetectionResult
+import com.aipet.brain.perception.vision.objectdetection.RealObjectDetectionEngine
+import com.aipet.brain.perception.vision.objectdetection.model.ObjectDetectionResult
 import java.io.File
+import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -65,6 +69,8 @@ fun CameraScreen(
     onPermissionRequestTracked: () -> Unit,
     onFrameDiagnostics: (FrameDiagnostics) -> Unit,
     onFaceDetectionResult: (FaceDetectionResult) -> Unit,
+    onObjectDetected: (label: String, confidence: Float, detectedAtMs: Long) -> Unit,
+    onResolveKnownObjectLabel: suspend (canonicalLabel: String) -> String?,
     onRecordPersonLikeObservation: suspend (String?) -> Result<Unit>,
     onNavigateBack: () -> Unit
 ) {
@@ -74,6 +80,8 @@ fun CameraScreen(
     val faceSampleStorage = remember(appContext) { FaceSampleStorage(appContext) }
     val onFrameDiagnosticsState = rememberUpdatedState(onFrameDiagnostics)
     val onFaceDetectionResultState = rememberUpdatedState(onFaceDetectionResult)
+    val onObjectDetectedState = rememberUpdatedState(onObjectDetected)
+    val onResolveKnownObjectLabelState = rememberUpdatedState(onResolveKnownObjectLabel)
     var permissionState by remember(context, hasRequestedPermission) {
         mutableStateOf(resolveCameraPermissionState(context, hasRequestedPermission))
     }
@@ -86,6 +94,9 @@ fun CameraScreen(
     var capturingFaceSample by remember { mutableStateOf(false) }
     var recordingObservation by remember { mutableStateOf(false) }
     var observationMessage by remember { mutableStateOf<String?>(null) }
+    var topObjectLabelState by remember {
+        mutableStateOf(CameraTopObjectLabelState.noDetection())
+    }
     val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(context, hasRequestedPermission) {
@@ -98,12 +109,14 @@ fun CameraScreen(
             latestFaceDetectionResult = null
             latestFaceCount = 0
             captureFaceSampleAction = null
+            topObjectLabelState = CameraTopObjectLabelState.noDetection()
         }
     }
     LaunchedEffect(selectedCamera) {
         latestFaceDetectionResult = null
         latestFaceCount = 0
         captureFaceSampleAction = null
+        topObjectLabelState = CameraTopObjectLabelState.noDetection()
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -132,6 +145,115 @@ fun CameraScreen(
             Unit
         }
     }
+    val handleObjectDetectionResult: (Result<ObjectDetectionResult>) -> Unit =
+        remember(coroutineScope) {
+            { result ->
+                coroutineScope.launch {
+                    topObjectLabelState = result.fold(
+                        onSuccess = { detectionResult ->
+                            val topDetection = detectionResult.detections.firstOrNull()
+                            if (topDetection == null) {
+                                Log.i(
+                                    CAMERA_UI_TAG,
+                                    "Object label UI update: no detection available; showing fallback='$NO_OBJECT_LABEL'."
+                                )
+                                CameraTopObjectLabelState.noDetection()
+                            } else {
+                                val resolvedLabel = resolveObjectLabelForDisplay(topDetection.label)
+                                val canonicalLabel = resolvedLabel.label
+                                val normalizedConfidence = topDetection.confidence
+                                    .takeIf { it.isFinite() }
+                                    ?.coerceIn(0f, 1f)
+                                val preferredDisplayLabel = if (resolvedLabel.fallbackReason == null) {
+                                    runCatching {
+                                        onResolveKnownObjectLabelState.value(canonicalLabel)
+                                    }.onFailure { lookupError ->
+                                        Log.w(
+                                            CAMERA_UI_TAG,
+                                            "Known-object label lookup failed for canonicalLabel='$canonicalLabel'.",
+                                            lookupError
+                                        )
+                                    }.getOrNull()
+                                        ?.trim()
+                                        ?.takeIf { candidate -> candidate.isNotBlank() }
+                                        ?: canonicalLabel
+                                } else {
+                                    canonicalLabel
+                                }
+                                if (resolvedLabel.fallbackReason == null) {
+                                    if (preferredDisplayLabel == canonicalLabel) {
+                                        Log.i(
+                                            CAMERA_UI_TAG,
+                                            "Object label UI update: canonicalLabel='$canonicalLabel', " +
+                                                "displayLabel='$preferredDisplayLabel', confidence=${formatConfidence(normalizedConfidence)}."
+                                        )
+                                    } else {
+                                        Log.i(
+                                            CAMERA_UI_TAG,
+                                            "Object label UI alias applied: canonicalLabel='$canonicalLabel', " +
+                                                "displayLabel='$preferredDisplayLabel', confidence=${formatConfidence(normalizedConfidence)}."
+                                        )
+                                    }
+                                    if (normalizedConfidence == null) {
+                                        Log.w(
+                                            CAMERA_UI_TAG,
+                                            "Skipping object event callback: label='$canonicalLabel', " +
+                                                "reason='invalid_confidence'."
+                                        )
+                                    } else {
+                                        runCatching {
+                                            onObjectDetectedState.value(
+                                                canonicalLabel,
+                                                normalizedConfidence,
+                                                detectionResult.timestampMs
+                                            )
+                                        }.onSuccess {
+                                            Log.i(
+                                                CAMERA_UI_TAG,
+                                                "Object event candidate dispatched: label='$canonicalLabel', " +
+                                                    "confidence=${formatConfidence(normalizedConfidence)}, " +
+                                                    "detectedAtMs=${detectionResult.timestampMs}."
+                                            )
+                                        }.onFailure { callbackError ->
+                                            Log.e(
+                                                CAMERA_UI_TAG,
+                                                "Object event callback failed for label='$canonicalLabel'.",
+                                                callbackError
+                                            )
+                                        }
+                                    }
+                                } else {
+                                    Log.i(
+                                        CAMERA_UI_TAG,
+                                        "Object label UI update: rawLabel='${topDetection.label}', " +
+                                            "confidence=${formatConfidence(normalizedConfidence)}, " +
+                                            "fallback='${resolvedLabel.fallbackReason}', " +
+                                            "displayLabel='$preferredDisplayLabel'."
+                                    )
+                                    Log.i(
+                                        CAMERA_UI_TAG,
+                                        "Skipping object event callback due to fallback label mapping."
+                                    )
+                                }
+                                CameraTopObjectLabelState.detected(
+                                    displayLabel = preferredDisplayLabel,
+                                    confidence = normalizedConfidence
+                                )
+                            }
+                        },
+                        onFailure = { error ->
+                            Log.w(
+                                CAMERA_UI_TAG,
+                                "Object label UI update failed; showing fallback='$NO_OBJECT_LABEL'.",
+                                error
+                            )
+                            CameraTopObjectLabelState.noDetection()
+                        }
+                    )
+                }
+                Unit
+            }
+        }
 
     DisposableEffect(lifecycleOwner, context, hasRequestedPermission) {
         val observer = LifecycleEventObserver { _, event ->
@@ -218,6 +340,7 @@ fun CameraScreen(
                         selectedCamera = selectedCamera,
                         onFrameDiagnostics = handleFrameDiagnostics,
                         onFaceDetectionResult = handleFaceDetectionResult,
+                        onObjectDetectionResult = handleObjectDetectionResult,
                         onCaptureFaceSampleActionChanged = { action ->
                             captureFaceSampleAction = action
                         }
@@ -230,6 +353,8 @@ fun CameraScreen(
                     CameraDiagnosticsOverlay(
                         diagnostics = latestDiagnostics,
                         faceCount = latestFaceCount,
+                        topObjectLabel = topObjectLabelState.displayLabel,
+                        topObjectConfidence = topObjectLabelState.confidence,
                         modifier = Modifier
                             .align(Alignment.TopStart)
                             .padding(12.dp)
@@ -353,6 +478,7 @@ private fun CameraPreview(
     selectedCamera: CameraSelection,
     onFrameDiagnostics: (FrameDiagnostics) -> Unit,
     onFaceDetectionResult: (FaceDetectionResult) -> Unit,
+    onObjectDetectionResult: (Result<ObjectDetectionResult>) -> Unit,
     onCaptureFaceSampleActionChanged: (CaptureFaceSampleAction?) -> Unit
 ) {
     val context = LocalContext.current
@@ -365,16 +491,32 @@ private fun CameraPreview(
     }
     val onFrameDiagnosticsState = rememberUpdatedState(onFrameDiagnostics)
     val onFaceDetectionResultState = rememberUpdatedState(onFaceDetectionResult)
+    val onObjectDetectionResultState = rememberUpdatedState(onObjectDetectionResult)
     val faceDetectionPipeline = remember {
         FaceDetectionPipeline { result ->
             onFaceDetectionResultState.value(result)
         }
+    }
+    val objectDetectionEngine = remember(context) {
+        runCatching {
+            RealObjectDetectionEngine(context.assets)
+        }.onFailure { error ->
+            Log.e(
+                CAMERA_UI_TAG,
+                "Failed to initialize object detection engine.",
+                error
+            )
+        }.getOrNull()
     }
     val frameAnalyzer = remember {
         FrameAnalyzer(
             faceDetectionPipeline = faceDetectionPipeline,
             onDiagnostics = { diagnostics ->
                 onFrameDiagnosticsState.value(diagnostics)
+            },
+            objectDetectionEngine = objectDetectionEngine,
+            onObjectDetectionResult = { detectionResult ->
+                onObjectDetectionResultState.value(detectionResult)
             }
         )
     }
@@ -395,6 +537,11 @@ private fun CameraPreview(
         onDispose {
             onCaptureFaceSampleActionChanged(null)
             faceDetectionPipeline.close()
+        }
+    }
+    DisposableEffect(objectDetectionEngine) {
+        onDispose {
+            objectDetectionEngine?.close()
         }
     }
 
@@ -590,5 +737,62 @@ private class FaceSampleStorage(
 
 private typealias CaptureFaceSampleAction = () -> FaceCropResult
 
+private data class CameraTopObjectLabelState(
+    val displayLabel: String,
+    val confidence: Float?
+) {
+    companion object {
+        fun noDetection(): CameraTopObjectLabelState {
+            return CameraTopObjectLabelState(
+                displayLabel = NO_OBJECT_LABEL,
+                confidence = null
+            )
+        }
+
+        fun detected(
+            displayLabel: String,
+            confidence: Float?
+        ): CameraTopObjectLabelState {
+            return CameraTopObjectLabelState(
+                displayLabel = displayLabel,
+                confidence = confidence
+            )
+        }
+    }
+}
+
+private data class ResolvedObjectLabel(
+    val label: String,
+    val fallbackReason: String? = null
+)
+
+private fun resolveObjectLabelForDisplay(rawLabel: String?): ResolvedObjectLabel {
+    val sanitized = rawLabel?.trim().orEmpty()
+    if (sanitized.isBlank()) {
+        return ResolvedObjectLabel(
+            label = UNKNOWN_OBJECT_LABEL,
+            fallbackReason = "missing_label"
+        )
+    }
+    if (sanitized == OBJECT_UNKNOWN_TOKEN || sanitized.startsWith(OBJECT_CLASS_FALLBACK_PREFIX)) {
+        return ResolvedObjectLabel(
+            label = UNKNOWN_OBJECT_LABEL,
+            fallbackReason = "class_id_fallback:$sanitized"
+        )
+    }
+    return ResolvedObjectLabel(label = sanitized)
+}
+
+private fun formatConfidence(confidence: Float?): String {
+    return confidence?.let { value ->
+        String.format(Locale.US, "%.3f", value)
+    } ?: "n/a"
+}
+
 private const val FACE_SAMPLE_DIRECTORY = "face_samples/captured"
 private const val FACE_SAMPLE_JPEG_QUALITY = 92
+private const val CAMERA_UI_TAG = "CameraObjectLabel"
+private const val NO_OBJECT_LABEL = "none"
+private const val UNKNOWN_OBJECT_LABEL = "Unknown object"
+private const val OBJECT_UNKNOWN_TOKEN = "???"
+private const val OBJECT_CLASS_FALLBACK_PREFIX = "class_"

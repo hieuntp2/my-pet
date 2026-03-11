@@ -24,6 +24,16 @@ interface PersonStore {
         seenAtMs: Long = System.currentTimeMillis()
     ): PersonRecord?
 
+    suspend fun updatePersonSeenStats(
+        personId: String,
+        timestampMs: Long = System.currentTimeMillis()
+    ): PersonRecord? {
+        return recordPersonSeen(
+            personId = personId,
+            seenAtMs = timestampMs
+        )
+    }
+
     suspend fun increaseFamiliarity(
         personId: String,
         delta: Float,

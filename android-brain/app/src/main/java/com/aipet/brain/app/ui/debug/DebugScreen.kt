@@ -8,8 +8,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -20,6 +26,7 @@ import com.aipet.brain.brain.events.EventEnvelope
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.launch
 
 @Composable
 fun DebugScreen(
@@ -43,9 +50,16 @@ fun DebugScreen(
     onForceSleep: () -> Unit,
     onForceWake: () -> Unit,
     onEmitAudioResponseRequestFromStimulus: () -> Unit,
-    onEmitTestEvent: () -> Unit
+    onEmitTestEvent: () -> Unit,
+    onCreateObject: suspend (String) -> Result<String>,
+    recognitionProbeSummary: String,
+    onRunRecognitionProbe: () -> Unit
 ) {
     val scrollState = rememberScrollState()
+    val coroutineScope = rememberCoroutineScope()
+    var objectNameInput by remember { mutableStateOf("") }
+    var creatingObject by remember { mutableStateOf(false) }
+    var objectCreateMessage by remember { mutableStateOf<String?>(null) }
 
     Column(
         modifier = Modifier
@@ -122,6 +136,56 @@ fun DebugScreen(
             text = "WorkingMemory.lastStimulus: ${currentWorkingMemory.lastStimulusAtMs ?: "-"}",
             modifier = Modifier.fillMaxWidth()
         )
+        Text(
+            text = "Recognition probe: $recognitionProbeSummary",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Manual object creation",
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 8.dp)
+        )
+        OutlinedTextField(
+            value = objectNameInput,
+            onValueChange = { objectNameInput = it },
+            label = { Text("Object name") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Button(
+            onClick = {
+                if (creatingObject) {
+                    return@Button
+                }
+                val requestedName = objectNameInput
+                creatingObject = true
+                objectCreateMessage = "Creating object..."
+                coroutineScope.launch {
+                    val creationResult = onCreateObject(requestedName)
+                    objectCreateMessage = creationResult.fold(
+                        onSuccess = { successMessage ->
+                            objectNameInput = ""
+                            successMessage
+                        },
+                        onFailure = { error ->
+                            "Create object failed: ${error.message ?: "Unknown error"}"
+                        }
+                    )
+                    creatingObject = false
+                }
+            },
+            enabled = !creatingObject && objectNameInput.isNotBlank(),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(text = if (creatingObject) "Creating..." else "Create Object")
+        }
+        if (objectCreateMessage != null) {
+            Text(
+                text = objectCreateMessage.orEmpty(),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
 
         Text(
             text = "Actions",
@@ -145,6 +209,10 @@ fun DebugScreen(
         DebugActionButton(
             label = "Force Wake (Debug)",
             onClick = onForceWake
+        )
+        DebugActionButton(
+            label = "Run Recognition Probe",
+            onClick = onRunRecognitionProbe
         )
 
         Text(

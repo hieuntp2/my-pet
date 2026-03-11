@@ -84,6 +84,16 @@ class RoomPersonStore(
         return personDao.getById(normalizedPersonId)?.toRecord()
     }
 
+    override suspend fun updatePersonSeenStats(
+        personId: String,
+        timestampMs: Long
+    ): PersonRecord? {
+        return recordPersonSeen(
+            personId = personId,
+            seenAtMs = timestampMs
+        )
+    }
+
     override suspend fun increaseFamiliarity(
         personId: String,
         delta: Float,
