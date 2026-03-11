@@ -3,7 +3,6 @@ package com.aipet.brain.brain.state
 import com.aipet.brain.brain.events.EventBus
 import com.aipet.brain.brain.events.EventEnvelope
 import com.aipet.brain.brain.events.EventType
-import com.aipet.brain.brain.events.PersonSeenEventPayload
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -18,7 +17,7 @@ import org.junit.Test
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class BrainInteractionLoopTest {
     @Test
-    fun personSeen_transitionsToHappy() = runTest {
+    fun personRecognized_transitionsToHappy() = runTest {
         val eventBus = FakeEventBus()
         val store = BrainStateStore(initialState = BrainState.IDLE, nowProvider = { 1_000L })
         val loop = BrainInteractionLoop(
@@ -31,21 +30,15 @@ class BrainInteractionLoopTest {
 
         eventBus.publish(
             EventEnvelope.create(
-                type = EventType.PERSON_SEEN_RECORDED,
+                type = EventType.PERSON_RECOGNIZED,
                 timestampMs = 2_000L,
-                payloadJson = PersonSeenEventPayload(
-                    personId = "person-1",
-                    seenAtMs = 2_000L,
-                    seenCount = 1,
-                    isOwner = false,
-                    source = "test"
-                ).toJson()
+                payloadJson = "{}"
             )
         )
         advanceUntilIdle()
 
         assertEquals(BrainState.HAPPY, store.currentSnapshot().currentState)
-        assertTrue(eventBus.publishedEvents.any { it.type == EventType.BRAIN_STATE_CHANGED })
+        assertTrue(eventBus.publishedEvents.any { it.type == EventType.PERSON_RECOGNIZED })
 
         job.cancel()
     }
@@ -64,7 +57,7 @@ class BrainInteractionLoopTest {
 
         eventBus.publish(
             EventEnvelope.create(
-                type = EventType.PERSON_UNKNOWN_DETECTED,
+                type = EventType.PERSON_UNKNOWN,
                 timestampMs = 2_500L,
                 payloadJson = "{}"
             )
@@ -159,21 +152,16 @@ class BrainInteractionLoopTest {
 
         eventBus.publish(
             EventEnvelope.create(
-                type = EventType.PERSON_SEEN_RECORDED,
+                type = EventType.PERSON_RECOGNIZED,
                 timestampMs = 2_000L,
-                payloadJson = PersonSeenEventPayload(
-                    personId = "person-1",
-                    seenAtMs = 2_000L,
-                    seenCount = 1,
-                    isOwner = false,
-                    source = "test"
-                ).toJson()
+                payloadJson = "{}"
             )
         )
         advanceUntilIdle()
 
-        val stateChangedEvents = eventBus.publishedEvents.filter { it.type == EventType.BRAIN_STATE_CHANGED }
-        assertFalse(stateChangedEvents.size > 1)
+        assertFalse(
+            eventBus.publishedEvents.count { it.type == EventType.PERSON_RECOGNIZED } > 1
+        )
 
         job.cancel()
     }

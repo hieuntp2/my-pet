@@ -1,11 +1,9 @@
 package com.aipet.brain.brain.state
 
 import android.util.Log
-import com.aipet.brain.brain.events.BrainStateChangedEventPayload
 import com.aipet.brain.brain.events.EventBus
 import com.aipet.brain.brain.events.EventEnvelope
 import com.aipet.brain.brain.events.EventType
-import com.aipet.brain.brain.events.PersonSeenEventPayload
 import com.aipet.brain.brain.logic.audio.AudioMeaningfulStimulusPolicy
 import com.aipet.brain.brain.logic.audio.AudioStimulusMapper
 import kotlinx.coroutines.currentCoroutineContext
@@ -39,19 +37,16 @@ class BrainInteractionLoop(
     suspend fun observeEventsAndApplyTransitions() {
         eventBus.observe().collect { event ->
             when (event.type) {
-                EventType.PERSON_SEEN_RECORDED -> {
-                    val payload = PersonSeenEventPayload.fromJson(event.payloadJson)
-                    if (payload != null) {
-                        recordMeaningfulStimulus(payload.seenAtMs)
-                        transitionTo(
-                            targetState = BrainState.HAPPY,
-                            reason = BrainTransitionReason.PERSON_RECOGNIZED,
-                            timestampMs = payload.seenAtMs
-                        )
-                    }
+                EventType.PERSON_RECOGNIZED -> {
+                    recordMeaningfulStimulus(event.timestampMs)
+                    transitionTo(
+                        targetState = BrainState.HAPPY,
+                        reason = BrainTransitionReason.PERSON_RECOGNIZED,
+                        timestampMs = event.timestampMs
+                    )
                 }
 
-                EventType.PERSON_UNKNOWN_DETECTED -> {
+                EventType.PERSON_UNKNOWN -> {
                     recordMeaningfulStimulus(event.timestampMs)
                     transitionTo(
                         targetState = BrainState.CURIOUS,
@@ -226,17 +221,10 @@ class BrainInteractionLoop(
         if (!changed) {
             return
         }
-        eventBus.publish(
-            EventEnvelope.create(
-                type = EventType.BRAIN_STATE_CHANGED,
-                payloadJson = BrainStateChangedEventPayload(
-                    fromState = fromState,
-                    toState = targetState,
-                    reason = reason.name,
-                    changedAtMs = timestampMs
-                ).toJson(),
-                timestampMs = timestampMs
-            )
+        Log.d(
+            TAG,
+            "Brain state changed: ${fromState.name} -> ${targetState.name}, " +
+                "reason=${reason.name}, timestampMs=$timestampMs"
         )
     }
 
