@@ -25,12 +25,14 @@ import com.aipet.brain.app.ui.debug.DebugScreen
 import com.aipet.brain.app.ui.debug.EventViewerScreen
 import com.aipet.brain.app.ui.debug.ObservationViewerScreen
 import com.aipet.brain.app.ui.home.HomeScreen
+import com.aipet.brain.app.ui.persons.PersonDetailScreen
 import com.aipet.brain.app.ui.persons.PersonEditorScreen
 import com.aipet.brain.app.ui.persons.PersonsScreen
 import com.aipet.brain.app.ui.persons.TeachPersonCapturedObservation
 import com.aipet.brain.app.ui.persons.TeachSampleFaceCropExtractor
 import com.aipet.brain.app.ui.persons.FaceCropExtractionResult
 import com.aipet.brain.app.ui.persons.TeachSampleImageStorage
+import com.aipet.brain.app.ui.persons.TeachPersonSaveController
 import com.aipet.brain.app.ui.persons.TeachPersonScreen
 import com.aipet.brain.app.ui.profiles.ProfileAssociationsScreen
 import com.aipet.brain.app.ui.settings.SettingsScreen
@@ -93,7 +95,8 @@ private enum class AppScreen {
     Persons,
     Traits,
     TeachPerson,
-    PersonEditor
+    PersonEditor,
+    PersonDetail
 }
 
 @Composable
@@ -101,6 +104,7 @@ fun PetBrainApp() {
     val appContext = LocalContext.current.applicationContext
     var currentScreenName by rememberSaveable { mutableStateOf(AppScreen.Home.name) }
     var editingPersonId by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedPersonId by rememberSaveable { mutableStateOf<String?>(null) }
     var hasRequestedCameraPermission by rememberSaveable { mutableStateOf(false) }
     var hasRequestedMicrophonePermission by rememberSaveable { mutableStateOf(false) }
     var teachSessionId by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }
@@ -160,6 +164,19 @@ fun PetBrainApp() {
     }
     val eventBus = remember(eventStore) {
         InMemoryEventBus(persistEvent = { event -> eventStore.save(event) })
+    }
+    val faceEmbeddingEngine = remember(appContext) {
+        com.aipet.brain.perception.vision.face.embedding.TfliteFaceEmbeddingEngine(appContext.assets)
+    }
+    val teachPersonSaveController = remember(database, appContext, personStore, faceProfileStore, eventBus, faceEmbeddingEngine) {
+        TeachPersonSaveController(
+            database = database,
+            contentResolver = appContext.contentResolver,
+            personStore = personStore,
+            faceProfileStore = faceProfileStore,
+            faceEmbeddingEngine = faceEmbeddingEngine,
+            eventBus = eventBus
+        )
     }
     val audioPlaybackEngine = remember(appContext, eventBus) {
         AudioPlaybackEngine(
@@ -392,9 +409,10 @@ fun PetBrainApp() {
         topPersons = personStore.listTopByFamiliarity(limit = 5)
     }
 
-    DisposableEffect(audioPlaybackEngine) {
+    DisposableEffect(audioPlaybackEngine, faceEmbeddingEngine) {
         onDispose {
             audioPlaybackEngine.release()
+            faceEmbeddingEngine.close()
         }
     }
 
@@ -592,6 +610,10 @@ fun PetBrainApp() {
                     onNavigateToEditPerson = { personId ->
                         editingPersonId = personId
                         currentScreenName = AppScreen.PersonEditor.name
+                    },
+                    onNavigateToPersonDetail = { personId ->
+                        selectedPersonId = personId
+                        currentScreenName = AppScreen.PersonDetail.name
                     }
                 )
 
@@ -600,6 +622,7 @@ fun PetBrainApp() {
                     teachSampleStore = teachSampleStore,
                     teachSampleImageStorage = teachSampleImageStorage,
                     personStore = personStore,
+                    teachPersonSaveController = teachPersonSaveController,
                     onCaptureSample = { note, imageUri ->
                         runCatching {
                             val observation = observationRecorder.recordPersonLikeObservation(
@@ -644,9 +667,10 @@ fun PetBrainApp() {
                         )
                     },
                     onNavigateBack = { currentScreenName = AppScreen.Persons.name },
-                    onPersonSaved = {
+                    onPersonSaved = { personId ->
                         teachSessionId = UUID.randomUUID().toString()
-                        currentScreenName = AppScreen.Persons.name
+                        selectedPersonId = personId
+                        currentScreenName = AppScreen.PersonDetail.name
                     }
                 )
 
@@ -654,9 +678,17 @@ fun PetBrainApp() {
                     personStore = personStore,
                     personId = editingPersonId,
                     onNavigateBack = { currentScreenName = AppScreen.Persons.name },
-                    onPersonSaved = {
-                        currentScreenName = AppScreen.Persons.name
+                    onPersonSaved = { personId ->
+                        selectedPersonId = personId
+                        currentScreenName = AppScreen.PersonDetail.name
                     }
+                )
+
+                AppScreen.PersonDetail -> PersonDetailScreen(
+                    personId = selectedPersonId,
+                    personStore = personStore,
+                    faceProfileStore = faceProfileStore,
+                    onNavigateBack = { currentScreenName = AppScreen.Persons.name }
                 )
             }
         }

@@ -30,7 +30,7 @@ internal data class TeachQualityGateResult(
 
 internal fun evaluateTeachQualityGate(
     capturedSamples: List<TeachPersonCapturedSample>,
-    minimumSampleCount: Int = 1,
+    minimumSampleCount: Int = 3,
     minimumQualifiedSampleCount: Int = 1
 ): TeachQualityGateResult {
     val failures = mutableListOf<TeachQualityGateFailure>()
@@ -40,7 +40,7 @@ internal fun evaluateTeachQualityGate(
     if (capturedSamples.size < normalizedMinimumSampleCount) {
         failures += TeachQualityGateFailure(
             reason = TeachQualityGateFailureReason.MINIMUM_SAMPLE_COUNT_NOT_MET,
-            message = "Capture at least one sample before saving."
+            message = "Capture at least 3 samples before saving."
         )
     }
 

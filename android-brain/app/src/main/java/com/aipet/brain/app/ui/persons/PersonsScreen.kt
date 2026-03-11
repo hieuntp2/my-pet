@@ -37,7 +37,8 @@ internal fun PersonsScreen(
     onNavigateBack: () -> Unit,
     onNavigateToTeachPerson: () -> Unit,
     onNavigateToCreatePerson: () -> Unit,
-    onNavigateToEditPerson: (String) -> Unit
+    onNavigateToEditPerson: (String) -> Unit,
+    onNavigateToPersonDetail: (String) -> Unit
 ) {
     val controller = remember(personStore, personSeenEventPublisher) {
         PersonFlowController(
@@ -180,6 +181,7 @@ internal fun PersonsScreen(
                             reloadPersons()
                         }
                     },
+                    onOpenDetailClick = { onNavigateToPersonDetail(person.personId) },
                     onAssignOwnerClick = {
                         coroutineScope.launch {
                             when (val result = controller.assignOwner(person.personId)) {
@@ -201,6 +203,7 @@ private fun PersonListItem(
     formatter: DateTimeFormatter,
     onEditClick: () -> Unit,
     onRecordSeenClick: () -> Unit,
+    onOpenDetailClick: () -> Unit,
     onAssignOwnerClick: () -> Unit
 ) {
     Card(
@@ -220,6 +223,9 @@ private fun PersonListItem(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.padding(top = 8.dp)
             ) {
+                Button(onClick = onOpenDetailClick) {
+                    Text(text = "Details")
+                }
                 Button(onClick = onEditClick) {
                     Text(text = "Edit")
                 }
