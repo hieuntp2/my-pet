@@ -56,6 +56,7 @@ internal fun TeachPersonScreen(
     teachSampleStore: TeachSampleStore,
     teachSampleImageStorage: TeachSampleImageStorage,
     personStore: PersonStore,
+    teachPersonSaveController: TeachPersonSaveController,
     onCaptureSample: suspend (String, String) -> Result<TeachPersonCapturedObservation>,
     captureImageUriOverride: (suspend (String) -> Result<String>)? = null,
     initialCompletionConfirmedAtMs: Long? = null,
@@ -284,6 +285,7 @@ internal fun TeachPersonScreen(
         }
 
         val qualityGateResult = uiState.qualityGateResult
+        val minimumSamplesReady = uiState.capturedSamples.size >= TeachPersonSaveController.MINIMUM_REQUIRED_SAMPLES
         val bestSampleSelection = uiState.bestSampleSelection
         val sessionSummary = uiState.teachSessionSummary
         val pruningSuggestions = uiState.pruningSuggestions
@@ -383,6 +385,12 @@ internal fun TeachPersonScreen(
                 if (uiState.isSaving) {
                     return@Button
                 }
+                if (!minimumSamplesReady) {
+                    uiState = uiState.copy(
+                        message = "Capture at least ${TeachPersonSaveController.MINIMUM_REQUIRED_SAMPLES} samples before saving."
+                    )
+                    return@Button
+                }
                 if (!qualityGateResult.canSaveTeachPerson) {
                     uiState = uiState.copy(
                         message = qualityGateResult.saveBlockedReason
@@ -396,30 +404,30 @@ internal fun TeachPersonScreen(
                 )
                 coroutineScope.launch {
                     val saveResult = runCatching {
-                        teachFlowController.saveTaughtPerson(
+                        teachPersonSaveController.saveTaughtPerson(
                             displayName = uiState.displayName,
                             nickname = uiState.nickname,
                             capturedSamples = uiState.capturedSamples
                         )
                     }.getOrElse { error ->
-                        TeachPersonSaveResult.Failure(
+                        TeachPersonPersistenceResult.Failure(
                             message = error.message ?: "Save failed."
                         )
                     }
 
                     uiState = uiState.copy(isSaving = false)
                     when (saveResult) {
-                        is TeachPersonSaveResult.Success -> onPersonSaved(saveResult.personId)
-                        is TeachPersonSaveResult.ValidationError -> {
+                        is TeachPersonPersistenceResult.Success -> onPersonSaved(saveResult.personId)
+                        is TeachPersonPersistenceResult.ValidationError -> {
                             uiState = uiState.copy(message = saveResult.message)
                         }
-                        is TeachPersonSaveResult.Failure -> {
+                        is TeachPersonPersistenceResult.Failure -> {
                             uiState = uiState.copy(message = saveResult.message)
                         }
                     }
                 }
             },
-            enabled = !uiState.isCapturing && !uiState.isSaving && qualityGateResult.canSaveTeachPerson,
+            enabled = !uiState.isCapturing && !uiState.isSaving && minimumSamplesReady && qualityGateResult.canSaveTeachPerson,
             modifier = Modifier
                 .padding(bottom = 12.dp)
                 .testTag(PersonsTestTags.TEACH_PERSON_SAVE_BUTTON)
@@ -428,7 +436,9 @@ internal fun TeachPersonScreen(
         }
 
         Text(
-            text = if (qualityGateResult.canSaveTeachPerson) {
+            text = if (!minimumSamplesReady) {
+                "Save gate: BLOCKED - Capture at least ${TeachPersonSaveController.MINIMUM_REQUIRED_SAMPLES} samples before saving."
+            } else if (qualityGateResult.canSaveTeachPerson) {
                 "Save gate: PASS (${qualityGateResult.qualifiedSampleCount}/${qualityGateResult.requiredQualifiedSampleCount} qualified sample(s))."
             } else {
                 "Save gate: BLOCKED - ${qualityGateResult.saveBlockedReason ?: "Quality gate conditions not met."}"
@@ -437,7 +447,7 @@ internal fun TeachPersonScreen(
                 .padding(bottom = 8.dp)
                 .testTag(PersonsTestTags.TEACH_PERSON_SAVE_GATE_STATUS_TEXT)
         )
-        if (!qualityGateResult.canSaveTeachPerson && qualityGateResult.failingSampleObservationIds.isNotEmpty()) {
+        if (minimumSamplesReady && !qualityGateResult.canSaveTeachPerson && qualityGateResult.failingSampleObservationIds.isNotEmpty()) {
             Text(
                 text = "Gate failing sample observation IDs: ${qualityGateResult.failingSampleObservationIds.joinToString()}",
                 modifier = Modifier
