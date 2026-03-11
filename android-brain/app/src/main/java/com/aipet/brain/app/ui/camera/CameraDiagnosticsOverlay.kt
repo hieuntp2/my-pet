@@ -19,6 +19,7 @@ import java.time.format.DateTimeFormatter
 @Composable
 internal fun CameraDiagnosticsOverlay(
     diagnostics: FrameDiagnostics?,
+    faceCount: Int,
     modifier: Modifier = Modifier
 ) {
     val timestampFormatter = remember {
@@ -37,6 +38,11 @@ internal fun CameraDiagnosticsOverlay(
             Text(
                 text = "Camera Diagnostics",
                 style = MaterialTheme.typography.labelMedium,
+                color = Color.White
+            )
+            Text(
+                text = "Face count: $faceCount",
+                style = MaterialTheme.typography.bodySmall,
                 color = Color.White
             )
 

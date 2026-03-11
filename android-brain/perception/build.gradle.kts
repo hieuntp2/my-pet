@@ -1,4 +1,6 @@
 val cameraXVersion = property("dep.cameraX").toString()
+val mlKitFaceDetectionVersion = property("dep.mlKitFaceDetection").toString()
+val tensorflowLiteVersion = property("dep.tensorflowLite").toString()
 
 plugins {
     id("com.android.library")
@@ -25,4 +27,6 @@ android {
 dependencies {
     implementation(project(":core-common"))
     implementation("androidx.camera:camera-core:$cameraXVersion")
+    implementation("com.google.mlkit:face-detection:$mlKitFaceDetectionVersion")
+    implementation("org.tensorflow:tensorflow-lite:$tensorflowLiteVersion")
 }

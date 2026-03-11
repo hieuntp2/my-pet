@@ -43,6 +43,8 @@ import com.aipet.brain.brain.events.EventEnvelope
 import com.aipet.brain.brain.events.EventType
 import com.aipet.brain.brain.events.InMemoryEventBus
 import com.aipet.brain.brain.events.UserInteractedPetEventPayload
+import com.aipet.brain.brain.events.vision.FaceBoundingBoxPayload
+import com.aipet.brain.brain.events.vision.FacesDetectedEventPayload
 import com.aipet.brain.brain.logic.audio.AudioResponseRequestEmitter
 import com.aipet.brain.brain.logic.audio.AudioResponseRequestInput
 import com.aipet.brain.brain.logic.audio.AudioStimulusObserver
@@ -74,6 +76,8 @@ import com.aipet.brain.memory.teachsamples.RoomTeachSampleStore
 import com.aipet.brain.memory.teachsamples.TeachSampleStore
 import com.aipet.brain.memory.traits.RoomTraitsSnapshotRepository
 import com.aipet.brain.perception.camera.FrameDiagnostics
+import com.aipet.brain.perception.vision.model.DetectedFace
+import com.aipet.brain.perception.vision.model.FaceDetectionResult
 import java.util.UUID
 import kotlinx.coroutines.launch
 
@@ -104,6 +108,7 @@ fun PetBrainApp() {
     var latestEvent by remember { mutableStateOf<EventEnvelope?>(null) }
     var latestOwnerSeenEvent by remember { mutableStateOf<EventEnvelope?>(null) }
     var latestOwnerGreetingEvent by remember { mutableStateOf<EventEnvelope?>(null) }
+    var lastPublishedFaceCount by remember { mutableStateOf(0) }
     val database = remember(appContext) {
         Room.databaseBuilder(appContext, AppDatabase::class.java, AppDatabase.DB_NAME)
             .addMigrations(
@@ -377,6 +382,12 @@ fun PetBrainApp() {
         eventBus.publish(EventEnvelope.create(type = EventType.APP_STARTED))
     }
 
+    LaunchedEffect(currentScreen) {
+        if (currentScreen != AppScreen.Camera) {
+            lastPublishedFaceCount = 0
+        }
+    }
+
     LaunchedEffect(personStore, latestEvent?.eventId) {
         topPersons = personStore.listTopByFamiliarity(limit = 5)
     }
@@ -537,6 +548,22 @@ fun PetBrainApp() {
                             )
                         }
                     },
+                    onFaceDetectionResult = { detectionResult ->
+                        val currentFaceCount = detectionResult.faces.size
+                        if (currentFaceCount == lastPublishedFaceCount) {
+                            return@CameraScreen
+                        }
+                        lastPublishedFaceCount = currentFaceCount
+                        coroutineScope.launch {
+                            eventBus.publish(
+                                EventEnvelope.create(
+                                    type = EventType.FACE_DETECTED,
+                                    timestampMs = detectionResult.timestampMs,
+                                    payloadJson = detectionResult.toFacesDetectedPayloadJson()
+                                )
+                            )
+                        }
+                    },
                     onRecordPersonLikeObservation = { note ->
                         try {
                             observationRecorder.recordPersonLikeObservation(
@@ -648,6 +675,26 @@ private fun FrameDiagnostics.toCameraFramePayloadJson(): String {
         rotationDegrees = rotationDegrees,
         processingDurationMs = processingDurationMs
     ).toJson()
+}
+
+private fun FaceDetectionResult.toFacesDetectedPayloadJson(): String {
+    return FacesDetectedEventPayload(
+        frameId = frameId,
+        timestampMs = timestampMs,
+        faceCount = faces.size,
+        boundingBoxes = faces.map { face ->
+            face.toBoundingBoxPayload()
+        }
+    ).toJson()
+}
+
+private fun DetectedFace.toBoundingBoxPayload(): FaceBoundingBoxPayload {
+    return FaceBoundingBoxPayload(
+        left = boundingBox.left,
+        top = boundingBox.top,
+        right = boundingBox.right,
+        bottom = boundingBox.bottom
+    )
 }
 
 private fun appendTeachSampleCropStatusToNote(

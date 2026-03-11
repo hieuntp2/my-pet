@@ -7,6 +7,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.net.Uri
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -46,9 +47,16 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.aipet.brain.app.settings.CameraSelection
 import com.aipet.brain.perception.camera.FrameAnalyzer
 import com.aipet.brain.perception.camera.FrameDiagnostics
+import com.aipet.brain.perception.vision.FaceDetectionPipeline
+import com.aipet.brain.perception.vision.model.FaceCropResult
+import com.aipet.brain.perception.vision.model.FaceDetectionResult
+import java.io.File
+import java.util.UUID
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 fun CameraScreen(
@@ -56,16 +64,26 @@ fun CameraScreen(
     selectedCamera: CameraSelection,
     onPermissionRequestTracked: () -> Unit,
     onFrameDiagnostics: (FrameDiagnostics) -> Unit,
+    onFaceDetectionResult: (FaceDetectionResult) -> Unit,
     onRecordPersonLikeObservation: suspend (String?) -> Result<Unit>,
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
+    val appContext = remember(context) { context.applicationContext }
     val lifecycleOwner = LocalLifecycleOwner.current
+    val faceSampleStorage = remember(appContext) { FaceSampleStorage(appContext) }
     val onFrameDiagnosticsState = rememberUpdatedState(onFrameDiagnostics)
+    val onFaceDetectionResultState = rememberUpdatedState(onFaceDetectionResult)
     var permissionState by remember(context, hasRequestedPermission) {
         mutableStateOf(resolveCameraPermissionState(context, hasRequestedPermission))
     }
     var latestDiagnostics by remember { mutableStateOf<FrameDiagnostics?>(null) }
+    var latestFaceDetectionResult by remember { mutableStateOf<FaceDetectionResult?>(null) }
+    var latestFaceCount by remember { mutableStateOf(0) }
+    var captureFaceSampleAction by remember { mutableStateOf<CaptureFaceSampleAction?>(null) }
+    var captureFaceSampleMessage by remember { mutableStateOf<String?>(null) }
+    var latestCapturedFaceSamplePath by remember { mutableStateOf<String?>(null) }
+    var capturingFaceSample by remember { mutableStateOf(false) }
     var recordingObservation by remember { mutableStateOf(false) }
     var observationMessage by remember { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
@@ -77,7 +95,15 @@ fun CameraScreen(
     LaunchedEffect(permissionState) {
         if (permissionState != CameraPermissionUiState.Granted) {
             latestDiagnostics = null
+            latestFaceDetectionResult = null
+            latestFaceCount = 0
+            captureFaceSampleAction = null
         }
+    }
+    LaunchedEffect(selectedCamera) {
+        latestFaceDetectionResult = null
+        latestFaceCount = 0
+        captureFaceSampleAction = null
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -94,6 +120,16 @@ fun CameraScreen(
         { diagnostics: FrameDiagnostics ->
             latestDiagnostics = diagnostics
             onFrameDiagnosticsState.value(diagnostics)
+        }
+    }
+    val handleFaceDetectionResult: (FaceDetectionResult) -> Unit = remember(coroutineScope) {
+        { result ->
+            coroutineScope.launch {
+                latestFaceDetectionResult = result
+                latestFaceCount = result.faces.size
+                onFaceDetectionResultState.value(result)
+            }
+            Unit
         }
     }
 
@@ -180,13 +216,92 @@ fun CameraScreen(
                     CameraPreview(
                         modifier = Modifier.fillMaxSize(),
                         selectedCamera = selectedCamera,
-                        onFrameDiagnostics = handleFrameDiagnostics
+                        onFrameDiagnostics = handleFrameDiagnostics,
+                        onFaceDetectionResult = handleFaceDetectionResult,
+                        onCaptureFaceSampleActionChanged = { action ->
+                            captureFaceSampleAction = action
+                        }
+                    )
+                    FaceOverlay(
+                        faceDetectionResult = latestFaceDetectionResult,
+                        isFrontCamera = selectedCamera == CameraSelection.FRONT,
+                        modifier = Modifier.matchParentSize()
                     )
                     CameraDiagnosticsOverlay(
                         diagnostics = latestDiagnostics,
+                        faceCount = latestFaceCount,
                         modifier = Modifier
                             .align(Alignment.TopStart)
-                        .padding(12.dp)
+                            .padding(12.dp)
+                    )
+                }
+
+                val canCaptureFaceSample = latestFaceCount > 0 &&
+                    captureFaceSampleAction != null &&
+                    !capturingFaceSample
+                Button(
+                    onClick = {
+                        val captureAction = captureFaceSampleAction
+                        if (capturingFaceSample) {
+                            return@Button
+                        }
+                        if (captureAction == null) {
+                            captureFaceSampleMessage =
+                                "Capture failed: no recent frame is available for cropping."
+                            return@Button
+                        }
+
+                        capturingFaceSample = true
+                        captureFaceSampleMessage = "Capturing face sample..."
+                        coroutineScope.launch {
+                            val cropResult = withContext(Dispatchers.Default) {
+                                captureAction()
+                            }
+
+                            val captureMessage = if (cropResult.isSuccess) {
+                                val croppedBitmap = cropResult.bitmap
+                                if (croppedBitmap == null) {
+                                    "Capture failed: cropped face image was empty."
+                                } else {
+                                    val saveResult = runCatching {
+                                        faceSampleStorage.save(croppedBitmap)
+                                    }
+                                    croppedBitmap.recycle()
+                                    saveResult.fold(
+                                        onSuccess = { outputFile ->
+                                            latestCapturedFaceSamplePath = outputFile.absolutePath
+                                            "Face sample saved: ${outputFile.name} " +
+                                                "(${cropResult.cropWidth}x${cropResult.cropHeight})"
+                                        },
+                                        onFailure = { error ->
+                                            "Capture failed: ${error.message ?: "unable to write image file"}"
+                                        }
+                                    )
+                                }
+                            } else {
+                                "Capture failed: ${cropResult.failureReason?.name ?: "UNKNOWN"}"
+                            }
+
+                            captureFaceSampleMessage = captureMessage
+                            capturingFaceSample = false
+                        }
+                    },
+                    enabled = canCaptureFaceSample,
+                    modifier = Modifier.padding(top = 8.dp)
+                ) {
+                    Text(text = if (capturingFaceSample) "Capturing..." else "Capture Face Sample")
+                }
+
+                if (captureFaceSampleMessage != null) {
+                    Text(
+                        text = captureFaceSampleMessage.orEmpty(),
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+                if (latestCapturedFaceSamplePath != null) {
+                    Text(
+                        text = "Latest face sample: ${latestCapturedFaceSamplePath.orEmpty()}",
+                        modifier = Modifier.padding(top = 4.dp)
                     )
                 }
 
@@ -236,7 +351,9 @@ fun CameraScreen(
 private fun CameraPreview(
     modifier: Modifier = Modifier,
     selectedCamera: CameraSelection,
-    onFrameDiagnostics: (FrameDiagnostics) -> Unit
+    onFrameDiagnostics: (FrameDiagnostics) -> Unit,
+    onFaceDetectionResult: (FaceDetectionResult) -> Unit,
+    onCaptureFaceSampleActionChanged: (CaptureFaceSampleAction?) -> Unit
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -247,8 +364,15 @@ private fun CameraPreview(
         }
     }
     val onFrameDiagnosticsState = rememberUpdatedState(onFrameDiagnostics)
+    val onFaceDetectionResultState = rememberUpdatedState(onFaceDetectionResult)
+    val faceDetectionPipeline = remember {
+        FaceDetectionPipeline { result ->
+            onFaceDetectionResultState.value(result)
+        }
+    }
     val frameAnalyzer = remember {
         FrameAnalyzer(
+            faceDetectionPipeline = faceDetectionPipeline,
             onDiagnostics = { diagnostics ->
                 onFrameDiagnosticsState.value(diagnostics)
             }
@@ -262,6 +386,15 @@ private fun CameraPreview(
     DisposableEffect(analysisExecutor) {
         onDispose {
             analysisExecutor.shutdownSafely()
+        }
+    }
+    DisposableEffect(faceDetectionPipeline, onCaptureFaceSampleActionChanged) {
+        onCaptureFaceSampleActionChanged {
+            faceDetectionPipeline.captureLargestFaceSample()
+        }
+        onDispose {
+            onCaptureFaceSampleActionChanged(null)
+            faceDetectionPipeline.close()
         }
     }
 
@@ -425,3 +558,37 @@ private sealed interface CameraPermissionUiState {
     data class Denied(val canRequestAgain: Boolean) : CameraPermissionUiState
     object Granted : CameraPermissionUiState
 }
+
+private class FaceSampleStorage(
+    private val appContext: Context
+) {
+    fun save(faceBitmap: Bitmap): File {
+        val outputDirectory = File(appContext.filesDir, FACE_SAMPLE_DIRECTORY).also { directory ->
+            if (!directory.exists()) {
+                check(directory.mkdirs()) {
+                    "Unable to create face sample directory."
+                }
+            }
+        }
+
+        val fileName = buildString {
+            append("face_sample_")
+            append(System.currentTimeMillis())
+            append("_")
+            append(UUID.randomUUID().toString().replace("-", "").take(8))
+            append(".jpg")
+        }
+        val outputFile = File(outputDirectory, fileName)
+        outputFile.outputStream().use { output ->
+            check(faceBitmap.compress(Bitmap.CompressFormat.JPEG, FACE_SAMPLE_JPEG_QUALITY, output)) {
+                "Unable to encode face sample image."
+            }
+        }
+        return outputFile
+    }
+}
+
+private typealias CaptureFaceSampleAction = () -> FaceCropResult
+
+private const val FACE_SAMPLE_DIRECTORY = "face_samples/captured"
+private const val FACE_SAMPLE_JPEG_QUALITY = 92

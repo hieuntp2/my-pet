@@ -1,3 +1,5 @@
+val junit4Version = property("dep.junit4").toString()
+
 plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.android")
@@ -21,4 +23,5 @@ android {
 }
 
 dependencies {
+    testImplementation("junit:junit:$junit4Version")
 }

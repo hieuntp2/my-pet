@@ -4,19 +4,30 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
+import com.aipet.brain.perception.vision.FaceDetectionPipeline
+import java.util.concurrent.atomic.AtomicLong
 
 class FrameAnalyzer(
     private val minEmitIntervalMs: Long = DEFAULT_EMIT_INTERVAL_MS,
+    private val faceDetectionPipeline: FaceDetectionPipeline? = null,
     private val onDiagnostics: ((FrameDiagnostics) -> Unit)? = null
 ) : ImageAnalysis.Analyzer {
 
     private var lastEmittedAtMs: Long = 0L
+    private val frameCounter = AtomicLong(1L)
 
     override fun analyze(imageProxy: ImageProxy) {
         val analyzedAtMs = System.currentTimeMillis()
         val processingStartedAtNs = SystemClock.elapsedRealtimeNanos()
+        val frameId = frameCounter.getAndIncrement()
 
         try {
+            faceDetectionPipeline?.processFrame(
+                frameId = frameId,
+                timestampMs = analyzedAtMs,
+                imageProxy = imageProxy
+            )
+
             val now = SystemClock.elapsedRealtime()
             if (now - lastEmittedAtMs >= minEmitIntervalMs) {
                 val diagnostics = FrameDiagnostics(
@@ -34,7 +45,7 @@ class FrameAnalyzer(
                 lastEmittedAtMs = now
                 Log.d(
                     TAG,
-                    "Frame: ${diagnostics.width}x${diagnostics.height}, " +
+                    "Frame: id=$frameId, ${diagnostics.width}x${diagnostics.height}, " +
                         "rotation=${diagnostics.rotationDegrees}, format=${diagnostics.format}, " +
                         "processingMs=${diagnostics.processingDurationMs}"
                 )
