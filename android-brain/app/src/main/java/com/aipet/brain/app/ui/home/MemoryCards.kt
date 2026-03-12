@@ -9,7 +9,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.aipet.brain.brain.events.EventEnvelope
+import com.aipet.brain.memory.objects.ObjectRecord
 import com.aipet.brain.memory.persons.PersonRecord
+import java.util.Locale
 
 @Composable
 internal fun RecentInteractionsCard(
@@ -56,9 +58,42 @@ internal fun TopPersonsCard(
                 return@Column
             }
             persons.forEach { person ->
-                val familiarityPercent = (person.familiarityScore.coerceIn(0f, 1f) * 100f).toInt()
+                val normalizedFamiliarity = person.familiarityScore.coerceIn(0f, 1f)
+                val familiarityText = String.format(
+                    Locale.US,
+                    "%.2f",
+                    normalizedFamiliarity
+                )
                 Text(
-                    text = "${person.displayName} - $familiarityPercent%",
+                    text = "${person.displayName} - familiarity: $familiarityText",
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+internal fun RecentObjectsCard(
+    objects: List<ObjectRecord>,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text(text = "Recent Objects")
+            if (objects.isEmpty()) {
+                Text(
+                    text = "No recent known objects yet.",
+                    modifier = Modifier.padding(top = 8.dp)
+                )
+                return@Column
+            }
+            objects.forEach { obj ->
+                val lastSeenAtMsText = obj.lastSeenAtMs?.toString() ?: "-"
+                Text(
+                    text = "${obj.name} - last seen: $lastSeenAtMsText",
                     modifier = Modifier.padding(top = 6.dp)
                 )
             }

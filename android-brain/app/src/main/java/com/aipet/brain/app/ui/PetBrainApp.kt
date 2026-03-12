@@ -25,6 +25,7 @@ import com.aipet.brain.app.ui.camera.CameraScreen
 import com.aipet.brain.app.ui.debug.DebugScreen
 import com.aipet.brain.app.ui.debug.EventViewerScreen
 import com.aipet.brain.app.ui.debug.ObservationViewerScreen
+import com.aipet.brain.app.ui.debug.WorkingMemoryDebugScreen
 import com.aipet.brain.app.ui.home.HomeScreen
 import com.aipet.brain.app.ui.persons.PersonDetailScreen
 import com.aipet.brain.app.ui.persons.PersonEditorScreen
@@ -101,6 +102,7 @@ private enum class AppScreen {
     EventViewer,
     ObservationViewer,
     ProfileAssociations,
+    WorkingMemoryDebug,
     Camera,
     Persons,
     Traits,
@@ -397,6 +399,7 @@ fun PetBrainApp() {
         initial = audioPlaybackEngine.currentDebugState()
     )
     var topPersons by remember { mutableStateOf(emptyList<com.aipet.brain.memory.persons.PersonRecord>()) }
+    var recentObjects by remember { mutableStateOf(emptyList<com.aipet.brain.memory.objects.ObjectRecord>()) }
 
     LaunchedEffect(eventBus) {
         eventBus.observe().collect { event ->
@@ -476,6 +479,10 @@ fun PetBrainApp() {
         topPersons = personStore.listTopByFamiliarity(limit = 5)
     }
 
+    LaunchedEffect(objectRepository, latestEvent?.eventId) {
+        recentObjects = objectRepository.listRecentSeenObjects(limit = 5)
+    }
+
     DisposableEffect(audioPlaybackEngine, faceEmbeddingEngine) {
         onDispose {
             audioPlaybackEngine.release()
@@ -491,6 +498,7 @@ fun PetBrainApp() {
                     latestEvent = latestEvent,
                     recentInteractions = recentInteractions,
                     topPersons = topPersons,
+                    recentObjects = recentObjects,
                     onPetInteraction = {
                         coroutineScope.launch {
                             val timestampMs = System.currentTimeMillis()
@@ -526,6 +534,7 @@ fun PetBrainApp() {
                     onNavigateToProfileAssociations = { currentScreenName = AppScreen.ProfileAssociations.name },
                     onNavigateToPersons = { currentScreenName = AppScreen.Persons.name },
                     onNavigateToTraits = { currentScreenName = AppScreen.Traits.name },
+                    onNavigateToWorkingMemoryDebug = { currentScreenName = AppScreen.WorkingMemoryDebug.name },
                     onNavigateToCamera = { currentScreenName = AppScreen.Camera.name },
                     onNavigateToAudioDebug = { currentScreenName = AppScreen.AudioDebug.name },
                     onForceSleep = {
@@ -645,6 +654,11 @@ fun PetBrainApp() {
                     keywordSpottingConfigStore = keywordSpottingConfigStore
                 )
 
+                AppScreen.WorkingMemoryDebug -> WorkingMemoryDebugScreen(
+                    currentWorkingMemory = currentWorkingMemory,
+                    onNavigateBack = { currentScreenName = AppScreen.Debug.name }
+                )
+
                 AppScreen.Traits -> TraitsScreen(
                     currentTraits = currentTraits,
                     onNavigateBack = { currentScreenName = AppScreen.Debug.name }
@@ -759,6 +773,7 @@ fun PetBrainApp() {
                                     type = EventType.OBJECT_DETECTED,
                                     timestampMs = detectedAtMs,
                                     payloadJson = ObjectDetectedEventPayload(
+                                        objectId = seenUpdateResult?.objectRecord?.objectId,
                                         label = label,
                                         confidence = confidence,
                                         detectedAtMs = detectedAtMs
@@ -767,8 +782,8 @@ fun PetBrainApp() {
                             )
                             Log.i(
                                 DEBUG_OBJECT_EVENT_TAG,
-                                "Published OBJECT_DETECTED: label='$label', " +
-                                    "confidence=$confidence, detectedAtMs=$detectedAtMs"
+                                "Published OBJECT_DETECTED: objectId=${seenUpdateResult?.objectRecord?.objectId ?: "unknown"}, " +
+                                    "label='$label', confidence=$confidence, detectedAtMs=$detectedAtMs"
                             )
                         }
                     },

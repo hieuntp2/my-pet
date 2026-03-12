@@ -11,8 +11,8 @@ class WorkingMemoryStoreTest {
         val memory = store.currentSnapshot()
 
         assertEquals(null, memory.currentPersonId)
-        assertEquals(null, memory.currentObjectLabel)
-        assertEquals(null, memory.lastStimulusAtMs)
+        assertEquals(null, memory.currentObjectId)
+        assertEquals(null, memory.lastStimulusTs)
     }
 
     @Test
@@ -22,14 +22,14 @@ class WorkingMemoryStoreTest {
         store.update { current ->
             current.copy(
                 currentPersonId = "person-1",
-                currentObjectLabel = "ball",
-                lastStimulusAtMs = 1_000L
+                currentObjectId = "object-1",
+                lastStimulusTs = 1_000L
             )
         }
 
         val memory = store.observe().value
         assertEquals("person-1", memory.currentPersonId)
-        assertEquals("ball", memory.currentObjectLabel)
-        assertEquals(1_000L, memory.lastStimulusAtMs)
+        assertEquals("object-1", memory.currentObjectId)
+        assertEquals(1_000L, memory.lastStimulusTs)
     }
 }

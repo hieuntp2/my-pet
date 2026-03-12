@@ -15,6 +15,15 @@ class ObjectRepository(
         }
     }
 
+    suspend fun listRecentSeenObjects(limit: Int): List<ObjectRecord> {
+        if (limit <= 0) {
+            return emptyList()
+        }
+        return objectDao.getRecentSeenObjects(limit = limit).map { entity ->
+            entity.toRecord()
+        }
+    }
+
     suspend fun getObjectById(objectId: String): ObjectRecord? {
         val normalizedObjectId = objectId.trim()
         if (normalizedObjectId.isBlank()) {

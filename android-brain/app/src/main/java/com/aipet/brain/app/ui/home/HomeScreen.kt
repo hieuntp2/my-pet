@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import com.aipet.brain.brain.events.EventEnvelope
 import com.aipet.brain.brain.events.EventType
 import com.aipet.brain.brain.events.audio.AudioResponsePayload
+import com.aipet.brain.memory.objects.ObjectRecord
 import com.aipet.brain.brain.state.BrainState
 import com.aipet.brain.memory.persons.PersonRecord
 import com.aipet.brain.ui.avatar.AvatarFace
@@ -27,6 +28,7 @@ fun HomeScreen(
     latestEvent: EventEnvelope?,
     recentInteractions: List<EventEnvelope>,
     topPersons: List<PersonRecord>,
+    recentObjects: List<ObjectRecord>,
     onPetInteraction: () -> Unit,
     onNavigateToDebug: () -> Unit,
     onNavigateToCamera: () -> Unit
@@ -131,6 +133,11 @@ fun HomeScreen(
 
         TopPersonsCard(
             persons = topPersons,
+            modifier = Modifier.padding(bottom = 24.dp)
+        )
+
+        RecentObjectsCard(
+            objects = recentObjects,
             modifier = Modifier.padding(bottom = 24.dp)
         )
 

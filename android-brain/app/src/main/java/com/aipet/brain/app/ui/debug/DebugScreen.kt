@@ -45,6 +45,7 @@ fun DebugScreen(
     onNavigateToProfileAssociations: () -> Unit,
     onNavigateToPersons: () -> Unit,
     onNavigateToTraits: () -> Unit,
+    onNavigateToWorkingMemoryDebug: () -> Unit,
     onNavigateToCamera: () -> Unit,
     onNavigateToAudioDebug: () -> Unit,
     onForceSleep: () -> Unit,
@@ -129,11 +130,11 @@ fun DebugScreen(
             modifier = Modifier.fillMaxWidth()
         )
         Text(
-            text = "WorkingMemory.object: ${currentWorkingMemory.currentObjectLabel ?: "-"}",
+            text = "WorkingMemory.object: ${currentWorkingMemory.currentObjectId ?: "-"}",
             modifier = Modifier.fillMaxWidth()
         )
         Text(
-            text = "WorkingMemory.lastStimulus: ${currentWorkingMemory.lastStimulusAtMs ?: "-"}",
+            text = "WorkingMemory.lastStimulus: ${currentWorkingMemory.lastStimulusTs ?: "-"}",
             modifier = Modifier.fillMaxWidth()
         )
         Text(
@@ -253,6 +254,10 @@ fun DebugScreen(
         DebugActionButton(
             label = "Open Traits",
             onClick = onNavigateToTraits
+        )
+        DebugActionButton(
+            label = "Open Working Memory",
+            onClick = onNavigateToWorkingMemoryDebug
         )
 
         DebugActionButton(

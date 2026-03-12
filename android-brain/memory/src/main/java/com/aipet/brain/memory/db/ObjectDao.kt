@@ -24,6 +24,16 @@ interface ObjectDao {
     @Query(
         """
         SELECT * FROM objects
+        WHERE last_seen_at_ms IS NOT NULL
+        ORDER BY last_seen_at_ms DESC, seen_count DESC, object_id ASC
+        LIMIT :limit
+        """
+    )
+    suspend fun getRecentSeenObjects(limit: Int): List<ObjectEntity>
+
+    @Query(
+        """
+        SELECT * FROM objects
         WHERE name = :name COLLATE NOCASE
         ORDER BY created_at_ms DESC, object_id ASC
         LIMIT 1

@@ -5,6 +5,7 @@ import com.aipet.brain.brain.events.EventBus
 import com.aipet.brain.brain.events.EventEnvelope
 import com.aipet.brain.brain.events.EventType
 import com.aipet.brain.brain.events.ObjectDetectedEventPayload
+import com.aipet.brain.brain.events.PersonRecognizedPayload
 import com.aipet.brain.brain.events.PersonSeenEventPayload
 import com.aipet.brain.brain.logic.audio.AudioMeaningfulStimulusPolicy
 import com.aipet.brain.brain.logic.audio.AudioStimulusMapper
@@ -19,12 +20,31 @@ class WorkingMemoryUpdater(
     suspend fun observeEventsAndUpdateMemory() {
         eventBus.observe().collect { event ->
             when (event.type) {
+                EventType.PERSON_RECOGNIZED -> {
+                    val payload = PersonRecognizedPayload.fromJson(event.payloadJson) ?: return@collect
+                    workingMemoryStore.update { current ->
+                        current.copy(
+                            currentPersonId = payload.personId,
+                            lastStimulusTs = event.timestampMs
+                        )
+                    }
+                }
+
                 EventType.PERSON_SEEN_RECORDED -> {
                     val payload = PersonSeenEventPayload.fromJson(event.payloadJson) ?: return@collect
                     workingMemoryStore.update { current ->
                         current.copy(
                             currentPersonId = payload.personId,
-                            lastStimulusAtMs = event.timestampMs
+                            lastStimulusTs = event.timestampMs
+                        )
+                    }
+                }
+
+                EventType.PERSON_UNKNOWN -> {
+                    workingMemoryStore.update { current ->
+                        current.copy(
+                            currentPersonId = null,
+                            lastStimulusTs = event.timestampMs
                         )
                     }
                 }
@@ -33,24 +53,25 @@ class WorkingMemoryUpdater(
                     workingMemoryStore.update { current ->
                         current.copy(
                             currentPersonId = null,
-                            lastStimulusAtMs = event.timestampMs
+                            lastStimulusTs = event.timestampMs
                         )
                     }
                 }
 
                 EventType.OBJECT_DETECTED -> {
                     val payload = ObjectDetectedEventPayload.fromJson(event.payloadJson) ?: return@collect
+                    val resolvedObjectId = payload.objectId?.trim()?.ifBlank { null } ?: payload.label
                     workingMemoryStore.update { current ->
                         current.copy(
-                            currentObjectLabel = payload.label,
-                            lastStimulusAtMs = event.timestampMs
+                            currentObjectId = resolvedObjectId,
+                            lastStimulusTs = event.timestampMs
                         )
                     }
                 }
 
                 EventType.USER_INTERACTED_PET -> {
                     workingMemoryStore.update { current ->
-                        current.copy(lastStimulusAtMs = event.timestampMs)
+                        current.copy(lastStimulusTs = event.timestampMs)
                     }
                 }
 
@@ -80,25 +101,25 @@ class WorkingMemoryUpdater(
         if (meaningfulStimulus == null) {
             Log.d(
                 TAG,
-                "Audio stimulus ignored for lastStimulusAtMs update. source=${stimulus.sourceEventType.name}, " +
+                "Audio stimulus ignored for lastStimulusTs update. source=${stimulus.sourceEventType.name}, " +
                     "stimulusTs=${stimulus.timestampMs}"
             )
             return
         }
-        val previousStimulusAtMs = workingMemoryStore.currentSnapshot().lastStimulusAtMs
+        val previousStimulusTs = workingMemoryStore.currentSnapshot().lastStimulusTs
         workingMemoryStore.update { current ->
-            val currentTimestamp = current.lastStimulusAtMs
+            val currentTimestamp = current.lastStimulusTs
             if (currentTimestamp != null && meaningfulStimulus.timestampMs <= currentTimestamp) {
                 current
             } else {
-                current.copy(lastStimulusAtMs = meaningfulStimulus.timestampMs)
+                current.copy(lastStimulusTs = meaningfulStimulus.timestampMs)
             }
         }
-        val updatedStimulusAtMs = workingMemoryStore.currentSnapshot().lastStimulusAtMs
+        val updatedStimulusTs = workingMemoryStore.currentSnapshot().lastStimulusTs
         Log.d(
             TAG,
             "Meaningful audio stimulus updated working memory. source=${meaningfulStimulus.sourceEventType.name}, " +
-                "reason=${meaningfulStimulus.reason}, lastStimulusAtMs=$previousStimulusAtMs -> $updatedStimulusAtMs"
+                "reason=${meaningfulStimulus.reason}, lastStimulusTs=$previousStimulusTs -> $updatedStimulusTs"
         )
     }
 

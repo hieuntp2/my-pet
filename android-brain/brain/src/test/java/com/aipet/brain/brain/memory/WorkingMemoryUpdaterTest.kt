@@ -4,6 +4,7 @@ import com.aipet.brain.brain.events.EventBus
 import com.aipet.brain.brain.events.EventEnvelope
 import com.aipet.brain.brain.events.EventType
 import com.aipet.brain.brain.events.ObjectDetectedEventPayload
+import com.aipet.brain.brain.events.PersonRecognizedPayload
 import com.aipet.brain.brain.events.PersonSeenEventPayload
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -17,7 +18,41 @@ import org.junit.Test
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class WorkingMemoryUpdaterTest {
     @Test
-    fun personSeenEvent_updatesCurrentPersonAndLastStimulus() = runTest {
+    fun personRecognizedEvent_updatesCurrentPersonAndLastStimulus() = runTest {
+        val eventBus = FakeEventBus()
+        val store = WorkingMemoryStore()
+        val updater = WorkingMemoryUpdater(
+            eventBus = eventBus,
+            workingMemoryStore = store
+        )
+        val job = launch {
+            updater.observeEventsAndUpdateMemory()
+        }
+        advanceUntilIdle()
+
+        eventBus.publish(
+            EventEnvelope.create(
+                type = EventType.PERSON_RECOGNIZED,
+                timestampMs = 1_000L,
+                payloadJson = PersonRecognizedPayload(
+                    personId = "person-1",
+                    similarityScore = 0.9f,
+                    threshold = 0.75f,
+                    evaluatedCandidates = 3,
+                    timestamp = 1_000L
+                ).toJson()
+            )
+        )
+        advanceUntilIdle()
+
+        val memory = store.currentSnapshot()
+        assertEquals("person-1", memory.currentPersonId)
+        assertEquals(1_000L, memory.lastStimulusTs)
+        job.cancel()
+    }
+
+    @Test
+    fun personSeenRecordedEvent_stillUpdatesCurrentPersonAndLastStimulus() = runTest {
         val eventBus = FakeEventBus()
         val store = WorkingMemoryStore()
         val updater = WorkingMemoryUpdater(
@@ -32,10 +67,10 @@ class WorkingMemoryUpdaterTest {
         eventBus.publish(
             EventEnvelope.create(
                 type = EventType.PERSON_SEEN_RECORDED,
-                timestampMs = 1_000L,
+                timestampMs = 2_000L,
                 payloadJson = PersonSeenEventPayload(
-                    personId = "person-1",
-                    seenAtMs = 1_000L,
+                    personId = "person-2",
+                    seenAtMs = 2_000L,
                     seenCount = 1,
                     isOwner = false,
                     source = "unit_test"
@@ -45,13 +80,13 @@ class WorkingMemoryUpdaterTest {
         advanceUntilIdle()
 
         val memory = store.currentSnapshot()
-        assertEquals("person-1", memory.currentPersonId)
-        assertEquals(1_000L, memory.lastStimulusAtMs)
+        assertEquals("person-2", memory.currentPersonId)
+        assertEquals(2_000L, memory.lastStimulusTs)
         job.cancel()
     }
 
     @Test
-    fun objectDetectedEvent_updatesCurrentObjectAndLastStimulus() = runTest {
+    fun objectDetectedEvent_usesObjectIdAndUpdatesLastStimulus() = runTest {
         val eventBus = FakeEventBus()
         val store = WorkingMemoryStore()
         val updater = WorkingMemoryUpdater(
@@ -66,19 +101,20 @@ class WorkingMemoryUpdaterTest {
         eventBus.publish(
             EventEnvelope.create(
                 type = EventType.OBJECT_DETECTED,
-                timestampMs = 2_000L,
+                timestampMs = 2_500L,
                 payloadJson = ObjectDetectedEventPayload(
+                    objectId = "object-1",
                     label = "ball",
                     confidence = 0.91f,
-                    detectedAtMs = 2_000L
+                    detectedAtMs = 2_500L
                 ).toJson()
             )
         )
         advanceUntilIdle()
 
         val memory = store.currentSnapshot()
-        assertEquals("ball", memory.currentObjectLabel)
-        assertEquals(2_000L, memory.lastStimulusAtMs)
+        assertEquals("object-1", memory.currentObjectId)
+        assertEquals(2_500L, memory.lastStimulusTs)
         job.cancel()
     }
 
@@ -88,8 +124,8 @@ class WorkingMemoryUpdaterTest {
         val store = WorkingMemoryStore(
             initialMemory = WorkingMemory(
                 currentPersonId = "person-1",
-                currentObjectLabel = "ball",
-                lastStimulusAtMs = 500L
+                currentObjectId = "object-1",
+                lastStimulusTs = 500L
             )
         )
         val updater = WorkingMemoryUpdater(
@@ -103,17 +139,17 @@ class WorkingMemoryUpdaterTest {
 
         eventBus.publish(
             EventEnvelope.create(
-                type = EventType.PERSON_UNKNOWN_DETECTED,
+                type = EventType.PERSON_UNKNOWN,
                 timestampMs = 3_000L,
-                payloadJson = "{\"seenAtMs\":3000,\"source\":\"unit_test\"}"
+                payloadJson = "{\"bestScore\":0.2,\"threshold\":0.5,\"evaluatedCandidates\":2,\"timestamp\":3000}"
             )
         )
         advanceUntilIdle()
 
         val memory = store.currentSnapshot()
         assertEquals(null, memory.currentPersonId)
-        assertEquals("ball", memory.currentObjectLabel)
-        assertEquals(3_000L, memory.lastStimulusAtMs)
+        assertEquals("object-1", memory.currentObjectId)
+        assertEquals(3_000L, memory.lastStimulusTs)
         job.cancel()
     }
 
@@ -123,8 +159,8 @@ class WorkingMemoryUpdaterTest {
         val store = WorkingMemoryStore(
             initialMemory = WorkingMemory(
                 currentPersonId = "person-1",
-                currentObjectLabel = "ball",
-                lastStimulusAtMs = 1_000L
+                currentObjectId = "object-2",
+                lastStimulusTs = 1_000L
             )
         )
         val updater = WorkingMemoryUpdater(
@@ -147,8 +183,8 @@ class WorkingMemoryUpdaterTest {
 
         val memory = store.currentSnapshot()
         assertEquals("person-1", memory.currentPersonId)
-        assertEquals("ball", memory.currentObjectLabel)
-        assertEquals(4_000L, memory.lastStimulusAtMs)
+        assertEquals("object-2", memory.currentObjectId)
+        assertEquals(4_000L, memory.lastStimulusTs)
         job.cancel()
     }
 }
