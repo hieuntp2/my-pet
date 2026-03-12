@@ -15,7 +15,7 @@ class RoomTraitsSnapshotRepository(
     }
 
     override suspend fun latest(): TraitsSnapshot? {
-        return dao.latest()?.toDomain()
+        return dao.getLatest()?.toDomain()
     }
 
     override fun observeLatest(): Flow<TraitsSnapshot?> {
@@ -26,20 +26,19 @@ class RoomTraitsSnapshotRepository(
 
     private fun TraitsSnapshot.toEntity(): TraitsSnapshotEntity {
         return TraitsSnapshotEntity(
-            snapshotId = snapshotId,
-            capturedAtMs = capturedAtMs,
             curiosity = curiosity,
             sociability = sociability,
             energy = energy,
             patience = patience,
-            boldness = boldness
+            boldness = boldness,
+            createdAt = capturedAtMs
         )
     }
 
     private fun TraitsSnapshotEntity.toDomain(): TraitsSnapshot {
         return TraitsSnapshot(
-            snapshotId = snapshotId,
-            capturedAtMs = capturedAtMs,
+            snapshotId = id.toString(),
+            capturedAtMs = createdAt,
             curiosity = curiosity,
             sociability = sociability,
             energy = energy,

@@ -53,17 +53,13 @@ class TraitsEngine(
     }
 
     private suspend fun applyPetRule(event: EventEnvelope) {
-        val current = currentTraits.value ?: return
+        val current = repository.latest() ?: currentTraits.value ?: return
         val updated = current.copy(
             snapshotId = idProvider(),
             capturedAtMs = event.timestampMs,
             sociability = (current.sociability + PET_SOCIABILITY_DELTA).clampTrait()
         )
-        persistIfChanged(
-            previous = current,
-            updated = updated,
-            changedFields = listOf("sociability")
-        )
+        persistIfChanged(updated)
     }
 
     private suspend fun applyInactivityRule(event: EventEnvelope) {
@@ -71,25 +67,24 @@ class TraitsEngine(
         if (!payload.contains("\"toState\":\"SLEEPY\"")) {
             return
         }
-        val current = currentTraits.value ?: return
+        if (!payload.contains("\"reason\":\"INACTIVITY_TIMEOUT\"")) {
+            return
+        }
+        val current = repository.latest() ?: currentTraits.value ?: return
         val updated = current.copy(
             snapshotId = idProvider(),
             capturedAtMs = event.timestampMs,
-            energy = (current.energy - INACTIVITY_ENERGY_DELTA).clampTrait()
+            sociability = (current.sociability - INACTIVITY_SOCIABILITY_DELTA).clampTrait()
         )
-        persistIfChanged(
-            previous = current,
-            updated = updated,
-            changedFields = listOf("energy")
-        )
+        persistIfChanged(updated)
     }
 
     private suspend fun persistIfChanged(
-        previous: TraitsSnapshot,
-        updated: TraitsSnapshot,
-        changedFields: List<String>
+        updated: TraitsSnapshot
     ) {
-        if (previous.sameValuesAs(updated)) {
+        val previous = repository.latest() ?: currentTraits.value ?: return
+        val changedFields = previous.changedTraitFieldsComparedTo(updated)
+        if (changedFields.isEmpty()) {
             return
         }
         repository.save(updated)
@@ -108,12 +103,24 @@ class TraitsEngine(
         )
     }
 
-    private fun TraitsSnapshot.sameValuesAs(other: TraitsSnapshot): Boolean {
-        return curiosity == other.curiosity &&
-            sociability == other.sociability &&
-            energy == other.energy &&
-            patience == other.patience &&
-            boldness == other.boldness
+    private fun TraitsSnapshot.changedTraitFieldsComparedTo(other: TraitsSnapshot): List<String> {
+        val changedFields = mutableListOf<String>()
+        if (curiosity != other.curiosity) {
+            changedFields.add("curiosity")
+        }
+        if (sociability != other.sociability) {
+            changedFields.add("sociability")
+        }
+        if (energy != other.energy) {
+            changedFields.add("energy")
+        }
+        if (patience != other.patience) {
+            changedFields.add("patience")
+        }
+        if (boldness != other.boldness) {
+            changedFields.add("boldness")
+        }
+        return changedFields
     }
 
     private fun Float.clampTrait(): Float {
@@ -128,6 +135,6 @@ class TraitsEngine(
         private const val DEFAULT_BOLDNESS = 0.45f
 
         private const val PET_SOCIABILITY_DELTA = 0.02f
-        private const val INACTIVITY_ENERGY_DELTA = 0.02f
+        private const val INACTIVITY_SOCIABILITY_DELTA = 0.02f
     }
 }

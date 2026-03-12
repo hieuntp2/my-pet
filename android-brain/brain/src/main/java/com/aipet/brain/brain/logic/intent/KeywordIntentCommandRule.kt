@@ -1,10 +1,6 @@
 package com.aipet.brain.brain.logic.intent
 
 import android.util.Log
-import com.aipet.brain.brain.events.BrainStateChangedEventPayload
-import com.aipet.brain.brain.events.EventBus
-import com.aipet.brain.brain.events.EventEnvelope
-import com.aipet.brain.brain.events.EventType
 import com.aipet.brain.brain.logic.audio.AudioResponseRequestEmitter
 import com.aipet.brain.brain.logic.audio.AudioResponseRequestInput
 import com.aipet.brain.brain.logic.audio.AudioStimulusObserver
@@ -17,7 +13,6 @@ class KeywordIntentCommandRule(
     private val audioStimulusObserver: AudioStimulusObserver,
     private val keywordIntentMapper: KeywordIntentMapper,
     private val audioResponseRequestEmitter: AudioResponseRequestEmitter,
-    private val eventBus: EventBus,
     private val brainStateStore: BrainStateStore,
     private val nowProvider: () -> Long = { System.currentTimeMillis() },
     private val intentCooldownMs: Long = DEFAULT_INTENT_COOLDOWN_MS
@@ -129,7 +124,8 @@ class KeywordIntentCommandRule(
 
         val changed = brainStateStore.setState(
             targetState = targetState,
-            timestampMs = eventTimestampMs
+            timestampMs = eventTimestampMs,
+            reason = "KEYWORD_INTENT_${command.intent.intentType.name}"
         )
         if (!changed) {
             Log.d(
@@ -140,32 +136,11 @@ class KeywordIntentCommandRule(
             return
         }
 
-        try {
-            eventBus.publish(
-                EventEnvelope.create(
-                    type = EventType.BRAIN_STATE_CHANGED,
-                    payloadJson = BrainStateChangedEventPayload(
-                        fromState = currentState,
-                        toState = targetState,
-                        reason = "KEYWORD_INTENT_${command.intent.intentType.name}",
-                        changedAtMs = eventTimestampMs
-                    ).toJson(),
-                    timestampMs = eventTimestampMs
-                )
-            )
-            Log.d(
-                TAG,
-                "Applied keyword intent state transition. from=${currentState.name}, " +
-                    "to=${targetState.name}, intent=${command.intent.intentType.name}"
-            )
-        } catch (error: Throwable) {
-            Log.e(
-                TAG,
-                "Failed to publish ${EventType.BRAIN_STATE_CHANGED.name} for keyword intent " +
-                    "${command.intent.intentType.name}.",
-                error
-            )
-        }
+        Log.d(
+            TAG,
+            "Applied keyword intent state transition. from=${currentState.name}, " +
+                "to=${targetState.name}, intent=${command.intent.intentType.name}"
+        )
     }
 
     private fun formatConfidence(confidence: Float): String {

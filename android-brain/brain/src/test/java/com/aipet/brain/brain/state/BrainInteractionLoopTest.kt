@@ -114,6 +114,32 @@ class BrainInteractionLoopTest {
     }
 
     @Test
+    fun petWhileHappy_remainsHappy() = runTest {
+        val eventBus = FakeEventBus()
+        val store = BrainStateStore(initialState = BrainState.HAPPY, nowProvider = { 1_000L })
+        val loop = BrainInteractionLoop(
+            eventBus = eventBus,
+            brainStateStore = store,
+            nowProvider = { 1_000L }
+        )
+        val job = launch { loop.observeEventsAndApplyTransitions() }
+        advanceUntilIdle()
+
+        eventBus.publish(
+            EventEnvelope.create(
+                type = EventType.USER_INTERACTED_PET,
+                timestampMs = 3_000L,
+                payloadJson = "{}"
+            )
+        )
+        advanceUntilIdle()
+
+        assertEquals(BrainState.HAPPY, store.currentSnapshot().currentState)
+
+        job.cancel()
+    }
+
+    @Test
     fun wakeFromSleepy_onObjectStimulus() = runTest {
         val eventBus = FakeEventBus()
         val store = BrainStateStore(initialState = BrainState.SLEEPY, nowProvider = { 1_000L })
@@ -181,6 +207,21 @@ class BrainInteractionLoopTest {
 
         loop.forceWake(timestampMs = 3_000L)
         assertEquals(BrainState.CURIOUS, store.currentSnapshot().currentState)
+    }
+
+    @Test
+    fun forceWakeWhileAlreadyAwake_doesNotChangeState() = runTest {
+        val eventBus = FakeEventBus()
+        val store = BrainStateStore(initialState = BrainState.HAPPY, nowProvider = { 1_000L })
+        val loop = BrainInteractionLoop(
+            eventBus = eventBus,
+            brainStateStore = store,
+            nowProvider = { 1_000L }
+        )
+
+        loop.forceWake(timestampMs = 2_000L)
+
+        assertEquals(BrainState.HAPPY, store.currentSnapshot().currentState)
     }
 }
 

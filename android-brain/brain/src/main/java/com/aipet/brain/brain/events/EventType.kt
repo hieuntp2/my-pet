@@ -17,6 +17,7 @@ enum class EventType {
     ROBOT_GREETING_OWNER_TRIGGERED,
     USER_INTERACTED_PET,
     BRAIN_STATE_CHANGED,
+    RELATIONSHIP_UPDATED,
     TRAITS_UPDATED,
     // Phase 1.5 audio interaction events consumed by perception, behavior, and audio-response modules.
     AUDIO_CAPTURE_STARTED,

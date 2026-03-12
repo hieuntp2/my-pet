@@ -17,7 +17,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         TeachSessionCompletionEntity::class,
         TraitsSnapshotEntity::class
     ],
-    version = 15,
+    version = 16,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -283,6 +283,52 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS `index_objects_last_seen_at_ms` ON `objects` (`last_seen_at_ms`)"
                 )
+            }
+        }
+
+        val MIGRATION_15_16: Migration = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `traits_snapshots` (
+                        `id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        `curiosity` REAL NOT NULL,
+                        `sociability` REAL NOT NULL,
+                        `energy` REAL NOT NULL,
+                        `patience` REAL NOT NULL,
+                        `boldness` REAL NOT NULL,
+                        `createdAt` INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+
+                val legacyTableExists = db.query(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='traits_snapshot' LIMIT 1"
+                ).use { cursor ->
+                    cursor.moveToFirst()
+                }
+                if (legacyTableExists) {
+                    db.execSQL(
+                        """
+                        INSERT INTO `traits_snapshots` (
+                            `curiosity`,
+                            `sociability`,
+                            `energy`,
+                            `patience`,
+                            `boldness`,
+                            `createdAt`
+                        )
+                        SELECT
+                            `curiosity`,
+                            `sociability`,
+                            `energy`,
+                            `patience`,
+                            `boldness`,
+                            `captured_at_ms`
+                        FROM `traits_snapshot`
+                        """.trimIndent()
+                    )
+                }
             }
         }
     }

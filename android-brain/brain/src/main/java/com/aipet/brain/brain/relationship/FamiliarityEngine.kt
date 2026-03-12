@@ -1,8 +1,11 @@
 package com.aipet.brain.brain.relationship
 
 import com.aipet.brain.brain.events.EventBus
+import com.aipet.brain.brain.events.EventEnvelope
 import com.aipet.brain.brain.events.EventType
+import com.aipet.brain.brain.events.PersonRecognizedPayload
 import com.aipet.brain.brain.events.PersonSeenEventPayload
+import com.aipet.brain.brain.events.RelationshipUpdatedEventPayload
 import kotlinx.coroutines.flow.collect
 
 class FamiliarityEngine(
@@ -18,11 +21,22 @@ class FamiliarityEngine(
     suspend fun observeEventsAndApplyRules() {
         eventBus.observe().collect { event ->
             when (event.type) {
+                EventType.PERSON_RECOGNIZED -> {
+                    val payload = PersonRecognizedPayload.fromJson(event.payloadJson) ?: return@collect
+                    currentRecognizedPersonId = payload.personId
+                    currentRecognizedAtMs = event.timestampMs
+                    increaseFamiliarityAndPublishIfChanged(
+                        personId = payload.personId,
+                        delta = recognitionDelta,
+                        updatedAtMs = event.timestampMs
+                    )
+                }
+
                 EventType.PERSON_SEEN_RECORDED -> {
                     val payload = PersonSeenEventPayload.fromJson(event.payloadJson) ?: return@collect
                     currentRecognizedPersonId = payload.personId
                     currentRecognizedAtMs = event.timestampMs
-                    familiarityStore.increaseFamiliarity(
+                    increaseFamiliarityAndPublishIfChanged(
                         personId = payload.personId,
                         delta = recognitionDelta,
                         updatedAtMs = event.timestampMs
@@ -37,13 +51,14 @@ class FamiliarityEngine(
                         currentRecognizedAtMs = 0L
                         return@collect
                     }
-                    familiarityStore.increaseFamiliarity(
+                    increaseFamiliarityAndPublishIfChanged(
                         personId = currentPersonId,
                         delta = petDelta,
                         updatedAtMs = event.timestampMs
                     )
                 }
 
+                EventType.PERSON_UNKNOWN,
                 EventType.PERSON_UNKNOWN_DETECTED -> {
                     currentRecognizedPersonId = null
                     currentRecognizedAtMs = 0L
@@ -52,6 +67,32 @@ class FamiliarityEngine(
                 else -> Unit
             }
         }
+    }
+
+    private suspend fun increaseFamiliarityAndPublishIfChanged(
+        personId: String,
+        delta: Float,
+        updatedAtMs: Long
+    ) {
+        val result = familiarityStore.increaseFamiliarity(
+            personId = personId,
+            delta = delta,
+            updatedAtMs = updatedAtMs
+        ) ?: return
+        if (result.previousFamiliarityScore == result.updatedFamiliarityScore) {
+            return
+        }
+        eventBus.publish(
+            EventEnvelope.create(
+                type = EventType.RELATIONSHIP_UPDATED,
+                timestampMs = result.updatedAtMs,
+                payloadJson = RelationshipUpdatedEventPayload(
+                    personId = result.personId,
+                    familiarityScore = result.updatedFamiliarityScore,
+                    updatedAtMs = result.updatedAtMs
+                ).toJson()
+            )
+        )
     }
 
     companion object {

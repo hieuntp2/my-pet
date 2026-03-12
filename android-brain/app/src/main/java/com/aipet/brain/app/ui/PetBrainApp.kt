@@ -55,7 +55,6 @@ import com.aipet.brain.brain.logic.audio.AudioStimulusObserver
 import com.aipet.brain.brain.logic.audio.LoudSoundReactionRule
 import com.aipet.brain.brain.logic.audio.VoiceActivityAcknowledgmentRule
 import com.aipet.brain.brain.logic.audio.WakeWordAcknowledgmentRule
-import com.aipet.brain.brain.logic.audio.toDebugSummary
 import com.aipet.brain.brain.logic.intent.KeywordIntentCommandRule
 import com.aipet.brain.brain.logic.intent.KeywordIntentMapper
 import com.aipet.brain.brain.memory.WorkingMemoryStore
@@ -63,6 +62,7 @@ import com.aipet.brain.brain.memory.WorkingMemoryUpdater
 import com.aipet.brain.brain.observations.ObservationRecorder
 import com.aipet.brain.brain.observations.ObservationSource
 import com.aipet.brain.brain.relationship.FamiliarityEngine
+import com.aipet.brain.brain.relationship.FamiliarityIncreaseResult
 import com.aipet.brain.brain.relationship.FamiliarityStore
 import com.aipet.brain.brain.recognition.PersonRecognitionService
 import com.aipet.brain.brain.recognition.RecognitionDecisionEventPublisher
@@ -140,7 +140,8 @@ fun PetBrainApp() {
                 AppDatabase.MIGRATION_11_12,
                 AppDatabase.MIGRATION_12_13,
                 AppDatabase.MIGRATION_13_14,
-                AppDatabase.MIGRATION_14_15
+                AppDatabase.MIGRATION_14_15,
+                AppDatabase.MIGRATION_15_16
             )
             .fallbackToDestructiveMigrationOnDowngrade()
             .build()
@@ -255,8 +256,8 @@ fun PetBrainApp() {
     val ownerSeenReactionEngine = remember(eventBus) {
         OwnerSeenReactionEngine(eventBus)
     }
-    val brainStateStore = remember {
-        BrainStateStore()
+    val brainStateStore = remember(eventBus) {
+        BrainStateStore(eventBus = eventBus)
     }
     val brainInteractionLoop = remember(eventBus, brainStateStore) {
         BrainInteractionLoop(
@@ -294,12 +295,23 @@ fun PetBrainApp() {
                 personId: String,
                 delta: Float,
                 updatedAtMs: Long
-            ): Boolean {
-                return personStore.increaseFamiliarity(
-                    personId = personId,
+            ): FamiliarityIncreaseResult? {
+                val normalizedPersonId = personId.trim()
+                if (normalizedPersonId.isBlank()) {
+                    return null
+                }
+                val previous = personStore.getById(normalizedPersonId) ?: return null
+                val updated = personStore.increaseFamiliarity(
+                    personId = normalizedPersonId,
                     delta = delta,
                     updatedAtMs = updatedAtMs
-                ) != null
+                ) ?: return null
+                return FamiliarityIncreaseResult(
+                    personId = updated.personId,
+                    previousFamiliarityScore = previous.familiarityScore,
+                    updatedFamiliarityScore = updated.familiarityScore,
+                    updatedAtMs = updated.updatedAtMs
+                )
             }
         }
     }
@@ -339,14 +351,12 @@ fun PetBrainApp() {
     val wakeWordAcknowledgmentRule = remember(
         audioStimulusObserver,
         audioResponseRequestEmitter,
-        brainStateStore,
-        eventBus
+        brainStateStore
     ) {
         WakeWordAcknowledgmentRule(
             audioStimulusObserver = audioStimulusObserver,
             audioResponseRequestEmitter = audioResponseRequestEmitter,
-            brainStateStore = brainStateStore,
-            eventBus = eventBus
+            brainStateStore = brainStateStore
         )
     }
     val keywordIntentMapper = remember {
@@ -356,14 +366,12 @@ fun PetBrainApp() {
         audioStimulusObserver,
         keywordIntentMapper,
         audioResponseRequestEmitter,
-        eventBus,
         brainStateStore
     ) {
         KeywordIntentCommandRule(
             audioStimulusObserver = audioStimulusObserver,
             keywordIntentMapper = keywordIntentMapper,
             audioResponseRequestEmitter = audioResponseRequestEmitter,
-            eventBus = eventBus,
             brainStateStore = brainStateStore
         )
     }
@@ -506,7 +514,7 @@ fun PetBrainApp() {
                     latestEvent = latestEvent,
                     latestOwnerSeenEvent = latestOwnerSeenEvent,
                     latestOwnerGreetingEvent = latestOwnerGreetingEvent,
-                    latestAudioStimulusSummary = latestAudioStimulus?.toDebugSummary() ?: "-",
+                    latestAudioStimulusSummary = buildAudioStimulusDebugSummary(latestAudioStimulus),
                     audioRuntimeDebugState = audioRuntimeDebugState,
                     audioPlaybackDebugState = audioPlaybackDebugState,
                     currentBrainState = brainStateSnapshot.currentState.name,
@@ -944,6 +952,13 @@ private fun appendTeachSampleCropStatusToNote(
     } else {
         "$notePrefix;$cropStatus"
     }
+}
+
+private fun buildAudioStimulusDebugSummary(
+    stimulus: com.aipet.brain.brain.logic.audio.AudioStimulus?
+): String {
+    val currentStimulus = stimulus ?: return "-"
+    return "source=${currentStimulus.sourceEventType.name}, ts=${currentStimulus.timestampMs}"
 }
 
 private const val DEBUG_AUDIO_REQUEST_CATEGORY = "ACKNOWLEDGMENT"

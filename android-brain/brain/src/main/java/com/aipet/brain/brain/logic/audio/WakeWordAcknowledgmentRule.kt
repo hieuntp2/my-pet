@@ -1,10 +1,6 @@
 package com.aipet.brain.brain.logic.audio
 
 import android.util.Log
-import com.aipet.brain.brain.events.BrainStateChangedEventPayload
-import com.aipet.brain.brain.events.EventBus
-import com.aipet.brain.brain.events.EventEnvelope
-import com.aipet.brain.brain.events.EventType
 import com.aipet.brain.brain.state.BrainState
 import com.aipet.brain.brain.state.BrainStateStore
 import java.util.Locale
@@ -14,7 +10,6 @@ class WakeWordAcknowledgmentRule(
     private val audioStimulusObserver: AudioStimulusObserver,
     private val audioResponseRequestEmitter: AudioResponseRequestEmitter,
     private val brainStateStore: BrainStateStore,
-    private val eventBus: EventBus,
     private val nowProvider: () -> Long = { System.currentTimeMillis() },
     private val minWakeWordConfidence: Float = DEFAULT_MIN_WAKE_WORD_CONFIDENCE,
     private val minKeywordConfidence: Float = DEFAULT_MIN_KEYWORD_CONFIDENCE,
@@ -129,7 +124,8 @@ class WakeWordAcknowledgmentRule(
 
         val changed = brainStateStore.setState(
             targetState = BrainState.CURIOUS,
-            timestampMs = eventTimestampMs
+            timestampMs = eventTimestampMs,
+            reason = KEYWORD_ATTENTIVE_REASON
         )
         if (!changed) {
             Log.d(
@@ -139,32 +135,11 @@ class WakeWordAcknowledgmentRule(
             return
         }
 
-        try {
-            eventBus.publish(
-                EventEnvelope.create(
-                    type = EventType.BRAIN_STATE_CHANGED,
-                    payloadJson = BrainStateChangedEventPayload(
-                        fromState = currentState,
-                        toState = BrainState.CURIOUS,
-                        reason = KEYWORD_ATTENTIVE_REASON,
-                        changedAtMs = eventTimestampMs
-                    ).toJson(),
-                    timestampMs = eventTimestampMs
-                )
-            )
-            Log.d(
-                TAG,
-                "Applied attentive state. from=${currentState.name}, to=${BrainState.CURIOUS.name}, " +
-                    "keywordId=${stimulus.keywordId}, source=${stimulus.sourceEventType.name}"
-            )
-        } catch (error: Throwable) {
-            Log.e(
-                TAG,
-                "Failed to publish ${EventType.BRAIN_STATE_CHANGED.name} for keyword reaction. " +
-                    "keywordId=${stimulus.keywordId}",
-                error
-            )
-        }
+        Log.d(
+            TAG,
+            "Applied attentive state. from=${currentState.name}, to=${BrainState.CURIOUS.name}, " +
+                "keywordId=${stimulus.keywordId}, source=${stimulus.sourceEventType.name}"
+        )
     }
 
     private fun isSupportedKeyword(keywordId: String): Boolean {

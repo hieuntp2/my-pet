@@ -1,11 +1,11 @@
 package com.aipet.brain.brain.state
 
-import android.util.Log
 import com.aipet.brain.brain.events.EventBus
 import com.aipet.brain.brain.events.EventEnvelope
 import com.aipet.brain.brain.events.EventType
 import com.aipet.brain.brain.logic.audio.AudioMeaningfulStimulusPolicy
 import com.aipet.brain.brain.logic.audio.AudioStimulusMapper
+import java.lang.reflect.Method
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
@@ -33,6 +33,7 @@ class BrainInteractionLoop(
 ) {
     private val lock = Mutex()
     private var lastMeaningfulStimulusAtMs: Long = nowProvider()
+    private val logger: BrainInteractionLogger = SafeBrainInteractionLogger
 
     suspend fun observeEventsAndApplyTransitions() {
         eventBus.observe().collect { event ->
@@ -134,10 +135,9 @@ class BrainInteractionLoop(
 
     suspend fun forceWake(timestampMs: Long = nowProvider()) {
         recordMeaningfulStimulus(timestampMs)
-        transitionTo(
-            targetState = BrainState.CURIOUS,
-            reason = BrainTransitionReason.DEBUG_FORCE_WAKE,
-            timestampMs = timestampMs
+        wakeIfSleeping(
+            timestampMs = timestampMs,
+            reason = BrainTransitionReason.DEBUG_FORCE_WAKE
         )
     }
 
@@ -166,7 +166,7 @@ class BrainInteractionLoop(
 
     private suspend fun handleAudioStimulusForInactivity(event: EventEnvelope) {
         val stimulus = audioStimulusMapper.map(event) ?: run {
-            Log.w(
+            logger.w(
                 TAG,
                 "Ignored audio event for inactivity reset due to invalid payload. eventType=${event.type.name}, " +
                     "eventId=${event.eventId}"
@@ -175,7 +175,7 @@ class BrainInteractionLoop(
         }
         val meaningfulStimulus = audioMeaningfulStimulusPolicy.evaluate(stimulus)
         if (meaningfulStimulus == null) {
-            Log.d(
+            logger.d(
                 TAG,
                 "Audio stimulus ignored for inactivity reset. source=${stimulus.sourceEventType.name}, " +
                     "stimulusTs=${stimulus.timestampMs}"
@@ -183,7 +183,7 @@ class BrainInteractionLoop(
             return
         }
         recordMeaningfulStimulus(meaningfulStimulus.timestampMs)
-        Log.d(
+        logger.d(
             TAG,
             "Meaningful audio stimulus accepted. source=${meaningfulStimulus.sourceEventType.name}, " +
                 "reason=${meaningfulStimulus.reason}, stimulusTs=${meaningfulStimulus.timestampMs}"
@@ -216,12 +216,13 @@ class BrainInteractionLoop(
         val fromState = brainStateStore.currentSnapshot().currentState
         val changed = brainStateStore.setState(
             targetState = targetState,
-            timestampMs = timestampMs
+            timestampMs = timestampMs,
+            reason = reason.name
         )
         if (!changed) {
             return
         }
-        Log.d(
+        logger.d(
             TAG,
             "Brain state changed: ${fromState.name} -> ${targetState.name}, " +
                 "reason=${reason.name}, timestampMs=$timestampMs"
@@ -232,5 +233,78 @@ class BrainInteractionLoop(
         private const val TAG = "BrainInteractionLoop"
         private const val DEFAULT_INACTIVITY_THRESHOLD_MS = 60_000L
         private const val DEFAULT_INACTIVITY_CHECK_INTERVAL_MS = 1_000L
+    }
+}
+
+internal interface BrainInteractionLogger {
+    fun d(
+        tag: String,
+        message: String
+    )
+
+    fun w(
+        tag: String,
+        message: String
+    )
+}
+
+internal object SafeBrainInteractionLogger : BrainInteractionLogger {
+    private val logClass: Class<*>? by lazy(LazyThreadSafetyMode.NONE) {
+        runCatching { Class.forName("android.util.Log") }.getOrNull()
+    }
+    private val debugMethod: Method? by lazy(LazyThreadSafetyMode.NONE) {
+        logClass?.getMethod(
+            "d",
+            String::class.java,
+            String::class.java
+        )
+    }
+    private val warningMethod: Method? by lazy(LazyThreadSafetyMode.NONE) {
+        logClass?.getMethod(
+            "w",
+            String::class.java,
+            String::class.java
+        )
+    }
+
+    override fun d(
+        tag: String,
+        message: String
+    ) {
+        invoke(
+            method = debugMethod,
+            tag = tag,
+            message = message
+        )
+    }
+
+    override fun w(
+        tag: String,
+        message: String
+    ) {
+        invoke(
+            method = warningMethod,
+            tag = tag,
+            message = message
+        )
+    }
+
+    private fun invoke(
+        method: Method?,
+        tag: String,
+        message: String
+    ) {
+        if (method == null) {
+            return
+        }
+        try {
+            method.invoke(
+                null,
+                tag,
+                message
+            )
+        } catch (_: Throwable) {
+            // No-op in JVM unit tests where android.util.Log methods are not mocked.
+        }
     }
 }

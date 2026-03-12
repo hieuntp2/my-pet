@@ -2,28 +2,27 @@ package com.aipet.brain.memory.db
 
 import androidx.room.Dao
 import androidx.room.Insert
-import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface TraitsSnapshotDao {
-    @Insert(onConflict = OnConflictStrategy.ABORT)
+    @Insert
     suspend fun insert(snapshot: TraitsSnapshotEntity)
 
     @Query(
         """
-        SELECT * FROM traits_snapshot
-        ORDER BY captured_at_ms DESC, snapshot_id DESC
+        SELECT * FROM traits_snapshots
+        ORDER BY createdAt DESC
         LIMIT 1
         """
     )
-    suspend fun latest(): TraitsSnapshotEntity?
+    suspend fun getLatest(): TraitsSnapshotEntity?
 
     @Query(
         """
-        SELECT * FROM traits_snapshot
-        ORDER BY captured_at_ms DESC, snapshot_id DESC
+        SELECT * FROM traits_snapshots
+        ORDER BY createdAt DESC
         LIMIT 1
         """
     )
