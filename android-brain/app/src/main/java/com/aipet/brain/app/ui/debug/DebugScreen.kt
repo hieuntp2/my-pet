@@ -61,6 +61,17 @@ fun DebugScreen(
     var objectNameInput by remember { mutableStateOf("") }
     var creatingObject by remember { mutableStateOf(false) }
     var objectCreateMessage by remember { mutableStateOf<String?>(null) }
+    val audioStimulusSummaryText = latestAudioStimulusSummary.ifBlank { "None" }
+    val hasDebugData = latestEvent != null ||
+        latestOwnerSeenEvent != null ||
+        latestOwnerGreetingEvent != null ||
+        currentWorkingMemory.currentPersonId != null ||
+        currentWorkingMemory.currentObjectId != null ||
+        currentWorkingMemory.lastStimulusTs != null ||
+        audioRuntimeDebugState.latestEnergyTimestampMs != null ||
+        audioRuntimeDebugState.lastSoundEventTimestampMs != null ||
+        audioPlaybackDebugState.lastPlayedAtMs != null ||
+        audioPlaybackDebugState.lastSkippedAtMs != null
 
     Column(
         modifier = Modifier
@@ -71,6 +82,12 @@ fun DebugScreen(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(text = "Debug")
+        if (!hasDebugData) {
+            Text(
+                text = "No debug data available yet.",
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
         Text(
             text = "Latest event: ${latestEvent?.type ?: "None"}",
             modifier = Modifier.fillMaxWidth()
@@ -88,7 +105,7 @@ fun DebugScreen(
             modifier = Modifier.fillMaxWidth()
         )
         Text(
-            text = "Latest audio stimulus: $latestAudioStimulusSummary",
+            text = "Latest audio stimulus: $audioStimulusSummaryText",
             modifier = Modifier.fillMaxWidth()
         )
         Text(

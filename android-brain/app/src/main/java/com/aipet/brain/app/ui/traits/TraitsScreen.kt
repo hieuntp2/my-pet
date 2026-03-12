@@ -26,7 +26,7 @@ fun TraitsScreen(
     ) {
         Text(text = "Traits")
         if (currentTraits == null) {
-            Text(text = "No traits snapshot available.")
+            Text(text = "No traits available yet.")
         } else {
             Text(text = "Curiosity: ${currentTraits.curiosity.formatTrait()}")
             Text(text = "Sociability: ${currentTraits.sociability.formatTrait()}")

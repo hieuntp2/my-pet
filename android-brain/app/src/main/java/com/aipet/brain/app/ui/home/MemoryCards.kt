@@ -85,7 +85,7 @@ internal fun RecentObjectsCard(
             Text(text = "Recent Objects")
             if (objects.isEmpty()) {
                 Text(
-                    text = "No recent known objects yet.",
+                    text = "No known objects seen yet.",
                     modifier = Modifier.padding(top = 8.dp)
                 )
                 return@Column

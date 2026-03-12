@@ -94,6 +94,7 @@ fun CameraScreen(
     var capturingFaceSample by remember { mutableStateOf(false) }
     var recordingObservation by remember { mutableStateOf(false) }
     var observationMessage by remember { mutableStateOf<String?>(null) }
+    var perceptionModelLoadState by remember { mutableStateOf(CameraPerceptionModelLoadState()) }
     var topObjectLabelState by remember {
         mutableStateOf(CameraTopObjectLabelState.noDetection())
     }
@@ -109,6 +110,7 @@ fun CameraScreen(
             latestFaceDetectionResult = null
             latestFaceCount = 0
             captureFaceSampleAction = null
+            perceptionModelLoadState = CameraPerceptionModelLoadState()
             topObjectLabelState = CameraTopObjectLabelState.noDetection()
         }
     }
@@ -283,6 +285,10 @@ fun CameraScreen(
         when (val state = permissionState) {
             CameraPermissionUiState.NotRequested -> {
                 Text(text = "Camera permission has not been granted yet.")
+                Text(
+                    text = "You can continue using the rest of the app without camera access.",
+                    modifier = Modifier.padding(top = 4.dp)
+                )
                 Button(
                     onClick = requestPermission,
                     modifier = Modifier.padding(top = 12.dp, bottom = 8.dp)
@@ -298,6 +304,10 @@ fun CameraScreen(
                         text = "Please allow camera access to continue.",
                         modifier = Modifier.padding(top = 4.dp)
                     )
+                    Text(
+                        text = "You can still use Home, Debug, Persons, and other non-camera screens.",
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
                     Button(
                         onClick = requestPermission,
                         modifier = Modifier.padding(top = 12.dp, bottom = 8.dp)
@@ -308,6 +318,10 @@ fun CameraScreen(
                     Text(text = "Camera permission is permanently denied.")
                     Text(
                         text = "Enable camera permission in app settings, then return.",
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                    Text(
+                        text = "Without camera permission, camera preview and analysis remain unavailable.",
                         modifier = Modifier.padding(top = 4.dp)
                     )
                     Button(
@@ -341,6 +355,9 @@ fun CameraScreen(
                         onFrameDiagnostics = handleFrameDiagnostics,
                         onFaceDetectionResult = handleFaceDetectionResult,
                         onObjectDetectionResult = handleObjectDetectionResult,
+                        onModelLoadStateChanged = { state ->
+                            perceptionModelLoadState = state
+                        },
                         onCaptureFaceSampleActionChanged = { action ->
                             captureFaceSampleAction = action
                         }
@@ -358,6 +375,18 @@ fun CameraScreen(
                         modifier = Modifier
                             .align(Alignment.TopStart)
                             .padding(12.dp)
+                    )
+                }
+                if (perceptionModelLoadState.faceModelError != null) {
+                    Text(
+                        text = perceptionModelLoadState.faceModelError.orEmpty(),
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+                if (perceptionModelLoadState.objectModelError != null) {
+                    Text(
+                        text = perceptionModelLoadState.objectModelError.orEmpty(),
+                        modifier = Modifier.padding(top = 4.dp)
                     )
                 }
 
@@ -479,10 +508,24 @@ private fun CameraPreview(
     onFrameDiagnostics: (FrameDiagnostics) -> Unit,
     onFaceDetectionResult: (FaceDetectionResult) -> Unit,
     onObjectDetectionResult: (Result<ObjectDetectionResult>) -> Unit,
+    onModelLoadStateChanged: (CameraPerceptionModelLoadState) -> Unit,
     onCaptureFaceSampleActionChanged: (CaptureFaceSampleAction?) -> Unit
 ) {
     val context = LocalContext.current
+    if (!isCameraPermissionGranted(context)) {
+        LaunchedEffect(onCaptureFaceSampleActionChanged) {
+            onCaptureFaceSampleActionChanged(null)
+        }
+        Box(
+            modifier = modifier,
+            contentAlignment = Alignment.Center
+        ) {
+            Text(text = "Camera permission is required to start preview.")
+        }
+        return
+    }
     val lifecycleOwner = LocalLifecycleOwner.current
+    val coroutineScope = rememberCoroutineScope()
     val previewView = remember(context) {
         PreviewView(context).apply {
             implementationMode = PreviewView.ImplementationMode.COMPATIBLE
@@ -492,23 +535,74 @@ private fun CameraPreview(
     val onFrameDiagnosticsState = rememberUpdatedState(onFrameDiagnostics)
     val onFaceDetectionResultState = rememberUpdatedState(onFaceDetectionResult)
     val onObjectDetectionResultState = rememberUpdatedState(onObjectDetectionResult)
-    val faceDetectionPipeline = remember {
-        FaceDetectionPipeline { result ->
-            onFaceDetectionResultState.value(result)
+    var runtimeFaceModelFailureMessage by remember { mutableStateOf<String?>(null) }
+    val faceDetectionPipelineInitResult = remember(coroutineScope) {
+        runCatching {
+            FaceDetectionPipeline(
+                onFacesDetected = { result ->
+                    onFaceDetectionResultState.value(result)
+                },
+                onDetectorFailure = { error ->
+                    val failureMessage = buildModelLoadFailureMessage(
+                        modelName = "Face detector",
+                        unavailableFeature = "Face detection",
+                        error = error
+                    )
+                    Log.e(
+                        CAMERA_UI_TAG,
+                        "Face detector failure reported. Face detection is unavailable.",
+                        error
+                    )
+                    coroutineScope.launch {
+                        runtimeFaceModelFailureMessage = failureMessage
+                    }
+                }
+            )
+        }.onFailure { error ->
+            Log.e(
+                CAMERA_UI_TAG,
+                "Failed to initialize face detection pipeline. Face detection is unavailable.",
+                error
+            )
         }
     }
-    val objectDetectionEngine = remember(context) {
+    val faceDetectionPipeline = faceDetectionPipelineInitResult.getOrNull()
+    val faceModelFailureMessage = runtimeFaceModelFailureMessage
+        ?: faceDetectionPipelineInitResult.exceptionOrNull()?.let { error ->
+            buildModelLoadFailureMessage(
+                modelName = "Face detector",
+                unavailableFeature = "Face detection",
+                error = error
+            )
+        }
+    val objectDetectionEngineInitResult = remember(context) {
         runCatching {
             RealObjectDetectionEngine(context.assets)
         }.onFailure { error ->
             Log.e(
                 CAMERA_UI_TAG,
-                "Failed to initialize object detection engine.",
+                "Failed to initialize object detection model. Object detection is unavailable.",
                 error
             )
-        }.getOrNull()
+        }
     }
-    val frameAnalyzer = remember {
+    val objectDetectionEngine = objectDetectionEngineInitResult.getOrNull()
+    val objectModelFailureMessage = objectDetectionEngineInitResult.exceptionOrNull()?.let { error ->
+        buildModelLoadFailureMessage(
+            modelName = "Object model",
+            unavailableFeature = "Object detection",
+            error = error
+        )
+    }
+    LaunchedEffect(faceModelFailureMessage, objectModelFailureMessage) {
+        onModelLoadStateChanged(
+            CameraPerceptionModelLoadState(
+                faceModelError = faceModelFailureMessage,
+                objectModelError = objectModelFailureMessage
+            )
+        )
+    }
+    val frameAnalyzer = remember(faceDetectionPipeline, objectDetectionEngine) {
         FrameAnalyzer(
             faceDetectionPipeline = faceDetectionPipeline,
             onDiagnostics = { diagnostics ->
@@ -531,12 +625,20 @@ private fun CameraPreview(
         }
     }
     DisposableEffect(faceDetectionPipeline, onCaptureFaceSampleActionChanged) {
-        onCaptureFaceSampleActionChanged {
-            faceDetectionPipeline.captureLargestFaceSample()
-        }
-        onDispose {
+        val pipeline = faceDetectionPipeline
+        if (pipeline == null) {
             onCaptureFaceSampleActionChanged(null)
-            faceDetectionPipeline.close()
+            onDispose {
+                onCaptureFaceSampleActionChanged(null)
+            }
+        } else {
+            onCaptureFaceSampleActionChanged {
+                pipeline.captureLargestFaceSample()
+            }
+            onDispose {
+                onCaptureFaceSampleActionChanged(null)
+                pipeline.close()
+            }
         }
     }
     DisposableEffect(objectDetectionEngine) {
@@ -627,11 +729,7 @@ private fun resolveCameraPermissionState(
     context: Context,
     hasRequestedPermission: Boolean
 ): CameraPermissionUiState {
-    val granted = ContextCompat.checkSelfPermission(
-        context,
-        Manifest.permission.CAMERA
-    ) == PackageManager.PERMISSION_GRANTED
-    if (granted) {
+    if (isCameraPermissionGranted(context)) {
         return CameraPermissionUiState.Granted
     }
     if (!hasRequestedPermission) {
@@ -644,6 +742,13 @@ private fun resolveCameraPermissionState(
     } ?: false
 
     return CameraPermissionUiState.Denied(canRequestAgain = canRequestAgain)
+}
+
+private fun isCameraPermissionGranted(context: Context): Boolean {
+    return ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.CAMERA
+    ) == PackageManager.PERMISSION_GRANTED
 }
 
 private fun openAppSettings(context: Context) {
@@ -698,6 +803,24 @@ private fun CameraSelection.toCameraSelector(): CameraSelector {
         CameraSelection.FRONT -> CameraSelector.DEFAULT_FRONT_CAMERA
         CameraSelection.BACK -> CameraSelector.DEFAULT_BACK_CAMERA
     }
+}
+
+private data class CameraPerceptionModelLoadState(
+    val faceModelError: String? = null,
+    val objectModelError: String? = null
+)
+
+private fun buildModelLoadFailureMessage(
+    modelName: String,
+    unavailableFeature: String,
+    error: Throwable
+): String {
+    val reason = error.message
+        ?.trim()
+        ?.takeIf { message -> message.isNotBlank() }
+        ?: error::class.simpleName
+        ?: "unknown error"
+    return "$modelName failed to load: $reason. $unavailableFeature is unavailable."
 }
 
 private sealed interface CameraPermissionUiState {

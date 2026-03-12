@@ -250,7 +250,7 @@ fun EventViewerScreen(
         }
 
         if (events.isEmpty()) {
-            Text(text = "No persisted events yet.")
+            Text(text = "No events yet.")
         } else {
             LazyColumn(
                 verticalArrangement = Arrangement.spacedBy(8.dp),

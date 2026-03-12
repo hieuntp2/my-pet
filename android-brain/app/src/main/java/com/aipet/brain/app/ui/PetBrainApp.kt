@@ -87,6 +87,9 @@ import com.aipet.brain.memory.teachsamples.RoomTeachSampleStore
 import com.aipet.brain.memory.teachsamples.TeachSampleStore
 import com.aipet.brain.memory.traits.RoomTraitsSnapshotRepository
 import com.aipet.brain.perception.camera.FrameDiagnostics
+import com.aipet.brain.perception.vision.face.embedding.FaceEmbeddingEngine
+import com.aipet.brain.perception.vision.face.embedding.TfliteFaceEmbeddingEngine
+import com.aipet.brain.perception.vision.face.embedding.UnavailableFaceEmbeddingEngine
 import com.aipet.brain.perception.vision.model.DetectedFace
 import com.aipet.brain.perception.vision.model.FaceDetectionResult
 import java.util.UUID
@@ -227,8 +230,19 @@ fun PetBrainApp() {
             }
         )
     }
-    val faceEmbeddingEngine = remember(appContext) {
-        com.aipet.brain.perception.vision.face.embedding.TfliteFaceEmbeddingEngine(appContext.assets)
+    val faceEmbeddingEngine: FaceEmbeddingEngine = remember(appContext) {
+        runCatching {
+            TfliteFaceEmbeddingEngine(appContext.assets)
+        }.onFailure { error ->
+            Log.e(
+                DEBUG_STARTUP_TAG,
+                "Face embedding engine failed to initialize. Teach-person embedding is unavailable.",
+                error
+            )
+        }.getOrElse { error ->
+            val reason = error.message?.takeIf { it.isNotBlank() } ?: "initialization_failed"
+            UnavailableFaceEmbeddingEngine(reason = reason)
+        }
     }
     val teachPersonSaveController = remember(database, appContext, personStore, faceProfileStore, eventBus, faceEmbeddingEngine) {
         TeachPersonSaveController(
@@ -476,11 +490,17 @@ fun PetBrainApp() {
     }
 
     LaunchedEffect(personStore, latestEvent?.eventId) {
-        topPersons = personStore.listTopByFamiliarity(limit = 5)
+        val eventType = latestEvent?.type
+        if (eventType == null || eventType.shouldRefreshTopPersonsCard()) {
+            topPersons = personStore.listTopByFamiliarity(limit = TOP_PERSONS_CARD_LIMIT)
+        }
     }
 
     LaunchedEffect(objectRepository, latestEvent?.eventId) {
-        recentObjects = objectRepository.listRecentSeenObjects(limit = 5)
+        val eventType = latestEvent?.type
+        if (eventType == null || eventType.shouldRefreshRecentObjectsCard()) {
+            recentObjects = objectRepository.listRecentSeenObjects(limit = RECENT_OBJECTS_CARD_LIMIT)
+        }
     }
 
     DisposableEffect(audioPlaybackEngine, faceEmbeddingEngine) {
@@ -976,6 +996,25 @@ private fun buildAudioStimulusDebugSummary(
     return "source=${currentStimulus.sourceEventType.name}, ts=${currentStimulus.timestampMs}"
 }
 
+private fun EventType.shouldRefreshTopPersonsCard(): Boolean {
+    return when (this) {
+        EventType.APP_STARTED,
+        EventType.USER_TAUGHT_PERSON,
+        EventType.PERSON_SEEN_RECORDED,
+        EventType.PERSON_RECOGNIZED,
+        EventType.RELATIONSHIP_UPDATED -> true
+        else -> false
+    }
+}
+
+private fun EventType.shouldRefreshRecentObjectsCard(): Boolean {
+    return when (this) {
+        EventType.APP_STARTED,
+        EventType.OBJECT_DETECTED -> true
+        else -> false
+    }
+}
+
 private const val DEBUG_AUDIO_REQUEST_CATEGORY = "ACKNOWLEDGMENT"
 private const val DEBUG_AUDIO_REQUEST_COOLDOWN_KEY = "debug_audio_stimulus_request"
 private const val DEBUG_RECOGNITION_TAG = "RecognitionProbe"
@@ -983,5 +1022,8 @@ private const val DEBUG_OBJECT_EVENT_TAG = "ObjectEventPublisher"
 private const val DEBUG_OBJECT_CREATE_TAG = "ObjectCreateDebug"
 private const val DEBUG_OBJECT_STATS_TAG = "ObjectSeenStats"
 private const val DEBUG_OBJECT_ALIAS_TAG = "ObjectAliasResolver"
+private const val DEBUG_STARTUP_TAG = "PetBrainStartup"
+private const val TOP_PERSONS_CARD_LIMIT = 5
+private const val RECENT_OBJECTS_CARD_LIMIT = 5
 
 

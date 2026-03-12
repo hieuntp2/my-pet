@@ -154,7 +154,7 @@ internal fun PersonsScreen(
         }
 
         if (persons.isEmpty()) {
-            Text(text = "No persons saved yet.")
+            Text(text = "No persons taught or created yet.")
             return@Column
         }
 

@@ -114,6 +114,12 @@ fun HomeScreen(
             text = "Latest event: ${latestEvent?.type ?: "None"}",
             modifier = Modifier.padding(top = 8.dp)
         )
+        if (latestEvent == null) {
+            Text(
+                text = "No activity yet.",
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
         AvatarFace(
             avatarState = avatarHomeState.currentAvatarState,
             modifier = Modifier.padding(vertical = 24.dp)

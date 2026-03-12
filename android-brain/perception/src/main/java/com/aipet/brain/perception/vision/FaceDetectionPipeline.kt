@@ -14,13 +14,15 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 
 class FaceDetectionPipeline(
-    private val onFacesDetected: (FaceDetectionResult) -> Unit
+    private val onFacesDetected: (FaceDetectionResult) -> Unit,
+    private val onDetectorFailure: ((Throwable) -> Unit)? = null
 ) {
     private val detectorExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val faceDetector = FaceDetector(callbackExecutor = detectorExecutor)
     private val faceCropper = FaceCropper()
     private val frameInFlight = AtomicBoolean(false)
     private val closed = AtomicBoolean(false)
+    private val detectorFailureReported = AtomicBoolean(false)
     private val captureSnapshotLock = Any()
     private var lastCropVerificationTimestampMs = 0L
     private var latestCaptureSnapshot: FaceCaptureSnapshot? = null
@@ -99,6 +101,7 @@ class FaceDetectionPipeline(
                     "Face detection failed for frameId=$frameId: ${error.message ?: "unknown"}",
                     error
                 )
+                reportDetectorFailure(error)
                 publishResult(
                     FaceDetectionResult(
                         frameId = frameId,
@@ -152,6 +155,21 @@ class FaceDetectionPipeline(
                 TAG,
                 "Face detection result callback failed for frameId=${result.frameId}",
                 error
+            )
+        }
+    }
+
+    private fun reportDetectorFailure(error: Throwable) {
+        if (!detectorFailureReported.compareAndSet(false, true)) {
+            return
+        }
+        runCatching {
+            onDetectorFailure?.invoke(error)
+        }.onFailure { callbackError ->
+            Log.e(
+                TAG,
+                "Face detection failure callback threw an exception.",
+                callbackError
             )
         }
     }
