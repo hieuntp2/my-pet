@@ -7,7 +7,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 
-internal data class HomeTodaySummary(
+data class HomeTodaySummary(
     val title: String,
     val body: String
 )

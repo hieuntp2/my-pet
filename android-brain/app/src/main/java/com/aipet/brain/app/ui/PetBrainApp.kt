@@ -148,6 +148,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.aipet.brain.app.ui.audio.model.AudioCategory
 
 private enum class AppScreen {
     Home,
@@ -733,7 +734,12 @@ fun PetBrainApp() {
                     val payload = com.aipet.brain.brain.events.audio.AudioResponsePayload
                         .fromJson(event.payloadJson)
                     if (payload != null) {
-                        petAnimator.playTrigger(animationInputMapper.mapSoundTrigger(payload.category))
+                        val category = try {
+                            AudioCategory.valueOf(payload.category)
+                        } catch (e: Exception) {
+                            AudioCategory.ACKNOWLEDGMENT
+                        }
+                        petAnimator.playTrigger(animationInputMapper.mapSoundTrigger(category))
                     }
                 }
                 EventType.AUDIO_RESPONSE_REQUESTED -> Unit

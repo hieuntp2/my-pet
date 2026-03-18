@@ -26,13 +26,13 @@ data class UserInteractedPetEventPayload(
     }
 
     companion object {
-        private val INTERACTED_AT_MS_PATTERN = Regex("\\"interactedAtMs\\"\\s*:\\s*(-?\\d+)")
-        private val SOURCE_PATTERN = Regex("\\"source\\"\\s*:\\s*\\"([^\\"]+)\\"")
-        private val INTERACTION_TYPE_PATTERN = Regex("\\"interactionType\\"\\s*:\\s*\\"([^\\"]+)\\"")
-        private val RESULTING_MOOD_PATTERN = Regex("\\"resultingMood\\"\\s*:\\s*\\"([^\\"]+)\\"")
-        private val SOCIAL_DELTA_PATTERN = Regex("\\"socialDelta\\"\\s*:\\s*(-?\\d+)")
-        private val BOND_DELTA_PATTERN = Regex("\\"bondDelta\\"\\s*:\\s*(-?\\d+)")
-        private val FEEDBACK_TEXT_PATTERN = Regex("\\"feedbackText\\"\\s*:\\s*\\"([^\\"]+)\\"")
+        private val INTERACTED_AT_MS_PATTERN = Regex("\"interactedAtMs\"\\s*:\\s*(-?\\d+)")
+        private val SOURCE_PATTERN = Regex("\"source\"\\s*:\\s*\"([^\"]+)\"")
+        private val INTERACTION_TYPE_PATTERN = Regex("\"interactionType\"\\s*:\\s*\"([^\"]+)\"")
+        private val RESULTING_MOOD_PATTERN = Regex("\"resultingMood\"\\s*:\\s*\"([^\"]+)\"")
+        private val SOCIAL_DELTA_PATTERN = Regex("\"socialDelta\"\\s*:\\s*(-?\\d+)")
+        private val BOND_DELTA_PATTERN = Regex("\"bondDelta\"\\s*:\\s*(-?\\d+)")
+        private val FEEDBACK_TEXT_PATTERN = Regex("\"feedbackText\"\\s*:\\s*\"([^\"]+)\"")
 
         fun fromJson(payloadJson: String): UserInteractedPetEventPayload? {
             val interactedAtMs = INTERACTED_AT_MS_PATTERN.find(payloadJson)

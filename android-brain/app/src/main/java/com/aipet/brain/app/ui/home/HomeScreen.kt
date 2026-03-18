@@ -94,8 +94,8 @@ fun HomeScreen(
             ) {
                 PetAvatarSurface(
                     petAnimationState = petAnimationState,
-                    onTap = if (homeInteractionUiState.canTapPet) onPetTap else {},
-                    onLongPress = if (homeInteractionUiState.canLongPressPet) onPetLongPress else {}
+                    onTap = { if (homeInteractionUiState.canTapPet) onPetTap() },
+                    onLongPress = { if (homeInteractionUiState.canLongPressPet) onPetLongPress() }
                 )
                 Text(
                     text = homeInteractionUiState.interactionHint,
@@ -260,7 +260,7 @@ private fun StateIndicatorCard(
                 style = MaterialTheme.typography.titleSmall
             )
             LinearProgressIndicator(
-                progress = { indicator.progress },
+                progress = indicator.progress,
                 modifier = Modifier.fillMaxWidth()
             )
         }

@@ -1,6 +1,7 @@
 package com.aipet.brain.ui.avatar
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -29,6 +30,7 @@ import com.aipet.brain.ui.avatar.model.AvatarMouthState
 import com.aipet.brain.ui.avatar.model.AvatarState
 import com.aipet.brain.ui.avatar.model.AvatarStateRules
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AvatarFace(
     avatarState: AvatarState,

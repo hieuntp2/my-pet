@@ -2,8 +2,8 @@ package com.aipet.brain.app.ui.navigation
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.weight
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -51,7 +51,7 @@ fun PetPrimaryNavigationBar(
 }
 
 @Composable
-private fun NavigationButton(
+private fun RowScope.NavigationButton(
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
