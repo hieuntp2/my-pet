@@ -20,11 +20,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.aipet.brain.app.audio.AudioRuntimeDebugState
+import com.aipet.brain.app.ui.navigation.PetPrimaryDestination
+import com.aipet.brain.app.ui.navigation.PetPrimaryNavigationBar
 import com.aipet.brain.app.ui.audio.AudioPlaybackDebugState
 import com.aipet.brain.brain.behavior.PetBehaviorCandidate
 import com.aipet.brain.brain.behavior.PetBehaviorDecision
 import com.aipet.brain.brain.events.EventEnvelope
 import com.aipet.brain.brain.memory.WorkingMemory
+import com.aipet.brain.brain.personality.PetPersonalitySummary
 import com.aipet.brain.brain.personality.PetTrait
 import com.aipet.brain.brain.pet.PetCondition
 import com.aipet.brain.brain.pet.PetEmotion
@@ -46,6 +49,7 @@ fun DebugScreen(
     currentWorkingMemory: WorkingMemory,
     currentPetState: PetState?,
     currentPetTraits: PetTrait?,
+    currentPetPersonalitySummary: PetPersonalitySummary?,
     currentPetConditions: Set<PetCondition>,
     latestBehaviorDecisionSource: String?,
     latestBehaviorDecision: PetBehaviorDecision<PetEmotion>?,
@@ -95,6 +99,12 @@ fun DebugScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        PetPrimaryNavigationBar(
+            selectedDestination = PetPrimaryDestination.Debug,
+            onNavigateHome = onNavigateToHome,
+            onNavigateDiary = onNavigateToDiary,
+            onNavigateDebug = {}
+        )
         Text(text = "Debug")
         if (!hasDebugData) {
             Text(
@@ -181,6 +191,10 @@ fun DebugScreen(
             modifier = Modifier.fillMaxWidth()
         )
         Text(
+            text = "Pet personality: ${currentPetPersonalitySummary?.label ?: "-"}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
             text = "Pet traits: ${formatPetTraitsSummary(currentPetTraits)}",
             modifier = Modifier.fillMaxWidth()
         )
@@ -194,6 +208,10 @@ fun DebugScreen(
         )
         Text(
             text = "Behavior selection: ${formatBehaviorSelectionSummary(latestBehaviorDecision)}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Behavior rationale: ${formatSelectedBehaviorRationale(latestBehaviorDecision)}",
             modifier = Modifier.fillMaxWidth()
         )
         latestBehaviorDecision?.candidates?.forEach { candidate ->
@@ -415,6 +433,22 @@ private fun formatBehaviorSelectionSummary(
     return "${current.selectedBehavior.name} via ${current.selectedLabel}"
 }
 
+private fun formatSelectedBehaviorRationale(
+    decision: PetBehaviorDecision<PetEmotion>?
+): String {
+    val current = decision ?: return "-"
+    val selectedCandidate = current.candidates.firstOrNull { candidate ->
+        candidate.label == current.selectedLabel && candidate.behavior == current.selectedBehavior
+    } ?: return current.selectedLabel
+    if (selectedCandidate.adjustments.isEmpty()) {
+        return selectedCandidate.label
+    }
+    val summary = selectedCandidate.adjustments.joinToString(separator = ", ") { adjustment ->
+        "${adjustment.source}=${formatSignedWeight(adjustment.delta)}"
+    }
+    return "${selectedCandidate.label} ($summary)"
+}
+
 private fun formatCandidateAdjustments(
     candidate: PetBehaviorCandidate<PetEmotion>
 ): String {
@@ -427,10 +461,11 @@ private fun formatCandidateAdjustments(
     return "(base ${formatWeight(candidate.baseWeight)}; $adjustments)"
 }
 
-private fun formatSignedWeight(value: Float): String {
-    return String.format(Locale.US, "%+.2f", value)
-}
 
 private fun formatWeight(value: Float): String {
     return String.format(Locale.US, "%.2f", value)
+}
+
+private fun formatSignedWeight(value: Float): String {
+    return String.format(Locale.US, "%+.2f", value)
 }

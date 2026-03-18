@@ -17,9 +17,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.room.Room
 import com.aipet.brain.app.audio.AudioCaptureLifecycleEventPublisher
 import com.aipet.brain.app.audio.AudioResponseDispatcher
+import com.aipet.brain.app.animation.DefaultPetAnimatorFactory
+import com.aipet.brain.app.animation.PetAnimationInputMapper
+import com.aipet.brain.app.animation.PetAnimationSource
+import com.aipet.brain.app.animation.PetAnimator
+import com.aipet.brain.app.gameplay.PetGameplayAction
+import com.aipet.brain.app.gameplay.PetGameplayAudioMapper
+import com.aipet.brain.app.gameplay.PetGameplayCooldownGate
+import com.aipet.brain.app.gameplay.PetGameplayFeedback
+import com.aipet.brain.app.gameplay.PetGameplayFeedbackFormatter
 import com.aipet.brain.app.onboarding.PetNamingOnboardingScreen
 import com.aipet.brain.app.onboarding.PetOnboardingStore
-import com.aipet.brain.app.permissions.resolveMicrophonePermissionState
 import com.aipet.brain.app.reactions.OwnerSeenReactionEngine
 import com.aipet.brain.app.reactions.PersonSeenEventPublisher
 import com.aipet.brain.app.ui.audio.AudioDebugScreen
@@ -30,8 +38,10 @@ import com.aipet.brain.app.ui.diary.DiaryScreen
 import com.aipet.brain.app.ui.debug.EventViewerScreen
 import com.aipet.brain.app.ui.debug.ObservationViewerScreen
 import com.aipet.brain.app.ui.debug.WorkingMemoryDebugScreen
+import com.aipet.brain.app.ui.home.HomeInteractionUiState
 import com.aipet.brain.app.ui.home.HomeScreen
-import com.aipet.brain.app.ui.home.PetVisibleReaction
+import com.aipet.brain.app.ui.home.HomeTodaySummaryResolver
+import com.aipet.brain.app.ui.home.HomeUiModelBuilder
 import com.aipet.brain.brain.activity.FeedPetUseCase
 import com.aipet.brain.brain.activity.LetPetRestUseCase
 import com.aipet.brain.brain.activity.PetActivityResult
@@ -61,6 +71,7 @@ import com.aipet.brain.brain.events.ObjectDetectedEventPayload
 import com.aipet.brain.brain.events.PetActivityAppliedEventPayload
 import com.aipet.brain.brain.events.PetGreetedEventPayload
 import com.aipet.brain.brain.events.UserInteractedPetEventPayload
+import com.aipet.brain.brain.events.audio.AudioResponseRequestPayload
 import com.aipet.brain.brain.events.vision.FaceBoundingBoxPayload
 import com.aipet.brain.brain.events.vision.FacesDetectedEventPayload
 import com.aipet.brain.brain.interaction.PetInteractionStateReducer
@@ -85,6 +96,8 @@ import com.aipet.brain.brain.pet.PetGreetingReaction
 import com.aipet.brain.brain.pet.PetCondition
 import com.aipet.brain.brain.pet.PetGreetingResolver
 import com.aipet.brain.brain.pet.PetProfile
+import com.aipet.brain.brain.personality.PetPersonalitySummaryResolver
+import com.aipet.brain.brain.personality.PetTraitEvolutionEngine
 import com.aipet.brain.brain.personality.PetTraitRepository
 import com.aipet.brain.brain.pet.PetProfileRepository
 import com.aipet.brain.brain.personality.PetTrait
@@ -135,6 +148,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.aipet.brain.app.ui.audio.model.AudioCategory
 
 private enum class AppScreen {
     Home,
@@ -163,6 +177,7 @@ fun PetBrainApp() {
     var selectedPersonId by rememberSaveable { mutableStateOf<String?>(null) }
     var hasRequestedCameraPermission by rememberSaveable { mutableStateOf(false) }
     var hasRequestedMicrophonePermission by rememberSaveable { mutableStateOf(false) }
+    var hasAppliedAppOpenLifecycle by rememberSaveable { mutableStateOf(false) }
     var teachSessionId by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }
     var petNameDraft by rememberSaveable { mutableStateOf(PetProfileRepository.DEFAULT_PET_NAME) }
     val currentScreen = currentScreenName.toAppScreen()
@@ -251,6 +266,9 @@ fun PetBrainApp() {
     }
     val dailySummaryGenerator = remember {
         EventDrivenDailySummaryGenerator()
+    }
+    val homeTodaySummaryResolver = remember {
+        HomeTodaySummaryResolver()
     }
     val diaryEvents by eventStore.observeLatest(limit = 400).collectAsState(initial = emptyList())
     val diaryMemoryCards = remember(diaryEvents, eventToMemoryCardMapper) {
@@ -405,6 +423,15 @@ fun PetBrainApp() {
     val letPetRestUseCase = remember {
         LetPetRestUseCase()
     }
+    val petGameplayCooldownGate = remember {
+        PetGameplayCooldownGate()
+    }
+    val petTraitEvolutionEngine = remember {
+        PetTraitEvolutionEngine()
+    }
+    val petPersonalitySummaryResolver = remember {
+        PetPersonalitySummaryResolver()
+    }
     val traitsEngine = remember(eventBus, traitsRepository) {
         TraitsEngine(
             repository = traitsRepository,
@@ -512,14 +539,22 @@ fun PetBrainApp() {
             coroutineScope = coroutineScope
         )
     }
+    val animationInputMapper = remember {
+        PetAnimationInputMapper()
+    }
+    val petAnimatorFactory = remember {
+        DefaultPetAnimatorFactory()
+    }
+    val petAnimator: PetAnimator = remember(coroutineScope, petAnimatorFactory) {
+        petAnimatorFactory.create(scope = coroutineScope)
+    }
     val audioRuntimeDebugState by audioCaptureLifecycleEventPublisher.observeRuntimeDebugState().collectAsState(
         initial = audioCaptureLifecycleEventPublisher.currentRuntimeDebugState()
     )
+    val petAnimationState by petAnimator.state.collectAsState()
     val audioPlaybackDebugState by audioPlaybackEngine.observeDebugState().collectAsState(
         initial = audioPlaybackEngine.currentDebugState()
     )
-    var topPersons by remember { mutableStateOf(emptyList<com.aipet.brain.memory.persons.PersonRecord>()) }
-    var recentObjects by remember { mutableStateOf(emptyList<com.aipet.brain.memory.objects.ObjectRecord>()) }
     var currentPetEmotion by remember { mutableStateOf(PetEmotion.IDLE) }
     var currentPetState by remember { mutableStateOf<PetState?>(null) }
     var currentDayBoundaryType by remember { mutableStateOf<PetDayBoundaryType?>(null) }
@@ -530,17 +565,7 @@ fun PetBrainApp() {
     var currentPetConditions by remember { mutableStateOf(emptySet<PetCondition>()) }
     var latestBehaviorDecisionSource by remember { mutableStateOf<String?>(null) }
     var latestBehaviorDecision by remember { mutableStateOf<PetBehaviorDecision<PetEmotion>?>(null) }
-    var currentPetVisibleReaction by remember { mutableStateOf<PetVisibleReaction?>(null) }
-    val microphonePermissionState = remember(
-        appContext,
-        hasRequestedMicrophonePermission,
-        currentScreen
-    ) {
-        resolveMicrophonePermissionState(
-            context = appContext,
-            hasRequestedPermission = hasRequestedMicrophonePermission
-        )
-    }
+    var homeInteractionFeedback by remember { mutableStateOf<PetGameplayFeedback?>(null) }
     val diaryDailySummaries = remember(
         diaryEvents,
         currentPetState,
@@ -555,6 +580,39 @@ fun PetBrainApp() {
             continuityLabelForCurrentDay = currentDayBoundaryType.toDailySummaryLabel()
         )
     }
+    val homeTodaySummary = remember(diaryMemoryCards, diaryDailySummaries, currentSummaryDate, homeTodaySummaryResolver) {
+        homeTodaySummaryResolver.resolve(
+            memoryCards = diaryMemoryCards,
+            dailySummaries = diaryDailySummaries,
+            targetDate = currentSummaryDate
+        )
+    }
+    val homeUiModel = remember(
+        activePetProfile?.name,
+        currentPetState,
+        currentPetEmotion,
+        currentPetConditions,
+        currentPetTraits,
+        homeTodaySummary
+    ) {
+        HomeUiModelBuilder.build(
+            petName = activePetProfile?.name ?: PetProfileRepository.DEFAULT_PET_NAME,
+            petState = currentPetState,
+            emotion = currentPetEmotion,
+            conditions = currentPetConditions,
+            traits = currentPetTraits,
+            todaySummary = homeTodaySummary
+        )
+    }
+    val homeInteractionUiState = remember(homeInteractionFeedback) {
+        HomeInteractionUiState(
+            feedbackMessage = homeInteractionFeedback?.text,
+            feedbackIsBlocked = homeInteractionFeedback?.isBlocked ?: false,
+            careHint = "Feed, play, or rest with one tap from here.",
+            interactionHint = "Tap for a quick hello or hold for a longer cuddle.",
+            cooldownHint = "Repeated taps and care actions pause briefly so each reaction stays readable."
+        )
+    }
 
     LaunchedEffect(
         petStateRepository,
@@ -565,8 +623,12 @@ fun PetBrainApp() {
         petEmotionResolver,
         petGreetingResolver,
         petDayBoundaryResolver,
-        eventBus
+        eventBus,
+        hasAppliedAppOpenLifecycle
     ) {
+        if (hasAppliedAppOpenLifecycle) {
+            return@LaunchedEffect
+        }
         val resolvedState = withContext(Dispatchers.IO) {
             val profile = petProfileRepository.getOrCreateActiveProfile()
             val traits = petTraitRepository.getOrCreateForPet(profile.id)
@@ -618,13 +680,24 @@ fun PetBrainApp() {
         appOpenGreeting = resolvedState.greeting
         currentPetTraits = resolvedState.traits
         currentPetConditions = resolvedState.conditions
+        homeInteractionFeedback = null
         latestBehaviorDecisionSource = "greeting"
         latestBehaviorDecision = resolvedState.greetingDecision
-        currentPetVisibleReaction = PetVisibleReaction(
-            reactionId = resolvedState.greetedAtMs,
-            emotion = resolvedState.greeting.emotion,
-            durationMs = 2_000L,
-            source = "greeting"
+        petAnimator.syncInputFrame(
+            animationInputMapper.mapFrame(
+                state = resolvedState.state,
+                emotion = resolvedState.emotion,
+                conditions = resolvedState.conditions,
+                traits = resolvedState.traits
+            )
+        )
+        petAnimator.playTrigger(
+            animationInputMapper.mapGreetingTrigger(
+                greeting = resolvedState.greeting,
+                conditions = resolvedState.conditions,
+                decision = resolvedState.greetingDecision
+            ),
+            durationMs = PetAnimator.DEFAULT_GREETING_DURATION_MS
         )
         eventBus.publish(
             EventEnvelope.create(
@@ -641,6 +714,7 @@ fun PetBrainApp() {
         if (shouldShowNamingOnboarding) {
             currentScreenName = AppScreen.Onboarding.name
         }
+        hasAppliedAppOpenLifecycle = true
     }
 
     LaunchedEffect(activePetProfile?.id, petTraitRepository) {
@@ -656,6 +730,18 @@ fun PetBrainApp() {
             when (event.type) {
                 EventType.OWNER_SEEN_DETECTED -> latestOwnerSeenEvent = event
                 EventType.ROBOT_GREETING_OWNER_TRIGGERED -> latestOwnerGreetingEvent = event
+                EventType.AUDIO_RESPONSE_STARTED -> {
+                    val payload = com.aipet.brain.brain.events.audio.AudioResponsePayload
+                        .fromJson(event.payloadJson)
+                    if (payload != null) {
+                        val category = try {
+                            AudioCategory.valueOf(payload.category)
+                        } catch (e: Exception) {
+                            AudioCategory.ACKNOWLEDGMENT
+                        }
+                        petAnimator.playTrigger(animationInputMapper.mapSoundTrigger(category))
+                    }
+                }
                 EventType.AUDIO_RESPONSE_REQUESTED -> Unit
                 else -> Unit
             }
@@ -724,20 +810,6 @@ fun PetBrainApp() {
         }
     }
 
-    LaunchedEffect(personStore, latestEvent?.eventId) {
-        val eventType = latestEvent?.type
-        if (eventType == null || eventType.shouldRefreshTopPersonsCard()) {
-            topPersons = personStore.listTopByFamiliarity(limit = TOP_PERSONS_CARD_LIMIT)
-        }
-    }
-
-    LaunchedEffect(objectRepository, latestEvent?.eventId) {
-        val eventType = latestEvent?.type
-        if (eventType == null || eventType.shouldRefreshRecentObjectsCard()) {
-            recentObjects = objectRepository.listRecentSeenObjects(limit = RECENT_OBJECTS_CARD_LIMIT)
-        }
-    }
-
     DisposableEffect(audioPlaybackEngine, faceEmbeddingEngine) {
         onDispose {
             audioPlaybackEngine.release()
@@ -745,11 +817,45 @@ fun PetBrainApp() {
         }
     }
 
+    suspend fun publishGameplayAudioResponse(
+        category: com.aipet.brain.app.ui.audio.model.AudioCategory,
+        timestampMs: Long,
+        cooldownKey: String
+    ) {
+        eventBus.publish(
+            EventEnvelope.create(
+                type = EventType.AUDIO_RESPONSE_REQUESTED,
+                timestampMs = timestampMs,
+                payloadJson = AudioResponseRequestPayload(
+                    category = category.label,
+                    priority = 2,
+                    interruptPolicy = "INTERRUPT_NONE",
+                    cooldownKey = cooldownKey,
+                    timestamp = timestampMs
+                ).toJson()
+            )
+        )
+    }
+
     suspend fun handlePetInteraction(
         interactionType: PetInteractionType,
         source: String
     ) {
         val interactedAtMs = System.currentTimeMillis()
+        val gameplayAction = PetGameplayAction.fromInteractionType(interactionType)
+        val activePetName = activePetProfile?.name ?: PetProfileRepository.DEFAULT_PET_NAME
+        val cooldownDecision = petGameplayCooldownGate.evaluate(
+            action = gameplayAction,
+            attemptedAtMs = interactedAtMs
+        )
+        if (!cooldownDecision.isAllowed) {
+            homeInteractionFeedback = PetGameplayFeedbackFormatter.blocked(
+                petName = activePetName,
+                action = gameplayAction,
+                remainingMs = cooldownDecision.remainingMs
+            )
+            return
+        }
         val resolvedInteraction = withContext(Dispatchers.IO) {
             val profile = petProfileRepository.getOrCreateActiveProfile()
             val traits = petTraitRepository.getOrCreateForPet(profile.id)
@@ -760,6 +866,12 @@ fun PetBrainApp() {
                 interactedAtMs = interactedAtMs
             )
             val persistedState = petStateRepository.updateState(nextState)
+            val evolvedTraits = petTraitEvolutionEngine.applyInteraction(
+                current = traits,
+                interactionType = interactionType,
+                appliedAtMs = interactedAtMs
+            )
+            val persistedTraits = petTraitRepository.save(evolvedTraits)
             val conditions = petConditionResolver.resolve(persistedState)
             val emotion = petEmotionResolver.resolve(persistedState, conditions)
             val decision = petBehaviorWeightResolver.resolveInteractionEmotion(
@@ -767,29 +879,51 @@ fun PetBrainApp() {
                 context = PetBehaviorContext(
                     state = persistedState,
                     conditions = conditions,
-                    traits = traits
+                    traits = persistedTraits
                 )
             )
             InteractionAppliedSnapshot(
+                previousState = currentState,
                 state = persistedState,
                 emotion = emotion,
-                traits = traits,
+                traits = persistedTraits,
                 conditions = conditions,
                 decision = decision,
-                interactedAtMs = interactedAtMs
+                interactedAtMs = interactedAtMs,
+                feedback = PetGameplayFeedbackFormatter.forInteraction(
+                    petName = profile.name,
+                    interactionType = interactionType,
+                    previousState = currentState,
+                    updatedState = persistedState
+                )
             )
         }
+        petGameplayCooldownGate.recordSuccess(gameplayAction, interactedAtMs)
         currentPetState = resolvedInteraction.state
         currentPetEmotion = resolvedInteraction.emotion
         currentPetTraits = resolvedInteraction.traits
         currentPetConditions = resolvedInteraction.conditions
+        homeInteractionFeedback = resolvedInteraction.feedback
         latestBehaviorDecisionSource = interactionType.name.lowercase()
         latestBehaviorDecision = resolvedInteraction.decision
-        currentPetVisibleReaction = PetVisibleReaction(
-            reactionId = resolvedInteraction.interactedAtMs,
-            emotion = resolvedInteraction.decision.selectedBehavior,
-            durationMs = if (interactionType == PetInteractionType.LONG_PRESS) 1_200L else 800L,
-            source = interactionType.name.lowercase()
+        petAnimator.syncInputFrame(
+            animationInputMapper.mapFrame(
+                state = resolvedInteraction.state,
+                emotion = resolvedInteraction.emotion,
+                conditions = resolvedInteraction.conditions,
+                traits = resolvedInteraction.traits
+            )
+        )
+        petAnimator.playTrigger(
+            animationInputMapper.mapInteractionTrigger(
+                interactionType = interactionType,
+                decision = resolvedInteraction.decision
+            )
+        )
+        publishGameplayAudioResponse(
+            category = PetGameplayAudioMapper.categoryForInteraction(interactionType),
+            timestampMs = resolvedInteraction.interactedAtMs,
+            cooldownKey = "pet_${interactionType.name.lowercase()}"
         )
         appOpenGreeting = null
         eventBus.publish(
@@ -802,7 +936,11 @@ fun PetBrainApp() {
                 payloadJson = UserInteractedPetEventPayload(
                     interactedAtMs = resolvedInteraction.interactedAtMs,
                     source = source,
-                    interactionType = interactionType.name
+                    interactionType = interactionType.name,
+                    resultingMood = resolvedInteraction.state.mood.name,
+                    socialDelta = resolvedInteraction.state.social - resolvedInteraction.previousState.social,
+                    bondDelta = resolvedInteraction.state.bond - resolvedInteraction.previousState.bond,
+                    feedbackText = resolvedInteraction.feedback.text
                 ).toJson(),
                 timestampMs = resolvedInteraction.interactedAtMs
             )
@@ -813,6 +951,28 @@ fun PetBrainApp() {
         useCase: PetActivityUseCase
     ) {
         val actedAtMs = System.currentTimeMillis()
+        val activityType = when (useCase) {
+            is FeedPetUseCase -> PetActivityType.FEED
+            is PlayWithPetUseCase -> PetActivityType.PLAY
+            is LetPetRestUseCase -> PetActivityType.REST
+            else -> null
+        }
+        val gameplayAction = activityType?.let(PetGameplayAction::fromActivityType)
+        val activePetName = activePetProfile?.name ?: PetProfileRepository.DEFAULT_PET_NAME
+        if (gameplayAction != null) {
+            val cooldownDecision = petGameplayCooldownGate.evaluate(
+                action = gameplayAction,
+                attemptedAtMs = actedAtMs
+            )
+            if (!cooldownDecision.isAllowed) {
+                homeInteractionFeedback = PetGameplayFeedbackFormatter.blocked(
+                    petName = activePetName,
+                    action = gameplayAction,
+                    remainingMs = cooldownDecision.remainingMs
+                )
+                return
+            }
+        }
         val resolvedActivity = withContext(Dispatchers.IO) {
             val profile = petProfileRepository.getOrCreateActiveProfile()
             val traits = petTraitRepository.getOrCreateForPet(profile.id)
@@ -822,6 +982,12 @@ fun PetBrainApp() {
                 actedAtMs = actedAtMs
             )
             val persistedState = petStateRepository.updateState(activityResult.updatedState)
+            val evolvedTraits = petTraitEvolutionEngine.applyActivity(
+                current = traits,
+                activityType = activityResult.activityType,
+                appliedAtMs = actedAtMs
+            )
+            val persistedTraits = petTraitRepository.save(evolvedTraits)
             val conditions = petConditionResolver.resolve(persistedState)
             val emotion = petEmotionResolver.resolve(persistedState, conditions)
             val decision = petBehaviorWeightResolver.resolveActivityEmotion(
@@ -829,32 +995,47 @@ fun PetBrainApp() {
                 context = PetBehaviorContext(
                     state = persistedState,
                     conditions = conditions,
-                    traits = traits
+                    traits = persistedTraits
                 )
             )
             ActivityAppliedSnapshot(
                 result = activityResult.copy(updatedState = persistedState),
                 emotion = emotion,
-                traits = traits,
+                traits = persistedTraits,
                 conditions = conditions,
-                decision = decision
+                decision = decision,
+                feedback = PetGameplayFeedbackFormatter.forActivity(
+                    petName = profile.name,
+                    result = activityResult.copy(updatedState = persistedState)
+                )
             )
         }
+        gameplayAction?.let { petGameplayCooldownGate.recordSuccess(it, actedAtMs) }
         currentPetState = resolvedActivity.result.updatedState
         currentPetEmotion = resolvedActivity.emotion
         currentPetTraits = resolvedActivity.traits
         currentPetConditions = resolvedActivity.conditions
+        homeInteractionFeedback = resolvedActivity.feedback
         latestBehaviorDecisionSource = resolvedActivity.result.activityType.name.lowercase()
         latestBehaviorDecision = resolvedActivity.decision
-        currentPetVisibleReaction = PetVisibleReaction(
-            reactionId = actedAtMs,
-            emotion = resolvedActivity.decision.selectedBehavior,
-            durationMs = when (resolvedActivity.result.activityType) {
-                PetActivityType.FEED -> 1_000L
-                PetActivityType.PLAY -> 1_250L
-                PetActivityType.REST -> 1_400L
-            },
-            source = resolvedActivity.result.activityType.name.lowercase()
+        petAnimator.syncInputFrame(
+            animationInputMapper.mapFrame(
+                state = resolvedActivity.result.updatedState,
+                emotion = resolvedActivity.emotion,
+                conditions = resolvedActivity.conditions,
+                traits = resolvedActivity.traits
+            )
+        )
+        petAnimator.playTrigger(
+            animationInputMapper.mapActivityTrigger(
+                activityType = resolvedActivity.result.activityType,
+                decision = resolvedActivity.decision
+            )
+        )
+        publishGameplayAudioResponse(
+            category = PetGameplayAudioMapper.categoryForActivity(resolvedActivity.result),
+            timestampMs = actedAtMs,
+            cooldownKey = "pet_${resolvedActivity.result.activityType.name.lowercase()}"
         )
         appOpenGreeting = null
         eventBus.publish(
@@ -869,7 +1050,8 @@ fun PetBrainApp() {
                     hungerDelta = resolvedActivity.result.delta.hungerDelta,
                     sleepinessDelta = resolvedActivity.result.delta.sleepinessDelta,
                     socialDelta = resolvedActivity.result.delta.socialDelta,
-                    bondDelta = resolvedActivity.result.delta.bondDelta
+                    bondDelta = resolvedActivity.result.delta.bondDelta,
+                    feedbackText = resolvedActivity.feedback.text
                 ).toJson(),
                 timestampMs = actedAtMs
             )
@@ -905,11 +1087,12 @@ fun PetBrainApp() {
         }
         activePetProfile = savedProfile
         petNameDraft = savedProfile.name
-        currentPetVisibleReaction = PetVisibleReaction(
-            reactionId = System.currentTimeMillis(),
-            emotion = PetEmotion.HAPPY,
-            durationMs = 1_000L,
-            source = "onboarding_complete"
+        petAnimator.playTrigger(
+            animationInputMapper.mapGenericReaction(
+                emotion = PetEmotion.HAPPY,
+                source = PetAnimationSource.REACTION
+            ),
+            durationMs = 1_000L
         )
         currentScreenName = AppScreen.Home.name
     }
@@ -918,15 +1101,10 @@ fun PetBrainApp() {
         Surface {
             when (currentScreen) {
                 AppScreen.Home -> HomeScreen(
-                    petName = activePetProfile?.name ?: PetProfileRepository.DEFAULT_PET_NAME,
-                    petEmotion = currentPetEmotion,
+                    homeUiModel = homeUiModel,
+                    homeInteractionUiState = homeInteractionUiState,
+                    petAnimationState = petAnimationState,
                     appOpenGreeting = appOpenGreeting,
-                    petVisibleReaction = currentPetVisibleReaction,
-                    microphonePermissionState = microphonePermissionState,
-                    latestEvent = latestEvent,
-                    recentInteractions = recentInteractions.filterHomePetMoments(),
-                    topPersons = topPersons,
-                    recentObjects = recentObjects,
                     onPetTap = {
                         coroutineScope.launch {
                             handlePetInteraction(
@@ -958,8 +1136,8 @@ fun PetBrainApp() {
                             handlePetActivity(letPetRestUseCase)
                         }
                     },
+                    onNavigateToHome = { currentScreenName = AppScreen.Home.name },
                     onNavigateToDebug = { currentScreenName = AppScreen.Debug.name },
-                    onNavigateToCamera = { currentScreenName = AppScreen.Camera.name },
                     onNavigateToDiary = { currentScreenName = AppScreen.Diary.name }
                 )
 
@@ -998,6 +1176,7 @@ fun PetBrainApp() {
                     currentWorkingMemory = currentWorkingMemory,
                     currentPetState = currentPetState,
                     currentPetTraits = currentPetTraits,
+                    currentPetPersonalitySummary = petPersonalitySummaryResolver.resolve(currentPetTraits),
                     currentPetConditions = currentPetConditions,
                     latestBehaviorDecisionSource = latestBehaviorDecisionSource,
                     latestBehaviorDecision = latestBehaviorDecision,
@@ -1157,7 +1336,9 @@ fun PetBrainApp() {
                 AppScreen.Diary -> DiaryScreen(
                     memoryCards = diaryMemoryCards,
                     dailySummaries = diaryDailySummaries,
-                    onNavigateBack = { currentScreenName = AppScreen.Home.name }
+                    onNavigateHome = { currentScreenName = AppScreen.Home.name },
+                    onNavigateDiary = { currentScreenName = AppScreen.Diary.name },
+                    onNavigateDebug = { currentScreenName = AppScreen.Debug.name }
                 )
 
                 AppScreen.ObservationViewer -> ObservationViewerScreen(
@@ -1457,43 +1638,6 @@ private fun buildAudioStimulusDebugSummary(
     return "source=${currentStimulus.sourceEventType.name}, ts=${currentStimulus.timestampMs}"
 }
 
-private fun EventType.shouldRefreshTopPersonsCard(): Boolean {
-    return when (this) {
-        EventType.APP_STARTED,
-        EventType.USER_TAUGHT_PERSON,
-        EventType.PERSON_SEEN_RECORDED,
-        EventType.PERSON_RECOGNIZED,
-        EventType.RELATIONSHIP_UPDATED -> true
-        else -> false
-    }
-}
-
-private fun EventType.shouldRefreshRecentObjectsCard(): Boolean {
-    return when (this) {
-        EventType.APP_STARTED,
-        EventType.OBJECT_DETECTED -> true
-        else -> false
-    }
-}
-
-private fun List<EventEnvelope>.filterHomePetMoments(limit: Int = 5): List<EventEnvelope> {
-    return asSequence()
-        .filter { event ->
-            when (event.type) {
-                EventType.PET_GREETED,
-                EventType.USER_INTERACTED_PET,
-                EventType.PET_LONG_PRESSED,
-                EventType.PET_FED,
-                EventType.PET_PLAYED,
-                EventType.PET_RESTED,
-                EventType.AUDIO_RESPONSE_STARTED -> true
-                else -> false
-            }
-        }
-        .take(limit)
-        .toList()
-}
-
 private const val DEBUG_AUDIO_REQUEST_CATEGORY = "ACKNOWLEDGMENT"
 private const val DEBUG_AUDIO_REQUEST_COOLDOWN_KEY = "debug_audio_stimulus_request"
 private const val DEBUG_RECOGNITION_TAG = "RecognitionProbe"
@@ -1503,8 +1647,6 @@ private const val DEBUG_OBJECT_STATS_TAG = "ObjectSeenStats"
 private const val DEBUG_OBJECT_ALIAS_TAG = "ObjectAliasResolver"
 private const val DEBUG_STARTUP_TAG = "PetBrainStartup"
 private const val MAX_PET_NAME_LENGTH = 24
-private const val TOP_PERSONS_CARD_LIMIT = 5
-private const val RECENT_OBJECTS_CARD_LIMIT = 5
 
 private data class StartupPetSnapshot(
     val profile: PetProfile,
@@ -1520,12 +1662,14 @@ private data class StartupPetSnapshot(
 )
 
 private data class InteractionAppliedSnapshot(
+    val previousState: PetState,
     val state: PetState,
     val emotion: PetEmotion,
     val traits: PetTrait,
     val conditions: Set<PetCondition>,
     val decision: PetBehaviorDecision<PetEmotion>,
-    val interactedAtMs: Long
+    val interactedAtMs: Long,
+    val feedback: PetGameplayFeedback
 )
 
 private data class ActivityAppliedSnapshot(
@@ -1533,7 +1677,8 @@ private data class ActivityAppliedSnapshot(
     val emotion: PetEmotion,
     val traits: PetTrait,
     val conditions: Set<PetCondition>,
-    val decision: PetBehaviorDecision<PetEmotion>
+    val decision: PetBehaviorDecision<PetEmotion>,
+    val feedback: PetGameplayFeedback
 )
 
 private fun PetDayBoundaryType?.toDailySummaryLabel(): String? {

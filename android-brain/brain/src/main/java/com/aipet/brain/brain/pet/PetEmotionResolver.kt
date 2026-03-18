@@ -22,6 +22,10 @@ class PetEmotionResolver {
                 PetEmotion.SAD
             }
 
+            conditions.contains(PetCondition.CALM) -> {
+                PetEmotion.IDLE
+            }
+
             state.mood == PetMood.CURIOUS -> {
                 PetEmotion.CURIOUS
             }

@@ -5,8 +5,8 @@ import com.aipet.brain.brain.events.EventType
 import com.aipet.brain.brain.events.PetActivityAppliedEventPayload
 import com.aipet.brain.brain.events.PetGreetedEventPayload
 import com.aipet.brain.brain.events.UserInteractedPetEventPayload
-import com.aipet.brain.brain.memory.MemoryCardImportance
 import com.aipet.brain.brain.interaction.PetInteractionType
+import com.aipet.brain.brain.memory.MemoryCardImportance
 import java.time.ZoneOffset
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -33,8 +33,8 @@ class EventToMemoryCardMapperTest {
         val card = mapper.map(event)
 
         requireNotNull(card)
-        assertEquals("Hi again!", card.title)
-        assertTrue(card.summary.contains("happy"))
+        assertEquals("A warm hello", card.title)
+        assertEquals("Hi again!", card.summary)
         assertEquals(EventType.PET_GREETED, card.sourceEventType)
     }
 
@@ -45,7 +45,11 @@ class EventToMemoryCardMapperTest {
             payloadJson = UserInteractedPetEventPayload(
                 interactedAtMs = 2_000L,
                 source = "home",
-                interactionType = PetInteractionType.TAP.name
+                interactionType = PetInteractionType.TAP.name,
+                resultingMood = "HAPPY",
+                socialDelta = 1,
+                bondDelta = 1,
+                feedbackText = "Cún enjoyed that little hello"
             ).toJson(),
             timestampMs = 2_000L,
             eventId = "tap-1"
@@ -54,7 +58,8 @@ class EventToMemoryCardMapperTest {
         val card = mapper.map(event)
 
         requireNotNull(card)
-        assertEquals("A quick pet", card.title)
+        assertEquals("A quick hello", card.title)
+        assertEquals("Cún enjoyed that little hello.", card.summary)
     }
 
     @Test
@@ -70,7 +75,8 @@ class EventToMemoryCardMapperTest {
                 hungerDelta = -25,
                 sleepinessDelta = 0,
                 socialDelta = 0,
-                bondDelta = 2
+                bondDelta = 2,
+                feedbackText = "Cún seems satisfied now"
             ).toJson(),
             timestampMs = 3_000L,
             eventId = "feed-1"
@@ -79,8 +85,8 @@ class EventToMemoryCardMapperTest {
         val card = mapper.map(event)
 
         requireNotNull(card)
-        assertEquals("Mealtime", card.title)
-        assertTrue(card.summary.contains("happy"))
+        assertEquals("Shared mealtime", card.title)
+        assertTrue(card.summary.contains("satisfied", ignoreCase = true))
     }
 
     @Test
@@ -93,23 +99,72 @@ class EventToMemoryCardMapperTest {
     }
 
     @Test
-    fun mapEvents_marksFirstFeedAndLongAbsenceGreetingAsNotable() {
+    fun mapEvents_marks_first_interaction_long_absence_and_high_activity_as_notable() {
         val cards = mapper.mapEvents(
             listOf(
+                EventEnvelope.create(
+                    type = EventType.USER_INTERACTED_PET,
+                    payloadJson = UserInteractedPetEventPayload(
+                        interactedAtMs = 1_000L,
+                        source = "home",
+                        interactionType = PetInteractionType.TAP.name,
+                        resultingMood = "HAPPY",
+                        socialDelta = 1,
+                        bondDelta = 1,
+                        feedbackText = "Cún enjoyed that little hello"
+                    ).toJson(),
+                    timestampMs = 1_000L,
+                    eventId = "tap-first"
+                ),
+                EventEnvelope.create(
+                    type = EventType.PET_PLAYED,
+                    payloadJson = PetActivityAppliedEventPayload(
+                        activityType = "PLAY",
+                        actedAtMs = 5_000L,
+                        reason = "play",
+                        resultingMood = "EXCITED",
+                        energyDelta = -5,
+                        hungerDelta = 0,
+                        sleepinessDelta = 0,
+                        socialDelta = 5,
+                        bondDelta = 2,
+                        feedbackText = "Cún had fun playing with you"
+                    ).toJson(),
+                    timestampMs = 5_000L,
+                    eventId = "play-1"
+                ),
+                EventEnvelope.create(
+                    type = EventType.PET_PLAYED,
+                    payloadJson = PetActivityAppliedEventPayload(
+                        activityType = "PLAY",
+                        actedAtMs = 8_000L,
+                        reason = "play",
+                        resultingMood = "EXCITED",
+                        energyDelta = -5,
+                        hungerDelta = 0,
+                        sleepinessDelta = 0,
+                        socialDelta = 5,
+                        bondDelta = 2,
+                        feedbackText = "Cún was ready for more fun"
+                    ).toJson(),
+                    timestampMs = 8_000L,
+                    eventId = "play-2"
+                ),
                 EventEnvelope.create(
                     type = EventType.PET_FED,
                     payloadJson = PetActivityAppliedEventPayload(
                         activityType = "FEED",
-                        actedAtMs = 1_000L,
+                        actedAtMs = 10_000L,
                         reason = "feed",
                         resultingMood = "HAPPY",
                         energyDelta = 0,
-                        hungerDelta = -20,
+                        hungerDelta = -25,
                         sleepinessDelta = 0,
                         socialDelta = 0,
-                        bondDelta = 1
+                        bondDelta = 1,
+                        feedbackText = "Cún seems satisfied now"
                     ).toJson(),
-                    timestampMs = 1_000L,
+                    timestampMs = 10_000L,
                     eventId = "feed-first"
                 ),
                 EventEnvelope.create(
@@ -126,12 +181,18 @@ class EventToMemoryCardMapperTest {
             )
         )
 
+        val firstTap = cards.first { it.id == "tap-first" }
         val feedCard = cards.first { it.id == "feed-first" }
+        val streakCard = cards.first { it.id == "play-2" }
         val greetingCard = cards.first { it.id == "greeting-return" }
 
+        assertEquals(MemoryCardImportance.NOTABLE, firstTap.importance)
+        assertEquals("First hello today", firstTap.notableMomentLabel)
         assertEquals(MemoryCardImportance.NOTABLE, feedCard.importance)
         assertEquals("First meal today", feedCard.notableMomentLabel)
+        assertEquals(MemoryCardImportance.NOTABLE, streakCard.importance)
+        assertEquals("Playful streak", streakCard.notableMomentLabel)
         assertEquals(MemoryCardImportance.NOTABLE, greetingCard.importance)
-        assertEquals("Welcome back", greetingCard.notableMomentLabel)
+        assertEquals("Back together", greetingCard.notableMomentLabel)
     }
 }

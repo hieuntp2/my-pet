@@ -9,10 +9,11 @@ data class PetActivityAppliedEventPayload(
     val hungerDelta: Int,
     val sleepinessDelta: Int,
     val socialDelta: Int,
-    val bondDelta: Int
+    val bondDelta: Int,
+    val feedbackText: String
 ) {
     fun toJson(): String {
-        return buildString(capacity = 220) {
+        return buildString(capacity = 280) {
             append("{")
             append("\"activityType\":\"").append(activityType.toJsonEscaped()).append("\",")
             append("\"actedAtMs\":").append(actedAtMs).append(",")
@@ -22,21 +23,23 @@ data class PetActivityAppliedEventPayload(
             append("\"hungerDelta\":").append(hungerDelta).append(",")
             append("\"sleepinessDelta\":").append(sleepinessDelta).append(",")
             append("\"socialDelta\":").append(socialDelta).append(",")
-            append("\"bondDelta\":").append(bondDelta)
+            append("\"bondDelta\":").append(bondDelta).append(",")
+            append("\"feedbackText\":\"").append(feedbackText.toJsonEscaped()).append("\"")
             append("}")
         }
     }
 
     companion object {
-        private val ACTIVITY_TYPE_PATTERN = Regex("""\"activityType\"\s*:\s*\"([^\"]+)\"""")
-        private val ACTED_AT_MS_PATTERN = Regex("""\"actedAtMs\"\s*:\s*(-?\d+)""")
-        private val REASON_PATTERN = Regex("""\"reason\"\s*:\s*\"([^\"]+)\"""")
-        private val RESULTING_MOOD_PATTERN = Regex("""\"resultingMood\"\s*:\s*\"([^\"]+)\"""")
-        private val ENERGY_DELTA_PATTERN = Regex("""\"energyDelta\"\s*:\s*(-?\d+)""")
-        private val HUNGER_DELTA_PATTERN = Regex("""\"hungerDelta\"\s*:\s*(-?\d+)""")
-        private val SLEEPINESS_DELTA_PATTERN = Regex("""\"sleepinessDelta\"\s*:\s*(-?\d+)""")
-        private val SOCIAL_DELTA_PATTERN = Regex("""\"socialDelta\"\s*:\s*(-?\d+)""")
-        private val BOND_DELTA_PATTERN = Regex("""\"bondDelta\"\s*:\s*(-?\d+)""")
+        private val ACTIVITY_TYPE_PATTERN = Regex("""\\"activityType\\"\s*:\s*\\"([^\\"]+)\\"""")
+        private val ACTED_AT_MS_PATTERN = Regex("""\\"actedAtMs\\"\s*:\s*(-?\d+)""")
+        private val REASON_PATTERN = Regex("""\\"reason\\"\s*:\s*\\"([^\\"]+)\\"""")
+        private val RESULTING_MOOD_PATTERN = Regex("""\\"resultingMood\\"\s*:\s*\\"([^\\"]+)\\"""")
+        private val ENERGY_DELTA_PATTERN = Regex("""\\"energyDelta\\"\s*:\s*(-?\d+)""")
+        private val HUNGER_DELTA_PATTERN = Regex("""\\"hungerDelta\\"\s*:\s*(-?\d+)""")
+        private val SLEEPINESS_DELTA_PATTERN = Regex("""\\"sleepinessDelta\\"\s*:\s*(-?\d+)""")
+        private val SOCIAL_DELTA_PATTERN = Regex("""\\"socialDelta\\"\s*:\s*(-?\d+)""")
+        private val BOND_DELTA_PATTERN = Regex("""\\"bondDelta\\"\s*:\s*(-?\d+)""")
+        private val FEEDBACK_TEXT_PATTERN = Regex("""\\"feedbackText\\"\s*:\s*\\"([^\\"]+)\\"""")
 
         fun fromJson(payloadJson: String): PetActivityAppliedEventPayload? {
             val activityType = ACTIVITY_TYPE_PATTERN.find(payloadJson)
@@ -57,6 +60,8 @@ data class PetActivityAppliedEventPayload(
                 ?.groupValues?.getOrNull(1)?.toIntOrNull() ?: return null
             val bondDelta = BOND_DELTA_PATTERN.find(payloadJson)
                 ?.groupValues?.getOrNull(1)?.toIntOrNull() ?: return null
+            val feedbackText = FEEDBACK_TEXT_PATTERN.find(payloadJson)
+                ?.groupValues?.getOrNull(1)?.ifBlank { null } ?: return null
             return PetActivityAppliedEventPayload(
                 activityType = activityType,
                 actedAtMs = actedAtMs,
@@ -66,7 +71,8 @@ data class PetActivityAppliedEventPayload(
                 hungerDelta = hungerDelta,
                 sleepinessDelta = sleepinessDelta,
                 socialDelta = socialDelta,
-                bondDelta = bondDelta
+                bondDelta = bondDelta,
+                feedbackText = feedbackText
             )
         }
     }

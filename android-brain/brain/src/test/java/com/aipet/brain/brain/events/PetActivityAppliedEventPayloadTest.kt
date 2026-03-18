@@ -15,7 +15,8 @@ class PetActivityAppliedEventPayloadTest {
             hungerDelta = -25,
             sleepinessDelta = 0,
             socialDelta = 0,
-            bondDelta = 1
+            bondDelta = 1,
+            feedbackText = "Cún seems satisfied now."
         ).toJson()
 
         assertTrue(json.contains("\"activityType\":\"FEED\""))

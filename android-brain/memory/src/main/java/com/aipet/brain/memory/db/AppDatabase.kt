@@ -64,7 +64,6 @@ abstract class AppDatabase : RoomDatabase() {
                         `created_at_ms` INTEGER NOT NULL,
                         `updated_at_ms` INTEGER NOT NULL,
                         `last_seen_at_ms` INTEGER,
-                        `familiarity_score` REAL NOT NULL DEFAULT 0.0,
                         PRIMARY KEY(`person_id`)
                     )
                     """.trimIndent()
@@ -257,9 +256,24 @@ abstract class AppDatabase : RoomDatabase() {
 
         val MIGRATION_12_13: Migration = object : Migration(12, 13) {
             override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL(
-                    "ALTER TABLE persons ADD COLUMN familiarity_score REAL NOT NULL DEFAULT 0.0"
-                )
+                var exists = false
+                db.query("PRAGMA table_info(persons)").use { cursor ->
+                    val nameIndex = cursor.getColumnIndex("name")
+                    if (nameIndex != -1) {
+                        while (cursor.moveToNext()) {
+                            if (cursor.getString(nameIndex) == "familiarity_score") {
+                                exists = true
+                                break
+                            }
+                        }
+                    }
+                }
+
+                if (!exists) {
+                    db.execSQL(
+                        "ALTER TABLE persons ADD COLUMN familiarity_score REAL NOT NULL DEFAULT 0.0"
+                    )
+                }
             }
         }
 
