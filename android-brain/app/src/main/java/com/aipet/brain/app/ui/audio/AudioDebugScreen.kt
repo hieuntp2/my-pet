@@ -1,17 +1,10 @@
 package com.aipet.brain.app.ui.audio
 
 import android.Manifest
-import android.app.Activity
-import android.content.ActivityNotFoundException
 import android.content.Context
-import android.content.ContextWrapper
-import android.content.Intent
-import android.content.pm.PackageManager
 import android.content.res.Resources
-import android.net.Uri
 import android.os.Handler
 import android.os.Looper
-import android.provider.Settings
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -38,10 +31,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.aipet.brain.app.permissions.openAppSettings
+import com.aipet.brain.app.permissions.resolveMicrophonePermissionState
 import com.aipet.brain.app.audio.AudioRuntimeDebugState
 import com.aipet.brain.app.audio.AudioRuntimeDebugStateProvider
 import com.aipet.brain.app.settings.KeywordSpottingConfigStore
@@ -1161,56 +1154,6 @@ private fun resolveRawResourceName(
     }
 }
 
-private fun resolveMicrophonePermissionState(
-    context: Context,
-    hasRequestedPermission: Boolean
-): MicrophonePermissionState {
-    val granted = ContextCompat.checkSelfPermission(
-        context,
-        Manifest.permission.RECORD_AUDIO
-    ) == PackageManager.PERMISSION_GRANTED
-    if (granted) {
-        return MicrophonePermissionState.Granted
-    }
-    if (!hasRequestedPermission) {
-        return MicrophonePermissionState.NotRequested
-    }
-
-    val activity = context.findActivity()
-    val canRequestAgain = activity?.let {
-        ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.RECORD_AUDIO)
-    } ?: false
-    return MicrophonePermissionState.Denied(canRequestAgain = canRequestAgain)
-}
-
-private fun openAppSettings(context: Context) {
-    val detailsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-        data = Uri.fromParts("package", context.packageName, null)
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    }
-    val fallbackIntent = Intent(Settings.ACTION_SETTINGS).apply {
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    }
-
-    try {
-        context.startActivity(detailsIntent)
-    } catch (_: ActivityNotFoundException) {
-        try {
-            context.startActivity(fallbackIntent)
-        } catch (_: ActivityNotFoundException) {
-            // No settings activity is available on this device.
-        }
-    }
-}
-
-private tailrec fun Context.findActivity(): Activity? {
-    return when (this) {
-        is Activity -> this
-        is ContextWrapper -> baseContext.findActivity()
-        else -> null
-    }
-}
-
 private fun createInitialAudioDebugState(
     permissionState: MicrophonePermissionState,
     captureRuntimeState: AudioCaptureRuntimeDebugState
@@ -1683,4 +1626,3 @@ private val BEHAVIOR_RESPONSE_CATEGORIES: Set<String> = setOf(
     "CURIOUS",
     "GREETING"
 )
-

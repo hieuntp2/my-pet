@@ -43,7 +43,8 @@ class FamiliarityEngine(
                     )
                 }
 
-                EventType.USER_INTERACTED_PET -> {
+                EventType.USER_INTERACTED_PET,
+                EventType.PET_LONG_PRESSED -> {
                     val currentPersonId = currentRecognizedPersonId ?: return@collect
                     val isWithinContextWindow = event.timestampMs - currentRecognizedAtMs <= contextTimeoutMs
                     if (!isWithinContextWindow) {

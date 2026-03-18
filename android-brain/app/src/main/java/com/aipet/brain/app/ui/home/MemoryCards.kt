@@ -32,7 +32,7 @@ internal fun RecentInteractionsCard(
             }
             interactions.forEach { interaction ->
                 Text(
-                    text = "${interaction.type} @ ${interaction.timestampMs}",
+                    text = interaction.toHomeLabel(),
                     modifier = Modifier.padding(top = 6.dp)
                 )
             }
@@ -71,6 +71,21 @@ internal fun TopPersonsCard(
             }
         }
     }
+}
+
+private fun EventEnvelope.toHomeLabel(): String {
+    val label = when (type) {
+        com.aipet.brain.brain.events.EventType.PET_GREETED -> "Pet greeted you"
+        com.aipet.brain.brain.events.EventType.USER_INTERACTED_PET -> "You petted the avatar"
+        com.aipet.brain.brain.events.EventType.PET_LONG_PRESSED -> "You held the pet"
+        com.aipet.brain.brain.events.EventType.PET_FED -> "You fed the pet"
+        com.aipet.brain.brain.events.EventType.PET_PLAYED -> "You played with the pet"
+        com.aipet.brain.brain.events.EventType.PET_RESTED -> "You let the pet rest"
+        com.aipet.brain.brain.events.EventType.AUDIO_RESPONSE_STARTED -> "Pet played a sound reaction"
+        else -> type.name.replace('_', ' ').lowercase(Locale.US)
+            .replaceFirstChar { it.titlecase(Locale.US) }
+    }
+    return "$label @ $timestampMs"
 }
 
 @Composable

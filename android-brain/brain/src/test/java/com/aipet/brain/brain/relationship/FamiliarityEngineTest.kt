@@ -139,6 +139,50 @@ class FamiliarityEngineTest {
     }
 
     @Test
+    fun longPress_afterPersonRecognized_increasesFamiliarityForCurrentRecognizedPerson() = runTest {
+        val eventBus = FakeEventBus()
+        val familiarityStore = FakeFamiliarityStore()
+        val engine = FamiliarityEngine(
+            eventBus = eventBus,
+            familiarityStore = familiarityStore
+        )
+        val job = launch {
+            engine.observeEventsAndApplyRules()
+        }
+        advanceUntilIdle()
+
+        eventBus.publish(
+            EventEnvelope.create(
+                type = EventType.PERSON_RECOGNIZED,
+                timestampMs = 10_000L,
+                payloadJson = PersonRecognizedPayload(
+                    personId = "person-4",
+                    similarityScore = 0.93f,
+                    threshold = 0.75f,
+                    evaluatedCandidates = 2,
+                    timestamp = 10_000L
+                ).toJson()
+            )
+        )
+        eventBus.publish(
+            EventEnvelope.create(
+                type = EventType.PET_LONG_PRESSED,
+                timestampMs = 11_000L,
+                payloadJson = "{\"source\":\"unit_test\"}"
+            )
+        )
+        advanceUntilIdle()
+
+        assertEquals(2, familiarityStore.updates.size)
+        val longPressUpdate = familiarityStore.updates.last()
+        assertEquals("person-4", longPressUpdate.personId)
+        assertEquals(FamiliarityEngine.DEFAULT_PET_DELTA, longPressUpdate.delta)
+        assertEquals(11_000L, longPressUpdate.updatedAtMs)
+        assertEquals(2, eventBus.publishedEvents.count { it.type == EventType.RELATIONSHIP_UPDATED })
+        job.cancel()
+    }
+
+    @Test
     fun petEvent_afterPersonUnknown_doesNotIncreaseFamiliarity() = runTest {
         val eventBus = FakeEventBus()
         val familiarityStore = FakeFamiliarityStore()

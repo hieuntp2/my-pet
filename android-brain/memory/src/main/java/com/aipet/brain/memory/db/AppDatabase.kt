@@ -4,6 +4,12 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.aipet.brain.memory.personality.PetTraitDao
+import com.aipet.brain.memory.personality.PetTraitEntity
+import com.aipet.brain.memory.pet.PetProfileDao
+import com.aipet.brain.memory.pet.PetProfileEntity
+import com.aipet.brain.memory.pet.PetStateDao
+import com.aipet.brain.memory.pet.PetStateEntity
 
 @Database(
     entities = [
@@ -15,9 +21,12 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         FaceProfileEmbeddingEntity::class,
         TeachSampleEntity::class,
         TeachSessionCompletionEntity::class,
-        TraitsSnapshotEntity::class
+        TraitsSnapshotEntity::class,
+        PetStateEntity::class,
+        PetProfileEntity::class,
+        PetTraitEntity::class
     ],
-    version = 16,
+    version = 19,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -28,6 +37,9 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun teachSampleDao(): TeachSampleDao
     abstract fun teachSessionCompletionDao(): TeachSessionCompletionDao
     abstract fun traitsSnapshotDao(): TraitsSnapshotDao
+    abstract fun petStateDao(): PetStateDao
+    abstract fun petProfileDao(): PetProfileDao
+    abstract fun petTraitDao(): PetTraitDao
 
     companion object {
         const val DB_NAME: String = "pet_brain.db"
@@ -329,6 +341,63 @@ abstract class AppDatabase : RoomDatabase() {
                         """.trimIndent()
                     )
                 }
+            }
+        }
+
+        val MIGRATION_16_17: Migration = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `pet_state` (
+                        `id` INTEGER NOT NULL,
+                        `mood` TEXT NOT NULL,
+                        `energy` INTEGER NOT NULL,
+                        `hunger` INTEGER NOT NULL,
+                        `sleepiness` INTEGER NOT NULL,
+                        `social` INTEGER NOT NULL,
+                        `bond` INTEGER NOT NULL,
+                        `last_updated_at` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
+        val MIGRATION_17_18: Migration = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `pet_profile` (
+                        `slot_id` INTEGER NOT NULL,
+                        `profile_id` TEXT NOT NULL,
+                        `name` TEXT NOT NULL,
+                        `created_at` INTEGER NOT NULL,
+                        PRIMARY KEY(`slot_id`)
+                    )
+                    """.trimIndent()
+                )
+            }
+        }
+
+        val MIGRATION_18_19: Migration = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `pet_traits` (
+                        `pet_id` TEXT NOT NULL,
+                        `playful` REAL NOT NULL,
+                        `lazy` REAL NOT NULL,
+                        `curious` REAL NOT NULL,
+                        `social` REAL NOT NULL,
+                        `updated_at` INTEGER NOT NULL,
+                        PRIMARY KEY(`pet_id`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_pet_traits_updated_at` ON `pet_traits` (`updated_at`)"
+                )
             }
         }
     }

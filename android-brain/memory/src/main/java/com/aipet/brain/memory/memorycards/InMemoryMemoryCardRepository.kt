@@ -44,23 +44,11 @@ class InMemoryMemoryCardRepository : MemoryCardRepository {
     private fun MemoryCard.normalized(): MemoryCard {
         val normalizedId = id.trim()
         require(normalizedId.isNotBlank()) { "MemoryCard id cannot be blank." }
-        val normalizedPersonId = personId?.trim()?.ifBlank { null }
-        val normalizedObjectId = objectId?.trim()?.ifBlank { null }
-        val normalizedAttributes = attributes.entries
-            .mapNotNull { entry ->
-                val key = entry.key.trim()
-                if (key.isBlank()) {
-                    null
-                } else {
-                    key to entry.value
-                }
-            }
-            .toMap()
         return copy(
             id = normalizedId,
-            personId = normalizedPersonId,
-            objectId = normalizedObjectId,
-            attributes = normalizedAttributes
+            title = title.trim(),
+            summary = summary.trim(),
+            notableMomentLabel = notableMomentLabel?.trim()?.ifBlank { null }
         )
     }
 }

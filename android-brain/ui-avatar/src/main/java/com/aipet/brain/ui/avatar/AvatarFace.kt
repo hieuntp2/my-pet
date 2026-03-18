@@ -3,6 +3,7 @@ package com.aipet.brain.ui.avatar
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,7 +32,9 @@ import com.aipet.brain.ui.avatar.model.AvatarStateRules
 @Composable
 fun AvatarFace(
     avatarState: AvatarState,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onTap: (() -> Unit)? = null,
+    onLongPress: (() -> Unit)? = null
 ) {
     val renderState = AvatarStateRules.normalizeForRender(avatarState)
     val strokeColor = MaterialTheme.colorScheme.onSurface
@@ -41,6 +44,10 @@ fun AvatarFace(
         modifier = modifier
             .size(220.dp)
             .clip(RoundedCornerShape(28.dp))
+            .combinedClickable(
+                onClick = { onTap?.invoke() },
+                onLongClick = { onLongPress?.invoke() }
+            )
             .background(faceColor)
             .border(2.dp, strokeColor, RoundedCornerShape(28.dp))
             .padding(24.dp),

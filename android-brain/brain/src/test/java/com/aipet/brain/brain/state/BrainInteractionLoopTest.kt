@@ -3,6 +3,9 @@ package com.aipet.brain.brain.state
 import com.aipet.brain.brain.events.EventBus
 import com.aipet.brain.brain.events.EventEnvelope
 import com.aipet.brain.brain.events.EventType
+import com.aipet.brain.brain.events.audio.SoundEnergyPayload
+import com.aipet.brain.brain.events.audio.VoiceActivityPayload
+import com.aipet.brain.brain.events.audio.VoiceActivityState
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -162,6 +165,137 @@ class BrainInteractionLoopTest {
 
         assertEquals(BrainState.CURIOUS, store.currentSnapshot().currentState)
 
+        job.cancel()
+    }
+
+    @Test
+    fun longPressWhileSleepy_wakesToCurious() = runTest {
+        val eventBus = FakeEventBus()
+        val store = BrainStateStore(initialState = BrainState.SLEEPY, nowProvider = { 1_000L })
+        val loop = BrainInteractionLoop(
+            eventBus = eventBus,
+            brainStateStore = store,
+            nowProvider = { 1_000L }
+        )
+        val job = launch { loop.observeEventsAndApplyTransitions() }
+        advanceUntilIdle()
+
+        eventBus.publish(
+            EventEnvelope.create(
+                type = EventType.PET_LONG_PRESSED,
+                timestampMs = 4_500L,
+                payloadJson = "{}"
+            )
+        )
+        advanceUntilIdle()
+
+        assertEquals(BrainState.CURIOUS, store.currentSnapshot().currentState)
+
+        job.cancel()
+    }
+
+    @Test
+    fun strongSoundWhileSleepy_wakesToCurious() = runTest {
+        val eventBus = FakeEventBus()
+        val store = BrainStateStore(initialState = BrainState.SLEEPY, nowProvider = { 1_000L })
+        val loop = BrainInteractionLoop(
+            eventBus = eventBus,
+            brainStateStore = store,
+            nowProvider = { 1_000L }
+        )
+        val job = launch { loop.observeEventsAndApplyTransitions() }
+        advanceUntilIdle()
+
+        eventBus.publish(
+            EventEnvelope.create(
+                type = EventType.SOUND_DETECTED,
+                timestampMs = 5_000L,
+                payloadJson = SoundEnergyPayload(
+                    rms = 0.15,
+                    peak = 0.5,
+                    smoothedEnergy = 0.3,
+                    timestamp = 5_000L,
+                    kind = "KNOCK"
+                ).toJson()
+            )
+        )
+        advanceUntilIdle()
+
+        assertEquals(BrainState.CURIOUS, store.currentSnapshot().currentState)
+        job.cancel()
+    }
+
+    @Test
+    fun weakSoundDoesNotResetInactivityTimer() = runTest {
+        var nowMs = 0L
+        val eventBus = FakeEventBus()
+        val store = BrainStateStore(initialState = BrainState.IDLE, nowProvider = { nowMs })
+        val loop = BrainInteractionLoop(
+            eventBus = eventBus,
+            brainStateStore = store,
+            nowProvider = { nowMs },
+            inactivityThresholdMs = 60_000L
+        )
+        val job = launch { loop.observeEventsAndApplyTransitions() }
+        advanceUntilIdle()
+
+        eventBus.publish(
+            EventEnvelope.create(
+                type = EventType.SOUND_DETECTED,
+                timestampMs = 10_000L,
+                payloadJson = SoundEnergyPayload(
+                    rms = 0.03,
+                    peak = 0.2,
+                    smoothedEnergy = 0.1,
+                    timestamp = 10_000L,
+                    kind = "AMBIENT"
+                ).toJson()
+            )
+        )
+        advanceUntilIdle()
+
+        nowMs = 61_000L
+        loop.checkInactivity(nowMs)
+
+        assertEquals(BrainState.SLEEPY, store.currentSnapshot().currentState)
+        job.cancel()
+    }
+
+    @Test
+    fun voiceActivityStarted_resetsInactivityTimer() = runTest {
+        var nowMs = 0L
+        val eventBus = FakeEventBus()
+        val store = BrainStateStore(initialState = BrainState.IDLE, nowProvider = { nowMs })
+        val loop = BrainInteractionLoop(
+            eventBus = eventBus,
+            brainStateStore = store,
+            nowProvider = { nowMs },
+            inactivityThresholdMs = 60_000L
+        )
+        val job = launch { loop.observeEventsAndApplyTransitions() }
+        advanceUntilIdle()
+
+        eventBus.publish(
+            EventEnvelope.create(
+                type = EventType.VOICE_ACTIVITY_STARTED,
+                timestampMs = 30_000L,
+                payloadJson = VoiceActivityPayload(
+                    state = VoiceActivityState.STARTED,
+                    confidence = 0.6f,
+                    timestamp = 30_000L,
+                    vadState = "ACTIVE"
+                ).toJson()
+            )
+        )
+        advanceUntilIdle()
+
+        nowMs = 80_000L
+        loop.checkInactivity(nowMs)
+        assertEquals(BrainState.IDLE, store.currentSnapshot().currentState)
+
+        nowMs = 91_000L
+        loop.checkInactivity(nowMs)
+        assertEquals(BrainState.SLEEPY, store.currentSnapshot().currentState)
         job.cancel()
     }
 

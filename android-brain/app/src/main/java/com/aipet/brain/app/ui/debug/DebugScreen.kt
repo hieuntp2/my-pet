@@ -21,8 +21,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.aipet.brain.app.audio.AudioRuntimeDebugState
 import com.aipet.brain.app.ui.audio.AudioPlaybackDebugState
-import com.aipet.brain.brain.memory.WorkingMemory
+import com.aipet.brain.brain.behavior.PetBehaviorCandidate
+import com.aipet.brain.brain.behavior.PetBehaviorDecision
 import com.aipet.brain.brain.events.EventEnvelope
+import com.aipet.brain.brain.memory.WorkingMemory
+import com.aipet.brain.brain.personality.PetTrait
+import com.aipet.brain.brain.pet.PetCondition
+import com.aipet.brain.brain.pet.PetEmotion
+import com.aipet.brain.brain.pet.PetState
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -38,9 +44,15 @@ fun DebugScreen(
     audioPlaybackDebugState: AudioPlaybackDebugState,
     currentBrainState: String,
     currentWorkingMemory: WorkingMemory,
+    currentPetState: PetState?,
+    currentPetTraits: PetTrait?,
+    currentPetConditions: Set<PetCondition>,
+    latestBehaviorDecisionSource: String?,
+    latestBehaviorDecision: PetBehaviorDecision<PetEmotion>?,
     onNavigateToHome: () -> Unit,
     onNavigateToSettings: () -> Unit,
     onNavigateToEventViewer: () -> Unit,
+    onNavigateToDiary: () -> Unit,
     onNavigateToObservationViewer: () -> Unit,
     onNavigateToProfileAssociations: () -> Unit,
     onNavigateToPersons: () -> Unit,
@@ -68,10 +80,12 @@ fun DebugScreen(
         currentWorkingMemory.currentPersonId != null ||
         currentWorkingMemory.currentObjectId != null ||
         currentWorkingMemory.lastStimulusTs != null ||
+        currentPetState != null ||
         audioRuntimeDebugState.latestEnergyTimestampMs != null ||
         audioRuntimeDebugState.lastSoundEventTimestampMs != null ||
         audioPlaybackDebugState.lastPlayedAtMs != null ||
-        audioPlaybackDebugState.lastSkippedAtMs != null
+        audioPlaybackDebugState.lastSkippedAtMs != null ||
+        latestBehaviorDecision != null
 
     Column(
         modifier = Modifier
@@ -154,6 +168,40 @@ fun DebugScreen(
             text = "WorkingMemory.lastStimulus: ${currentWorkingMemory.lastStimulusTs ?: "-"}",
             modifier = Modifier.fillMaxWidth()
         )
+        Text(
+            text = "Pet mood: ${currentPetState?.mood?.name ?: "-"}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Pet stats: energy=${currentPetState?.energy ?: "-"}, hunger=${currentPetState?.hunger ?: "-"}, sleepiness=${currentPetState?.sleepiness ?: "-"}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Pet social/bond: social=${currentPetState?.social ?: "-"}, bond=${currentPetState?.bond ?: "-"}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Pet traits: ${formatPetTraitsSummary(currentPetTraits)}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Pet conditions: ${formatPetConditionsSummary(currentPetConditions)}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Behavior source: ${latestBehaviorDecisionSource ?: "-"}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Behavior selection: ${formatBehaviorSelectionSummary(latestBehaviorDecision)}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        latestBehaviorDecision?.candidates?.forEach { candidate ->
+            Text(
+                text = "• ${candidate.label}: ${formatWeight(candidate.totalWeight)} ${formatCandidateAdjustments(candidate)}",
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
         Text(
             text = "Recognition probe: $recognitionProbeSummary",
             modifier = Modifier.fillMaxWidth()
@@ -243,6 +291,10 @@ fun DebugScreen(
         DebugActionButton(
             label = "Open Event Viewer",
             onClick = onNavigateToEventViewer
+        )
+        DebugActionButton(
+            label = "Open Diary",
+            onClick = onNavigateToDiary
         )
         DebugActionButton(
             label = "Open Observations",
@@ -342,4 +394,43 @@ private fun formatDebugTimestamp(timestampMs: Long?): String {
     val timestamp = timestampMs ?: return "-"
     val formatter = SimpleDateFormat("HH:mm:ss.SSS", Locale.US)
     return "${formatter.format(Date(timestamp))} ($timestamp)"
+}
+
+private fun formatPetTraitsSummary(traits: PetTrait?): String {
+    val current = traits ?: return "-"
+    return "playful=${formatWeight(current.playful)} lazy=${formatWeight(current.lazy)} curious=${formatWeight(current.curious)} social=${formatWeight(current.social)}"
+}
+
+private fun formatPetConditionsSummary(conditions: Set<PetCondition>): String {
+    if (conditions.isEmpty()) {
+        return "None"
+    }
+    return conditions.joinToString(separator = ", ") { it.name }
+}
+
+private fun formatBehaviorSelectionSummary(
+    decision: PetBehaviorDecision<PetEmotion>?
+): String {
+    val current = decision ?: return "-"
+    return "${current.selectedBehavior.name} via ${current.selectedLabel}"
+}
+
+private fun formatCandidateAdjustments(
+    candidate: PetBehaviorCandidate<PetEmotion>
+): String {
+    if (candidate.adjustments.isEmpty()) {
+        return "(base ${formatWeight(candidate.baseWeight)})"
+    }
+    val adjustments = candidate.adjustments.joinToString(separator = "; ") { adjustment ->
+        "${adjustment.source}=${formatSignedWeight(adjustment.delta)}"
+    }
+    return "(base ${formatWeight(candidate.baseWeight)}; $adjustments)"
+}
+
+private fun formatSignedWeight(value: Float): String {
+    return String.format(Locale.US, "%+.2f", value)
+}
+
+private fun formatWeight(value: Float): String {
+    return String.format(Locale.US, "%.2f", value)
 }

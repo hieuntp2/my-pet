@@ -6,6 +6,9 @@ import com.aipet.brain.brain.events.EventType
 import com.aipet.brain.brain.events.ObjectDetectedEventPayload
 import com.aipet.brain.brain.events.PersonRecognizedPayload
 import com.aipet.brain.brain.events.PersonSeenEventPayload
+import com.aipet.brain.brain.events.audio.SoundEnergyPayload
+import com.aipet.brain.brain.events.audio.VoiceActivityPayload
+import com.aipet.brain.brain.events.audio.VoiceActivityState
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -185,6 +188,142 @@ class WorkingMemoryUpdaterTest {
         assertEquals("person-1", memory.currentPersonId)
         assertEquals("object-2", memory.currentObjectId)
         assertEquals(4_000L, memory.lastStimulusTs)
+        job.cancel()
+    }
+
+    @Test
+    fun strongSoundEvent_updatesLastStimulus() = runTest {
+        val eventBus = FakeEventBus()
+        val store = WorkingMemoryStore(
+            initialMemory = WorkingMemory(lastStimulusTs = 1_000L)
+        )
+        val updater = WorkingMemoryUpdater(
+            eventBus = eventBus,
+            workingMemoryStore = store
+        )
+        val job = launch {
+            updater.observeEventsAndUpdateMemory()
+        }
+        advanceUntilIdle()
+
+        eventBus.publish(
+            EventEnvelope.create(
+                type = EventType.SOUND_DETECTED,
+                timestampMs = 6_000L,
+                payloadJson = SoundEnergyPayload(
+                    rms = 0.12,
+                    peak = 0.52,
+                    smoothedEnergy = 0.27,
+                    timestamp = 6_000L,
+                    kind = "CLAP"
+                ).toJson()
+            )
+        )
+        advanceUntilIdle()
+
+        assertEquals(6_000L, store.currentSnapshot().lastStimulusTs)
+        job.cancel()
+    }
+
+    @Test
+    fun weakSoundEvent_doesNotUpdateLastStimulus() = runTest {
+        val eventBus = FakeEventBus()
+        val store = WorkingMemoryStore(
+            initialMemory = WorkingMemory(lastStimulusTs = 2_000L)
+        )
+        val updater = WorkingMemoryUpdater(
+            eventBus = eventBus,
+            workingMemoryStore = store
+        )
+        val job = launch {
+            updater.observeEventsAndUpdateMemory()
+        }
+        advanceUntilIdle()
+
+        eventBus.publish(
+            EventEnvelope.create(
+                type = EventType.SOUND_DETECTED,
+                timestampMs = 7_000L,
+                payloadJson = SoundEnergyPayload(
+                    rms = 0.05,
+                    peak = 0.2,
+                    smoothedEnergy = 0.1,
+                    timestamp = 7_000L,
+                    kind = "AMBIENT"
+                ).toJson()
+            )
+        )
+        advanceUntilIdle()
+
+        assertEquals(2_000L, store.currentSnapshot().lastStimulusTs)
+        job.cancel()
+    }
+
+    @Test
+    fun voiceActivityStarted_updatesLastStimulus() = runTest {
+        val eventBus = FakeEventBus()
+        val store = WorkingMemoryStore(
+            initialMemory = WorkingMemory(lastStimulusTs = 3_000L)
+        )
+        val updater = WorkingMemoryUpdater(
+            eventBus = eventBus,
+            workingMemoryStore = store
+        )
+        val job = launch {
+            updater.observeEventsAndUpdateMemory()
+        }
+        advanceUntilIdle()
+
+        eventBus.publish(
+            EventEnvelope.create(
+                type = EventType.VOICE_ACTIVITY_STARTED,
+                timestampMs = 8_000L,
+                payloadJson = VoiceActivityPayload(
+                    state = VoiceActivityState.STARTED,
+                    confidence = 0.4f,
+                    timestamp = 8_000L,
+                    vadState = "ACTIVE"
+                ).toJson()
+            )
+        )
+        advanceUntilIdle()
+
+        assertEquals(8_000L, store.currentSnapshot().lastStimulusTs)
+        job.cancel()
+    }
+
+    @Test
+    fun longPressEvent_updatesLastStimulusOnly() = runTest {
+        val eventBus = FakeEventBus()
+        val store = WorkingMemoryStore(
+            initialMemory = WorkingMemory(
+                currentPersonId = "person-9",
+                currentObjectId = "object-4",
+                lastStimulusTs = 2_000L
+            )
+        )
+        val updater = WorkingMemoryUpdater(
+            eventBus = eventBus,
+            workingMemoryStore = store
+        )
+        val job = launch {
+            updater.observeEventsAndUpdateMemory()
+        }
+        advanceUntilIdle()
+
+        eventBus.publish(
+            EventEnvelope.create(
+                type = EventType.PET_LONG_PRESSED,
+                timestampMs = 5_000L,
+                payloadJson = "{\"source\":\"unit_test\"}"
+            )
+        )
+        advanceUntilIdle()
+
+        val memory = store.currentSnapshot()
+        assertEquals("person-9", memory.currentPersonId)
+        assertEquals("object-4", memory.currentObjectId)
+        assertEquals(5_000L, memory.lastStimulusTs)
         job.cancel()
     }
 }
