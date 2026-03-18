@@ -18,7 +18,7 @@ class FakePetAnimatorTest {
     fun `playGreeting temporarily overrides mood and then restores it`() = runTest {
         val animator = FakePetAnimator(
             scope = backgroundScope,
-            clock = { currentTime }
+            clock = { testScheduler.currentTime }
         )
         animator.syncInputFrame(
             PetAnimationFrame(emotion = PetAnimationEmotion.CALM)
@@ -47,7 +47,7 @@ class FakePetAnimatorTest {
     fun `long press and tap expose different visible mouth semantics`() = runTest {
         val animator = FakePetAnimator(
             scope = backgroundScope,
-            clock = { currentTime }
+            clock = { testScheduler.currentTime }
         )
         animator.syncInputFrame(PetAnimationFrame(emotion = PetAnimationEmotion.HAPPY))
 
@@ -65,7 +65,7 @@ class FakePetAnimatorTest {
     fun `activity and sound triggers map to clearer temporary poses`() = runTest {
         val animator = FakePetAnimator(
             scope = backgroundScope,
-            clock = { currentTime }
+            clock = { testScheduler.currentTime }
         )
 
         animator.onActivityResult(PetActivityType.PLAY, PetEmotion.EXCITED)
@@ -84,7 +84,7 @@ class FakePetAnimatorTest {
     fun `state exposes avatar surface through abstraction and honors passive input frame`() = runTest {
         val animator = FakePetAnimator(
             scope = backgroundScope,
-            clock = { currentTime }
+            clock = { testScheduler.currentTime }
         )
 
         animator.syncInputFrame(
