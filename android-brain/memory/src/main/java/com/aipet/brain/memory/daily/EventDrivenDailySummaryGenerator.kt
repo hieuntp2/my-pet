@@ -4,6 +4,8 @@ import com.aipet.brain.brain.events.EventEnvelope
 import com.aipet.brain.brain.events.EventType
 import com.aipet.brain.brain.events.PetActivityAppliedEventPayload
 import com.aipet.brain.brain.events.PetGreetedEventPayload
+import com.aipet.brain.brain.events.UserInteractedPetEventPayload
+import com.aipet.brain.brain.interaction.PetInteractionType
 import com.aipet.brain.brain.pet.PetState
 import java.time.Instant
 import java.time.LocalDate
@@ -34,69 +36,34 @@ class EventDrivenDailySummaryGenerator(
         val restCount = dayEvents.count { it.type == EventType.PET_RESTED }
         val activityCount = feedCount + playCount + restCount
         val supportedMomentCount = greetingCount + interactionCount + activityCount
-
-        val stateSnapshotForDay = petStateSnapshot
-            ?.takeIf { it.lastUpdatedAt.toLocalDate() == targetDate }
-        val honestEnoughForSummary = supportedMomentCount >= 2 || activityCount > 0 ||
-            stateSnapshotForDay != null
-        if (!honestEnoughForSummary) {
+        if (supportedMomentCount == 0) {
             return null
         }
 
-        val moodCounts = linkedMapOf<String, Int>()
-        dayEvents.forEach { event ->
-            when (event.type) {
-                EventType.PET_GREETED -> {
-                    val mood = PetGreetedEventPayload.fromJson(event.payloadJson)?.emotion
-                    mood?.let { moodCounts[it] = moodCounts.getOrDefault(it, 0) + 1 }
-                }
-
-                EventType.PET_FED,
-                EventType.PET_PLAYED,
-                EventType.PET_RESTED -> {
-                    val mood = PetActivityAppliedEventPayload.fromJson(event.payloadJson)?.resultingMood
-                    mood?.let { moodCounts[it] = moodCounts.getOrDefault(it, 0) + 1 }
-                }
-
-                else -> Unit
-            }
-        }
-        val dominantMood = moodCounts.maxByOrNull { it.value }?.key ?: stateSnapshotForDay?.mood?.name
-
-        val highlights = buildList {
-            if (continuityLabel != null) {
-                add(continuityLabel)
-            }
-            if (feedCount > 0) {
-                add("Fed $feedCount time${if (feedCount == 1) "" else "s"}")
-            }
-            if (playCount > 0) {
-                add("Played $playCount time${if (playCount == 1) "" else "s"}")
-            }
-            if (restCount > 0) {
-                add("Rested $restCount time${if (restCount == 1) "" else "s"}")
-            }
-            if (interactionCount > 0) {
-                add("Shared $interactionCount petting moment${if (interactionCount == 1) "" else "s"}")
-            }
-            if (greetingCount > 0) {
-                add("Exchanged $greetingCount greeting${if (greetingCount == 1) "" else "s"}")
-            }
-            dominantMood?.let { mood ->
-                add("Ended feeling ${mood.lowercase().replace('_', ' ')}")
-            }
-        }
-
+        val stateSnapshotForDay = petStateSnapshot
+            ?.takeIf { it.lastUpdatedAt.toLocalDate() == targetDate }
+        val dominantMood = dominantMoodFor(dayEvents) ?: stateSnapshotForDay?.mood?.name
+        val highlights = buildHighlights(
+            continuityLabel = continuityLabel,
+            greetingCount = greetingCount,
+            interactionCount = interactionCount,
+            feedCount = feedCount,
+            playCount = playCount,
+            restCount = restCount,
+            dominantMood = dominantMood
+        )
         val title = when {
             continuityLabel == "New day" -> "A new day together"
+            supportedMomentCount == 1 -> "A small check-in"
+            activityCount + interactionCount >= 4 -> "A lively day"
             activityCount >= 2 -> "A cared-for day"
             interactionCount >= 2 -> "A cozy day"
-            greetingCount > 0 -> "A warm check-in"
+            greetingCount > 0 -> "A warm hello"
             else -> "A quiet pet day"
         }
         val summary = buildString {
-            append("$supportedMomentCount saved pet moment")
-            append(if (supportedMomentCount == 1) "" else "s")
+            append(supportedMomentCount)
+            append(if (supportedMomentCount == 1) " saved moment" else " saved moments")
             append(" today")
             if (highlights.isNotEmpty()) {
                 append(": ")
@@ -142,6 +109,79 @@ class EventDrivenDailySummaryGenerator(
                     }
                 )
             }
+    }
+
+    private fun dominantMoodFor(dayEvents: List<EventEnvelope>): String? {
+        val moodCounts = linkedMapOf<String, Int>()
+        dayEvents.forEach { event ->
+            when (event.type) {
+                EventType.PET_GREETED -> {
+                    PetGreetedEventPayload.fromJson(event.payloadJson)?.emotion?.let { mood ->
+                        moodCounts[mood] = moodCounts.getOrDefault(mood, 0) + 1
+                    }
+                }
+
+                EventType.PET_FED,
+                EventType.PET_PLAYED,
+                EventType.PET_RESTED -> {
+                    PetActivityAppliedEventPayload.fromJson(event.payloadJson)?.resultingMood?.let { mood ->
+                        moodCounts[mood] = moodCounts.getOrDefault(mood, 0) + 1
+                    }
+                }
+
+                EventType.USER_INTERACTED_PET,
+                EventType.PET_LONG_PRESSED -> {
+                    UserInteractedPetEventPayload.fromJson(event.payloadJson)?.resultingMood?.let { mood ->
+                        moodCounts[mood] = moodCounts.getOrDefault(mood, 0) + 1
+                    }
+                }
+
+                else -> Unit
+            }
+        }
+        return moodCounts.maxByOrNull { it.value }?.key
+    }
+
+    private fun buildHighlights(
+        continuityLabel: String?,
+        greetingCount: Int,
+        interactionCount: Int,
+        feedCount: Int,
+        playCount: Int,
+        restCount: Int,
+        dominantMood: String?
+    ): List<String> {
+        return buildList {
+            if (continuityLabel != null) {
+                add(continuityLabel)
+            }
+            if (feedCount > 0) {
+                add("${countLabel(feedCount, "meal", "meals")}")
+            }
+            if (playCount > 0) {
+                add("${countLabel(playCount, "play session", "play sessions")}")
+            }
+            if (restCount > 0) {
+                add("${countLabel(restCount, "rest break", "rest breaks")}")
+            }
+            if (interactionCount > 0) {
+                add("${countLabel(interactionCount, "petting moment", "petting moments")}")
+            }
+            if (greetingCount > 0) {
+                add("${countLabel(greetingCount, "greeting", "greetings")}")
+            }
+            dominantMood?.let { mood ->
+                add("Ended feeling ${mood.lowercase().replace('_', ' ')}")
+            }
+        }
+    }
+
+    private fun countLabel(count: Int, singular: String, plural: String): String {
+        return if (count == 1) {
+            "1 $singular"
+        } else {
+            "$count $plural"
+        }
     }
 
     private fun Long.toLocalDate(): LocalDate {

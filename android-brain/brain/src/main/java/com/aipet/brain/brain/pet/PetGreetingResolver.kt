@@ -84,6 +84,14 @@ class PetGreetingResolver(
                 )
             }
 
+            conditions.contains(PetCondition.CALM) -> {
+                PetGreetingReaction(
+                    message = "glad you're here",
+                    emotion = PetEmotion.IDLE,
+                    reason = decision.selectedLabel
+                )
+            }
+
             else -> {
                 when (decision.selectedBehavior) {
                     PetEmotion.EXCITED -> {

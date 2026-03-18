@@ -11,7 +11,6 @@ import com.aipet.brain.brain.pet.PetState
 import java.time.LocalDate
 import java.time.ZoneOffset
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -19,7 +18,7 @@ class EventDrivenDailySummaryGeneratorTest {
     private val generator = EventDrivenDailySummaryGenerator(zoneId = ZoneOffset.UTC)
 
     @Test
-    fun generateForDate_returnsNullForSparseSingleTapDay() {
+    fun generateForDate_returnsHonestSummaryForSingleTapDay() {
         val targetDate = LocalDate.of(2026, 3, 18)
         val summary = generator.generateForDate(
             targetDate = targetDate,
@@ -29,14 +28,20 @@ class EventDrivenDailySummaryGeneratorTest {
                     payloadJson = UserInteractedPetEventPayload(
                         interactedAtMs = 1_000L,
                         source = "home",
-                        interactionType = PetInteractionType.TAP.name
+                        interactionType = PetInteractionType.TAP.name,
+                        resultingMood = "HAPPY",
+                        socialDelta = 1,
+                        bondDelta = 1,
+                        feedbackText = "Cún enjoyed that little hello."
                     ).toJson(),
                     timestampMs = 1_000L
                 )
             )
         )
 
-        assertNull(summary)
+        requireNotNull(summary)
+        assertEquals("A small check-in", summary.title)
+        assertTrue(summary.summary.contains("1 saved moment"))
     }
 
     @Test
@@ -75,7 +80,8 @@ class EventDrivenDailySummaryGeneratorTest {
                         hungerDelta = -20,
                         sleepinessDelta = 0,
                         socialDelta = 0,
-                        bondDelta = 2
+                        bondDelta = 2,
+                        feedbackText = "Cún seems satisfied now."
                     ).toJson(),
                     timestampMs = 1_200_000L
                 ),
@@ -90,7 +96,8 @@ class EventDrivenDailySummaryGeneratorTest {
                         hungerDelta = 0,
                         sleepinessDelta = 0,
                         socialDelta = 5,
-                        bondDelta = 3
+                        bondDelta = 3,
+                        feedbackText = "Cún had fun playing with you."
                     ).toJson(),
                     timestampMs = 1_500_000L
                 )
@@ -105,7 +112,8 @@ class EventDrivenDailySummaryGeneratorTest {
         assertEquals(2, summary.activityCount)
         assertEquals("HAPPY", summary.dominantMood)
         assertTrue(summary.highlights.contains("New day"))
-        assertTrue(summary.summary.contains("3 saved pet moments"))
+        assertTrue(summary.highlights.contains("1 meal"))
+        assertTrue(summary.summary.contains("3 saved moments"))
         assertEquals(72, summary.energySnapshot)
     }
 
@@ -124,7 +132,8 @@ class EventDrivenDailySummaryGeneratorTest {
                         hungerDelta = -10,
                         sleepinessDelta = 0,
                         socialDelta = 0,
-                        bondDelta = 1
+                        bondDelta = 1,
+                        feedbackText = "Cún seems satisfied now."
                     ).toJson(),
                     timestampMs = 86_400_000L
                 ),
@@ -139,7 +148,8 @@ class EventDrivenDailySummaryGeneratorTest {
                         hungerDelta = 0,
                         sleepinessDelta = 0,
                         socialDelta = 5,
-                        bondDelta = 2
+                        bondDelta = 2,
+                        feedbackText = "Cún had fun playing with you."
                     ).toJson(),
                     timestampMs = 86_460_000L
                 ),
@@ -154,7 +164,8 @@ class EventDrivenDailySummaryGeneratorTest {
                         hungerDelta = -10,
                         sleepinessDelta = 0,
                         socialDelta = 0,
-                        bondDelta = 1
+                        bondDelta = 1,
+                        feedbackText = "Cún seems satisfied now."
                     ).toJson(),
                     timestampMs = 1_000L
                 ),
@@ -169,7 +180,8 @@ class EventDrivenDailySummaryGeneratorTest {
                         hungerDelta = 0,
                         sleepinessDelta = -15,
                         socialDelta = 0,
-                        bondDelta = 1
+                        bondDelta = 1,
+                        feedbackText = "Cún looks more rested."
                     ).toJson(),
                     timestampMs = 2_000L
                 )

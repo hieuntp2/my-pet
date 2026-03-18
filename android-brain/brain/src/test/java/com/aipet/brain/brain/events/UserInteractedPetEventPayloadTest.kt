@@ -11,7 +11,11 @@ class UserInteractedPetEventPayloadTest {
         val payload = UserInteractedPetEventPayload(
             interactedAtMs = 123L,
             source = "home_pet_avatar_long_press",
-            interactionType = PetInteractionType.LONG_PRESS.name
+            interactionType = PetInteractionType.LONG_PRESS.name,
+            resultingMood = "EXCITED",
+            socialDelta = 3,
+            bondDelta = 2,
+            feedbackText = "Cún leaned into the cuddle."
         )
 
         val json = payload.toJson()
