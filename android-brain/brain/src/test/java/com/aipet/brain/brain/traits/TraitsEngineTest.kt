@@ -100,6 +100,46 @@ class TraitsEngineTest {
     }
 
     @Test
+    fun longPressEvent_increasesSociabilityAndPublishesTraitsUpdated() = runTest {
+        val eventBus = FakeEventBus()
+        val repository = FakeTraitsSnapshotRepository(
+            TraitsSnapshot(
+                snapshotId = "s1",
+                capturedAtMs = 1_000L,
+                curiosity = 0.5f,
+                sociability = 0.5f,
+                energy = 0.5f,
+                patience = 0.5f,
+                boldness = 0.5f
+            )
+        )
+        val engine = TraitsEngine(
+            repository = repository,
+            eventBus = eventBus,
+            nowProvider = { 2_500L },
+            idProvider = { "s2" }
+        )
+        engine.initializeIfNeeded()
+        val job = launch { engine.observeEventsAndApplyRules() }
+        advanceUntilIdle()
+
+        eventBus.publish(
+            EventEnvelope.create(
+                type = EventType.PET_LONG_PRESSED,
+                timestampMs = 2_500L
+            )
+        )
+        advanceUntilIdle()
+
+        val updated = engine.observeTraits().value
+        assertNotNull(updated)
+        assertTrue(updated!!.sociability > 0.5f)
+        assertTrue(eventBus.publishedEvents.any { it.type == EventType.TRAITS_UPDATED })
+
+        job.cancel()
+    }
+
+    @Test
     fun sleepyTransition_decreasesEnergy() = runTest {
         val eventBus = FakeEventBus()
         val repository = FakeTraitsSnapshotRepository(

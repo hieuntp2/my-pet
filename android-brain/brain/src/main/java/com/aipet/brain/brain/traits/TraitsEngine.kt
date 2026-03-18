@@ -45,7 +45,8 @@ class TraitsEngine(
     suspend fun observeEventsAndApplyRules() {
         eventBus.observe().collect { event ->
             when (event.type) {
-                EventType.USER_INTERACTED_PET -> applyPetRule(event)
+                EventType.USER_INTERACTED_PET,
+                EventType.PET_LONG_PRESSED -> applyPetRule(event)
                 EventType.BRAIN_STATE_CHANGED -> applyInactivityRule(event)
                 else -> Unit
             }

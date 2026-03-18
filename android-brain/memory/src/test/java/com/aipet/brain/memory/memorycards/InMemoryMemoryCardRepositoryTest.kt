@@ -1,7 +1,9 @@
 package com.aipet.brain.memory.memorycards
 
+import com.aipet.brain.brain.events.EventType
 import com.aipet.brain.brain.memory.MemoryCard
-import com.aipet.brain.brain.memory.MemoryCardType
+import com.aipet.brain.brain.memory.MemoryCardCategory
+import com.aipet.brain.brain.memory.MemoryCardImportance
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -14,11 +16,12 @@ class InMemoryMemoryCardRepositoryTest {
         val repository = InMemoryMemoryCardRepository()
         val card = MemoryCard(
             id = "card-1",
+            title = "Played together",
+            summary = "The pet enjoyed a short play session.",
             timestampMs = 1_000L,
-            type = MemoryCardType.INTERACTION,
-            personId = "person-1",
-            objectId = "object-1",
-            attributes = mapOf("source" to "unit_test")
+            sourceEventType = EventType.PET_PLAYED,
+            category = MemoryCardCategory.CARE,
+            importance = MemoryCardImportance.ROUTINE
         )
 
         val saved = repository.save(card)
@@ -33,15 +36,23 @@ class InMemoryMemoryCardRepositoryTest {
         repository.save(
             MemoryCard(
                 id = "card-old",
+                title = "Older memory",
+                summary = "The pet noticed an older interaction.",
                 timestampMs = 1_000L,
-                type = MemoryCardType.DETECTION
+                sourceEventType = EventType.USER_INTERACTED_PET,
+                category = MemoryCardCategory.INTERACTION
             )
         )
         repository.save(
             MemoryCard(
                 id = "card-new",
+                title = "Newer memory",
+                summary = "The pet remembers the latest moment.",
                 timestampMs = 2_000L,
-                type = MemoryCardType.SUMMARY
+                sourceEventType = EventType.PET_GREETED,
+                category = MemoryCardCategory.GREETING,
+                importance = MemoryCardImportance.NOTABLE,
+                notableMomentLabel = "Warm welcome"
             )
         )
 

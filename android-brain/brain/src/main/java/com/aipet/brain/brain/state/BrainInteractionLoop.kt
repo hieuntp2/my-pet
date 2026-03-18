@@ -64,7 +64,8 @@ class BrainInteractionLoop(
                     )
                 }
 
-                EventType.USER_INTERACTED_PET -> {
+                EventType.USER_INTERACTED_PET,
+                EventType.PET_LONG_PRESSED -> {
                     recordMeaningfulStimulus(event.timestampMs)
                     val current = brainStateStore.currentSnapshot().currentState
                     when {

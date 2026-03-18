@@ -69,7 +69,8 @@ class WorkingMemoryUpdater(
                     }
                 }
 
-                EventType.USER_INTERACTED_PET -> {
+                EventType.USER_INTERACTED_PET,
+                EventType.PET_LONG_PRESSED -> {
                     workingMemoryStore.update { current ->
                         current.copy(lastStimulusTs = event.timestampMs)
                     }
