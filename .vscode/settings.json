@@ -10,6 +10,8 @@
             "approve": true,
             "matchCommandLine": true
         },
-        "Test-Path": true
+        "Test-Path": true,
+        "git stash": true,
+        ".vscode/settings.json": true
     }
 }
