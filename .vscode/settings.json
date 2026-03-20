@@ -12,6 +12,7 @@
         },
         "Test-Path": true,
         "git stash": true,
-        ".vscode/settings.json": true
+        ".vscode/settings.json": true,
+        ".\\gradlew": true
     }
 }

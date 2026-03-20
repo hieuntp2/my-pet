@@ -66,6 +66,7 @@ dependencies {
     implementation(project(":brain"))
     implementation(project(":memory"))
     implementation(project(":perception"))
+    implementation(project(":pixel-avatar"))
 
     implementation("androidx.core:core-ktx:$coreKtxVersion")
     implementation("androidx.activity:activity-compose:$activityComposeVersion")

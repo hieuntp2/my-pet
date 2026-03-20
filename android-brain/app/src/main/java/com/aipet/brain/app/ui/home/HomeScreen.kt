@@ -25,6 +25,7 @@ import com.aipet.brain.app.animation.PetAnimationSurfaceState
 import com.aipet.brain.app.ui.navigation.PetPrimaryDestination
 import com.aipet.brain.app.ui.navigation.PetPrimaryNavigationBar
 import com.aipet.brain.brain.pet.PetGreetingReaction
+import com.aipet.brain.pixel.avatar.composable.PixelPetAvatar
 import com.aipet.brain.ui.avatar.AvatarFace
 
 @Composable
@@ -203,6 +204,9 @@ private fun PetAvatarSurface(
                 onTap = onTap,
                 onLongPress = onLongPress
             )
+        }
+        is PetAnimationSurfaceState.PixelPetSurface -> {
+            PixelPetAvatar(frame = surfaceState.frame, displaySize = 320.dp)
         }
     }
 }

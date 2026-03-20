@@ -113,6 +113,7 @@ class FakePetAnimator(
                     PetEmotion.EXCITED -> PetAnimationGreetingType.PLAYFUL
                     PetEmotion.HAPPY -> PetAnimationGreetingType.WARM
                     PetEmotion.IDLE -> PetAnimationGreetingType.CALM
+                    PetEmotion.THINKING -> PetAnimationGreetingType.CALM
                 }
             ),
             durationMs = durationMs
@@ -490,6 +491,7 @@ class FakePetAnimator(
             PetEmotion.SAD -> PetAnimationEmotion.SAD
             PetEmotion.EXCITED -> PetAnimationEmotion.EXCITED
             PetEmotion.HUNGRY -> PetAnimationEmotion.HUNGRY
+            PetEmotion.THINKING -> PetAnimationEmotion.CALM
         }
     }
 

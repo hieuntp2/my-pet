@@ -13,6 +13,7 @@ internal object PetEmotionAvatarMapper {
             PetEmotion.SAD -> AvatarEmotion.SLEEPY
             PetEmotion.EXCITED -> AvatarEmotion.SURPRISED
             PetEmotion.HUNGRY -> AvatarEmotion.CURIOUS
+            PetEmotion.THINKING -> AvatarEmotion.NEUTRAL
         }
     }
 }
