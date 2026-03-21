@@ -24,6 +24,8 @@ interface PersonStore {
         seenAtMs: Long = System.currentTimeMillis()
     ): PersonRecord?
 
+    suspend fun deletePerson(personId: String): Boolean = false
+
     suspend fun updatePersonSeenStats(
         personId: String,
         timestampMs: Long = System.currentTimeMillis()

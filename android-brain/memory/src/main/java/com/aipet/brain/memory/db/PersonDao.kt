@@ -83,4 +83,16 @@ interface PersonDao {
         clearOwnerFlags(updatedAtMs)
         return setOwnerById(personId = personId, updatedAtMs = updatedAtMs) > 0
     }
+
+    @Query("DELETE FROM face_profiles WHERE linked_person_id = :personId")
+    suspend fun deleteFaceProfilesByPersonId(personId: String): Int
+
+    @Query("DELETE FROM persons WHERE person_id = :personId")
+    suspend fun deleteById(personId: String): Int
+
+    @Transaction
+    suspend fun deletePersonAndRelatedData(personId: String): Boolean {
+        deleteFaceProfilesByPersonId(personId)
+        return deleteById(personId) > 0
+    }
 }

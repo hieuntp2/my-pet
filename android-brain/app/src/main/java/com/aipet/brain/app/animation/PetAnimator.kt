@@ -4,6 +4,7 @@ import com.aipet.brain.app.ui.audio.model.AudioCategory
 import com.aipet.brain.brain.activity.PetActivityType
 import com.aipet.brain.brain.pet.PetEmotion
 import com.aipet.brain.brain.pet.PetGreetingReaction
+import com.aipet.brain.pixel.avatar.model.PixelFrame64
 import com.aipet.brain.ui.avatar.model.AvatarState
 import kotlinx.coroutines.flow.StateFlow
 
@@ -59,6 +60,10 @@ data class PetAnimationState(
 sealed interface PetAnimationSurfaceState {
     data class AvatarFaceSurface(
         val avatarState: AvatarState
+    ) : PetAnimationSurfaceState
+
+    data class PixelPetSurface(
+        val frame: PixelFrame64
     ) : PetAnimationSurfaceState
 }
 

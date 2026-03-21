@@ -109,6 +109,7 @@ object HomeUiModelBuilder {
             PetEmotion.SAD -> "Needs comfort"
             PetEmotion.EXCITED -> "Playful"
             PetEmotion.HUNGRY -> "Hungry"
+            PetEmotion.THINKING -> "Thinking"
         }
     }
 

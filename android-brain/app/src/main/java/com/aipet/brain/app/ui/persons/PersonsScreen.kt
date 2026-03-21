@@ -1,5 +1,6 @@
 package com.aipet.brain.app.ui.persons
 
+import androidx.compose.material3.AlertDialog
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -52,6 +53,7 @@ internal fun PersonsScreen(
     var loading by remember { mutableStateOf(true) }
     var loadError by remember { mutableStateOf<String?>(null) }
     var actionMessage by remember { mutableStateOf<String?>(null) }
+    var deleteConfirmTarget by remember { mutableStateOf<PersonRecord?>(null) }
     val formatter = remember {
         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").withZone(ZoneId.systemDefault())
     }
@@ -143,7 +145,35 @@ internal fun PersonsScreen(
             )
         }
 
-        if (loading) {
+        if (deleteConfirmTarget != null) {
+        AlertDialog(
+            onDismissRequest = { deleteConfirmTarget = null },
+            title = { Text(text = "Delete Person") },
+            text = { Text(text = "Delete ${deleteConfirmTarget?.displayName}? This will also remove their face data and cannot be undone.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val target = deleteConfirmTarget
+                        deleteConfirmTarget = null
+                        if (target != null) {
+                            coroutineScope.launch {
+                                when (val result = controller.deletePerson(target.personId)) {
+                                    is PersonDeleteResult.Success -> actionMessage = "Deleted ${target.displayName}."
+                                    is PersonDeleteResult.Failure -> actionMessage = result.message
+                                }
+                                reloadPersons()
+                            }
+                        }
+                    }
+                ) { Text(text = "Delete") }
+            },
+            dismissButton = {
+                Button(onClick = { deleteConfirmTarget = null }) { Text(text = "Cancel") }
+            }
+        )
+    }
+
+    if (loading) {
             Text(text = "Loading persons...")
             return@Column
         }
@@ -168,6 +198,7 @@ internal fun PersonsScreen(
                     person = person,
                     formatter = formatter,
                     onEditClick = { onNavigateToEditPerson(person.personId) },
+                    onDeleteClick = { deleteConfirmTarget = person },
                     onRecordSeenClick = {
                         coroutineScope.launch {
                             when (val result = controller.recordPersonSeen(person.personId)) {
@@ -202,6 +233,7 @@ private fun PersonListItem(
     person: PersonRecord,
     formatter: DateTimeFormatter,
     onEditClick: () -> Unit,
+    onDeleteClick: () -> Unit,
     onRecordSeenClick: () -> Unit,
     onOpenDetailClick: () -> Unit,
     onAssignOwnerClick: () -> Unit
@@ -237,6 +269,9 @@ private fun PersonListItem(
                     enabled = !person.isOwner
                 ) {
                     Text(text = if (person.isOwner) "Owner" else "Set as Owner")
+                }
+                Button(onClick = onDeleteClick) {
+                    Text(text = "Delete")
                 }
             }
         }
