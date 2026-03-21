@@ -34,8 +34,8 @@ fun PixelFrameCanvas(
         }
 
         val layout = PixelCanvasScaling.calculateLayout(
-            canvasWidthPx = size.width,
-            canvasHeightPx = size.height,
+            canvasWidthPx = this.size.width,
+            canvasHeightPx = this.size.height,
             frameWidth = PixelFrame64.WIDTH,
             frameHeight = PixelFrame64.HEIGHT
         )

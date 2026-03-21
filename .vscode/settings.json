@@ -10,6 +10,9 @@
             "approve": true,
             "matchCommandLine": true
         },
-        "Test-Path": true
+        "Test-Path": true,
+        ".\\gradlew": true,
+        "ForEach-Object": true,
+        "Get-Command": true
     }
 }
