@@ -20,18 +20,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.aipet.brain.app.animation.PetAnimationState
-import com.aipet.brain.app.animation.PetAnimationSurfaceState
 import com.aipet.brain.app.ui.navigation.PetPrimaryDestination
 import com.aipet.brain.app.ui.navigation.PetPrimaryNavigationBar
 import com.aipet.brain.brain.pet.PetGreetingReaction
-import com.aipet.brain.ui.avatar.AvatarFace
+import com.aipet.brain.ui.avatar.pixel.bridge.PixelPetBridgeState
 
 @Composable
 fun HomeScreen(
     homeUiModel: HomeUiModel,
     homeInteractionUiState: HomeInteractionUiState,
-    petAnimationState: PetAnimationState,
+    avatarBridgeState: PixelPetBridgeState,
     appOpenGreeting: PetGreetingReaction?,
     onPetTap: () -> Unit,
     onPetLongPress: () -> Unit,
@@ -93,7 +91,7 @@ fun HomeScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 PetAvatarSurface(
-                    petAnimationState = petAnimationState,
+                    avatarBridgeState = avatarBridgeState,
                     onTap = { if (homeInteractionUiState.canTapPet) onPetTap() },
                     onLongPress = { if (homeInteractionUiState.canLongPressPet) onPetLongPress() }
                 )
@@ -191,20 +189,16 @@ private fun PersonalityPill(
 
 @Composable
 private fun PetAvatarSurface(
-    petAnimationState: PetAnimationState,
+    avatarBridgeState: PixelPetBridgeState,
     onTap: () -> Unit,
     onLongPress: () -> Unit
 ) {
-    when (val surfaceState = petAnimationState.surfaceState) {
-        is PetAnimationSurfaceState.AvatarFaceSurface -> {
-            AvatarFace(
-                avatarState = surfaceState.avatarState,
-                modifier = Modifier.size(220.dp),
-                onTap = onTap,
-                onLongPress = onLongPress
-            )
-        }
-    }
+    HomePixelPetAvatar(
+        bridgeState = avatarBridgeState,
+        modifier = Modifier.size(220.dp),
+        onTap = onTap,
+        onLongPress = onLongPress
+    )
 }
 
 @Composable

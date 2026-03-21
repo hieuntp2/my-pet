@@ -1,6 +1,7 @@
 package com.aipet.brain.app.ui
 
 import android.util.Log
+import com.aipet.brain.app.BuildConfig
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
@@ -33,6 +34,7 @@ import com.aipet.brain.app.reactions.PersonSeenEventPublisher
 import com.aipet.brain.app.ui.audio.AudioDebugScreen
 import com.aipet.brain.app.ui.audio.AudioPlaybackEngine
 import com.aipet.brain.app.ui.camera.CameraScreen
+import com.aipet.brain.app.ui.debug.AvatarAnimationDebugScreen
 import com.aipet.brain.app.ui.debug.DebugScreen
 import com.aipet.brain.app.ui.diary.DiaryScreen
 import com.aipet.brain.app.ui.debug.EventViewerScreen
@@ -42,6 +44,7 @@ import com.aipet.brain.app.ui.home.HomeInteractionUiState
 import com.aipet.brain.app.ui.home.HomeScreen
 import com.aipet.brain.app.ui.home.HomeTodaySummaryResolver
 import com.aipet.brain.app.ui.home.HomeUiModelBuilder
+import com.aipet.brain.app.avatar.RealPixelPetBridgeStateAdapter
 import com.aipet.brain.brain.activity.FeedPetUseCase
 import com.aipet.brain.brain.activity.LetPetRestUseCase
 import com.aipet.brain.brain.activity.PetActivityResult
@@ -154,6 +157,7 @@ private enum class AppScreen {
     Home,
     Onboarding,
     Debug,
+    AvatarDebug,
     AudioDebug,
     Settings,
     EventViewer,
@@ -181,6 +185,12 @@ fun PetBrainApp() {
     var teachSessionId by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }
     var petNameDraft by rememberSaveable { mutableStateOf(PetProfileRepository.DEFAULT_PET_NAME) }
     val currentScreen = currentScreenName.toAppScreen()
+    val avatarDebugEnabled = BuildConfig.DEBUG
+    val resolvedScreen = if (currentScreen == AppScreen.AvatarDebug && !avatarDebugEnabled) {
+        AppScreen.Debug
+    } else {
+        currentScreen
+    }
     var latestEvent by remember { mutableStateOf<EventEnvelope?>(null) }
     var latestOwnerSeenEvent by remember { mutableStateOf<EventEnvelope?>(null) }
     var latestOwnerGreetingEvent by remember { mutableStateOf<EventEnvelope?>(null) }
@@ -612,6 +622,26 @@ fun PetBrainApp() {
             interactionHint = "Tap for a quick hello or hold for a longer cuddle.",
             cooldownHint = "Repeated taps and care actions pause briefly so each reaction stays readable."
         )
+    }
+    val homePixelPetAvatarSignal = remember(
+        currentPetEmotion,
+        currentPetConditions,
+        brainStateSnapshot.currentState,
+        latestAudioStimulus
+    ) {
+        com.aipet.brain.app.avatar.HomePixelPetAvatarSignal(
+            petEmotion = currentPetEmotion,
+            conditions = currentPetConditions,
+            brainState = brainStateSnapshot.currentState,
+            latestAudioStimulus = latestAudioStimulus
+        )
+    }
+    val debugPixelPetBridgeAdapter = remember { RealPixelPetBridgeStateAdapter() }
+    val homePixelPetDebugBridgeState = remember(homePixelPetAvatarSignal) {
+        debugPixelPetBridgeAdapter.map(homePixelPetAvatarSignal)
+    }
+    val homePixelPetBridgeState = remember(homePixelPetDebugBridgeState) {
+        homePixelPetDebugBridgeState.copy(debugMetadata = null)
     }
 
     LaunchedEffect(
@@ -1099,11 +1129,11 @@ fun PetBrainApp() {
 
     MaterialTheme {
         Surface {
-            when (currentScreen) {
+            when (resolvedScreen) {
                 AppScreen.Home -> HomeScreen(
                     homeUiModel = homeUiModel,
                     homeInteractionUiState = homeInteractionUiState,
-                    petAnimationState = petAnimationState,
+                    avatarBridgeState = homePixelPetBridgeState,
                     appOpenGreeting = appOpenGreeting,
                     onPetTap = {
                         coroutineScope.launch {
@@ -1191,6 +1221,12 @@ fun PetBrainApp() {
                     onNavigateToWorkingMemoryDebug = { currentScreenName = AppScreen.WorkingMemoryDebug.name },
                     onNavigateToCamera = { currentScreenName = AppScreen.Camera.name },
                     onNavigateToAudioDebug = { currentScreenName = AppScreen.AudioDebug.name },
+                    showAvatarDebugAction = avatarDebugEnabled,
+                    onNavigateToAvatarDebug = {
+                        if (avatarDebugEnabled) {
+                            currentScreenName = AppScreen.AvatarDebug.name
+                        }
+                    },
                     onForceSleep = {
                         coroutineScope.launch {
                             brainInteractionLoop.forceSleep()
@@ -1292,6 +1328,11 @@ fun PetBrainApp() {
                             )
                         }
                     }
+                )
+
+                AppScreen.AvatarDebug -> AvatarAnimationDebugScreen(
+                    runtimeBridgeState = homePixelPetDebugBridgeState,
+                    onNavigateBack = { currentScreenName = AppScreen.Debug.name }
                 )
 
                 AppScreen.AudioDebug -> AudioDebugScreen(
