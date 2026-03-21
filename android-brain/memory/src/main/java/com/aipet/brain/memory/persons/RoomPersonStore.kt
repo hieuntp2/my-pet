@@ -94,6 +94,12 @@ class RoomPersonStore(
         )
     }
 
+    override suspend fun deletePerson(personId: String): Boolean {
+        val normalizedId = personId.trim()
+        if (normalizedId.isBlank()) return false
+        return personDao.deletePersonAndRelatedData(normalizedId)
+    }
+
     override suspend fun increaseFamiliarity(
         personId: String,
         delta: Float,

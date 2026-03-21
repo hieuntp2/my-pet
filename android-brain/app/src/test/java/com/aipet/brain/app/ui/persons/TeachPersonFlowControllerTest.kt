@@ -290,7 +290,7 @@ class TeachPersonFlowControllerTest {
         )
 
         assertEquals(
-            TeachPersonSaveResult.ValidationError("Capture at least one sample before saving."),
+            TeachPersonSaveResult.ValidationError("Capture at least 3 samples before saving."),
             result
         )
         assertTrue(fakePersonStore.listAll().isEmpty())
@@ -322,10 +322,38 @@ class TeachPersonFlowControllerTest {
             )
         )
 
+        val extraSample1 = TeachPersonCapturedSample(
+            observationId = "observation-extra-1",
+            observedAtMs = 8_001L,
+            source = "CAMERA",
+            note = null,
+            imageUri = "content://sample/extra-1.jpg",
+            faceCropUri = null,
+            qualityMetadata = SampleQualityMetadata(
+                qualityStatus = SampleQualityStatus.UNASSESSED,
+                qualityFlags = emptySet(),
+                note = null,
+                evaluatedAtMs = 8_001L
+            )
+        )
+        val extraSample2 = TeachPersonCapturedSample(
+            observationId = "observation-extra-2",
+            observedAtMs = 8_002L,
+            source = "CAMERA",
+            note = null,
+            imageUri = "content://sample/extra-2.jpg",
+            faceCropUri = null,
+            qualityMetadata = SampleQualityMetadata(
+                qualityStatus = SampleQualityStatus.UNASSESSED,
+                qualityFlags = emptySet(),
+                note = null,
+                evaluatedAtMs = 8_002L
+            )
+        )
         val result = controller.saveTaughtPerson(
             displayName = "Robin",
             nickname = "Rob",
-            capturedSamples = listOf(sample)
+            capturedSamples = listOf(sample, extraSample1, extraSample2)
         )
 
         assertEquals(TeachPersonSaveResult.Success("person-from-teach"), result)
@@ -373,10 +401,45 @@ class TeachPersonFlowControllerTest {
             }
         )
 
+        val sampleWithWarning2 = TeachPersonCapturedSample(
+            observationId = "observation-warning-2",
+            observedAtMs = 11_001L,
+            source = "DEBUG",
+            note = null,
+            imageUri = "file:///tmp/sample-warning-2.png",
+            faceCropUri = null,
+            qualityMetadata = SampleQualityMetadata(
+                qualityStatus = SampleQualityStatus.LIMITED_SOURCE,
+                qualityFlags = setOf(
+                    SampleQualityFlag.DEBUG_GENERATED_IMAGE,
+                    SampleQualityFlag.NOT_CAMERA_FRAME
+                ),
+                note = null,
+                evaluatedAtMs = 11_001L
+            )
+        )
+        val sampleWithWarning3 = TeachPersonCapturedSample(
+            observationId = "observation-warning-3",
+            observedAtMs = 11_002L,
+            source = "DEBUG",
+            note = null,
+            imageUri = "file:///tmp/sample-warning-3.png",
+            faceCropUri = null,
+            qualityMetadata = SampleQualityMetadata(
+                qualityStatus = SampleQualityStatus.LIMITED_SOURCE,
+                qualityFlags = setOf(
+                    SampleQualityFlag.DEBUG_GENERATED_IMAGE,
+                    SampleQualityFlag.NOT_CAMERA_FRAME
+                ),
+                note = null,
+                evaluatedAtMs = 11_002L
+            )
+        )
+
         val result = controller.saveTaughtPerson(
             displayName = "Taylor",
             nickname = "",
-            capturedSamples = listOf(sampleWithWarning)
+            capturedSamples = listOf(sampleWithWarning, sampleWithWarning2, sampleWithWarning3)
         )
 
         assertEquals(
@@ -427,10 +490,24 @@ class TeachPersonFlowControllerTest {
             )
         )
 
+        val anotherFailingSample = TeachPersonCapturedSample(
+            observationId = "observation-failing-2",
+            observedAtMs = 12_003L,
+            source = "CAMERA",
+            note = null,
+            imageUri = "content://sample/failing2.jpg",
+            faceCropUri = null,
+            qualityMetadata = SampleQualityMetadata(
+                qualityStatus = SampleQualityStatus.UNASSESSED,
+                qualityFlags = emptySet(),
+                note = null,
+                evaluatedAtMs = 12_003L
+            )
+        )
         val result = controller.saveTaughtPerson(
             displayName = "Morgan",
             nickname = "",
-            capturedSamples = listOf(failingSample, passingSample)
+            capturedSamples = listOf(failingSample, anotherFailingSample, passingSample)
         )
 
         assertEquals(TeachPersonSaveResult.Success("person-quality-gate-pass"), result)
@@ -442,7 +519,7 @@ class TeachPersonFlowControllerTest {
 
         assertFalse(gateResult.canSaveTeachPerson)
         assertEquals(TeachQualityGateFailureReason.MINIMUM_SAMPLE_COUNT_NOT_MET, gateResult.failures.first().reason)
-        assertEquals("Capture at least one sample before saving.", gateResult.saveBlockedReason)
+        assertEquals("Capture at least 3 samples before saving.", gateResult.saveBlockedReason)
         assertTrue(gateResult.failingSampleObservationIds.isEmpty())
     }
 
@@ -480,8 +557,23 @@ class TeachPersonFlowControllerTest {
             )
         )
 
+        val failingC = TeachPersonCapturedSample(
+            observationId = "observation-c",
+            observedAtMs = 14_003L,
+            source = "CAMERA",
+            note = null,
+            imageUri = "content://sample/fail-c.jpg",
+            faceCropUri = null,
+            qualityMetadata = SampleQualityMetadata(
+                qualityStatus = SampleQualityStatus.UNASSESSED,
+                qualityFlags = emptySet(),
+                note = null,
+                evaluatedAtMs = 14_003L
+            )
+        )
+
         val gateResult = evaluateTeachQualityGate(
-            capturedSamples = listOf(failingA, failingB)
+            capturedSamples = listOf(failingA, failingB, failingC)
         )
 
         assertFalse(gateResult.canSaveTeachPerson)
@@ -493,7 +585,7 @@ class TeachPersonFlowControllerTest {
             "Capture at least one sample with a face crop and MEDIUM/HIGH quality level before saving.",
             gateResult.saveBlockedReason
         )
-        assertEquals(listOf("observation-a", "observation-b"), gateResult.failingSampleObservationIds)
+        assertEquals(listOf("observation-a", "observation-b", "observation-c"), gateResult.failingSampleObservationIds)
     }
 
     @Test
@@ -773,8 +865,44 @@ class TeachPersonFlowControllerTest {
             )
         )
 
-        val selection = selectBestSamples(capturedSamples = listOf(lowQualitySample))
-        val gateResult = evaluateTeachQualityGate(capturedSamples = listOf(lowQualitySample))
+        val lowQualitySample2 = TeachPersonCapturedSample(
+            observationId = "observation-low-2",
+            observedAtMs = 16_999L,
+            source = "DEBUG",
+            note = null,
+            imageUri = "file:///tmp/low-2.png",
+            faceCropUri = null,
+            qualityMetadata = SampleQualityMetadata(
+                qualityStatus = SampleQualityStatus.LIMITED_SOURCE,
+                qualityFlags = setOf(
+                    SampleQualityFlag.DEBUG_GENERATED_IMAGE,
+                    SampleQualityFlag.NOT_CAMERA_FRAME
+                ),
+                note = null,
+                evaluatedAtMs = 16_999L
+            )
+        )
+        val lowQualitySample3 = TeachPersonCapturedSample(
+            observationId = "observation-low-3",
+            observedAtMs = 16_998L,
+            source = "DEBUG",
+            note = null,
+            imageUri = "file:///tmp/low-3.png",
+            faceCropUri = null,
+            qualityMetadata = SampleQualityMetadata(
+                qualityStatus = SampleQualityStatus.LIMITED_SOURCE,
+                qualityFlags = setOf(
+                    SampleQualityFlag.DEBUG_GENERATED_IMAGE,
+                    SampleQualityFlag.NOT_CAMERA_FRAME
+                ),
+                note = null,
+                evaluatedAtMs = 16_998L
+            )
+        )
+        val allLowSamples = listOf(lowQualitySample, lowQualitySample2, lowQualitySample3)
+
+        val selection = selectBestSamples(capturedSamples = allLowSamples)
+        val gateResult = evaluateTeachQualityGate(capturedSamples = allLowSamples)
 
         assertEquals("observation-low-only", selection.bestSampleId)
         assertFalse(gateResult.canSaveTeachPerson)

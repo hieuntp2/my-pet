@@ -23,7 +23,12 @@ class RoomTraitsSnapshotRepositoryTest {
         val loaded = repository.latest()
 
         assertNotNull(loaded)
-        assertEquals(snapshot, loaded)
+        assertEquals(snapshot.capturedAtMs, loaded!!.capturedAtMs)
+        assertEquals(snapshot.curiosity, loaded.curiosity)
+        assertEquals(snapshot.sociability, loaded.sociability)
+        assertEquals(snapshot.energy, loaded.energy)
+        assertEquals(snapshot.patience, loaded.patience)
+        assertEquals(snapshot.boldness, loaded.boldness)
     }
 
     @Test
@@ -35,7 +40,7 @@ class RoomTraitsSnapshotRepositoryTest {
         repository.save(older)
         repository.save(newer)
 
-        assertEquals("newer", repository.latest()?.snapshotId)
+        assertEquals(2_000L, repository.latest()?.capturedAtMs)
     }
 }
 
@@ -44,14 +49,14 @@ private class FakeTraitsSnapshotDao : TraitsSnapshotDao {
     private val latestFlow = MutableStateFlow<TraitsSnapshotEntity?>(null)
 
     override suspend fun insert(snapshot: TraitsSnapshotEntity) {
-        snapshotsById[snapshot.snapshotId] = snapshot
-        latestFlow.value = latest()
+        snapshotsById[snapshot.createdAt.toString()] = snapshot
+        latestFlow.value = getLatest()
     }
 
-    override suspend fun latest(): TraitsSnapshotEntity? {
+    override suspend fun getLatest(): TraitsSnapshotEntity? {
         return snapshotsById.values.maxWithOrNull(
-            compareBy<TraitsSnapshotEntity> { it.capturedAtMs }
-                .thenBy { it.snapshotId }
+            compareBy<TraitsSnapshotEntity> { it.createdAt }
+                .thenBy { it.id }
         )
     }
 

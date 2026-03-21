@@ -3,10 +3,15 @@ package com.aipet.brain.app.ui.persons
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.PointF
-import android.media.FaceDetector
+import android.graphics.Rect
 import android.net.Uri
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.face.FaceDetection
+import com.google.mlkit.vision.face.FaceDetectorOptions
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 
 internal sealed interface FaceCropExtractionResult {
@@ -29,32 +34,26 @@ internal class TeachSampleFaceCropExtractor(
 
         val sourceBitmap = loadBitmapFromUri(sourceImageUri)
             ?: return@withContext FaceCropExtractionResult.Failed("Unable to load source image.")
-        val detectionBitmap = sourceBitmap.toDetectionBitmap() ?: run {
-            sourceBitmap.recycle()
-            return@withContext FaceCropExtractionResult.Failed("Source image is invalid for face detection.")
-        }
 
         val cropRect = runCatching {
-            detectPrimaryFaceRect(detectionBitmap)
+            detectPrimaryFaceRect(sourceBitmap)
         }.getOrNull()
         if (cropRect == null) {
             sourceBitmap.recycle()
-            detectionBitmap.recycle()
             return@withContext FaceCropExtractionResult.NoFaceDetected
         }
 
         val croppedBitmap = runCatching {
             Bitmap.createBitmap(
-                detectionBitmap,
+                sourceBitmap,
                 cropRect.left,
                 cropRect.top,
-                cropRect.width,
-                cropRect.height
+                cropRect.width(),
+                cropRect.height()
             )
         }.getOrNull()
         if (croppedBitmap == null) {
             sourceBitmap.recycle()
-            detectionBitmap.recycle()
             return@withContext FaceCropExtractionResult.Failed("Unable to create face crop bitmap.")
         }
 
@@ -63,7 +62,6 @@ internal class TeachSampleFaceCropExtractor(
         }.getOrNull()
         if (faceCropUri == null) {
             sourceBitmap.recycle()
-            detectionBitmap.recycle()
             croppedBitmap.recycle()
             return@withContext FaceCropExtractionResult.Failed("Unable to create face crop URI.")
         }
@@ -75,7 +73,6 @@ internal class TeachSampleFaceCropExtractor(
         }.getOrDefault(false)
 
         sourceBitmap.recycle()
-        detectionBitmap.recycle()
         croppedBitmap.recycle()
 
         if (!saved) {
@@ -96,71 +93,48 @@ internal class TeachSampleFaceCropExtractor(
         }.getOrNull()
     }
 
-    private fun Bitmap.toDetectionBitmap(): Bitmap? {
-        if (width < 2 || height < 2) {
-            return null
-        }
-        val evenWidth = if (width % 2 == 0) width else width - 1
-        if (evenWidth < 2) {
-            return null
-        }
-        val baseBitmap = if (evenWidth == width) {
-            this
-        } else {
-            Bitmap.createBitmap(this, 0, 0, evenWidth, height)
-        }
-        return runCatching {
-            baseBitmap.copy(Bitmap.Config.RGB_565, true)
-        }.getOrNull().also {
-            if (baseBitmap !== this) {
-                baseBitmap.recycle()
-            }
-        }
-    }
+    private suspend fun detectPrimaryFaceRect(bitmap: Bitmap): Rect? {
+        val options = FaceDetectorOptions.Builder()
+            .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
+            .setLandmarkMode(FaceDetectorOptions.LANDMARK_MODE_NONE)
+            .setClassificationMode(FaceDetectorOptions.CLASSIFICATION_MODE_NONE)
+            .build()
+        val detector = FaceDetection.getClient(options)
+        val image = InputImage.fromBitmap(bitmap, 0)
 
-    private fun detectPrimaryFaceRect(detectionBitmap: Bitmap): CropRect? {
-        val faces = arrayOfNulls<FaceDetector.Face>(1)
-        val detector = FaceDetector(
-            detectionBitmap.width,
-            detectionBitmap.height,
-            faces.size
-        )
-        val faceCount = detector.findFaces(detectionBitmap, faces)
-        if (faceCount <= 0) {
-            return null
+        return suspendCancellableCoroutine { continuation ->
+            detector.process(image)
+                .addOnSuccessListener { faces ->
+                    if (faces.isEmpty()) {
+                        continuation.resume(null)
+                        return@addOnSuccessListener
+                    }
+                    val primary = faces.maxByOrNull { face ->
+                        face.boundingBox.width() * face.boundingBox.height()
+                    }
+                    if (primary == null) {
+                        continuation.resume(null)
+                        return@addOnSuccessListener
+                    }
+                    val box = primary.boundingBox
+                    val padding = (box.width() * 0.2f).toInt()
+                    val left = (box.left - padding).coerceAtLeast(0)
+                    val top = (box.top - padding).coerceAtLeast(0)
+                    val right = (box.right + padding).coerceAtMost(bitmap.width)
+                    val bottom = (box.bottom + padding).coerceAtMost(bitmap.height)
+                    if (right <= left || bottom <= top) {
+                        continuation.resume(null)
+                    } else {
+                        continuation.resume(Rect(left, top, right, bottom))
+                    }
+                }
+                .addOnFailureListener { error ->
+                    continuation.resumeWithException(error)
+                }
+                .addOnCompleteListener {
+                    detector.close()
+                }
+            continuation.invokeOnCancellation { detector.close() }
         }
-        val primaryFace = faces.firstOrNull() ?: return null
-        val eyeDistance = primaryFace.eyesDistance()
-        if (eyeDistance <= 0f) {
-            return null
-        }
-
-        val midpoint = PointF()
-        primaryFace.getMidPoint(midpoint)
-        if (midpoint.x.isNaN() || midpoint.y.isNaN()) {
-            return null
-        }
-
-        val left = (midpoint.x - eyeDistance * 1.8f).toInt()
-            .coerceIn(0, detectionBitmap.width - 1)
-        val top = (midpoint.y - eyeDistance * 2.0f).toInt()
-            .coerceIn(0, detectionBitmap.height - 1)
-        val right = (midpoint.x + eyeDistance * 1.8f).toInt()
-            .coerceIn(left + 1, detectionBitmap.width)
-        val bottom = (midpoint.y + eyeDistance * 2.4f).toInt()
-            .coerceIn(top + 1, detectionBitmap.height)
-        val width = right - left
-        val height = bottom - top
-        if (width <= 1 || height <= 1) {
-            return null
-        }
-        return CropRect(left = left, top = top, width = width, height = height)
     }
 }
-
-private data class CropRect(
-    val left: Int,
-    val top: Int,
-    val width: Int,
-    val height: Int
-)

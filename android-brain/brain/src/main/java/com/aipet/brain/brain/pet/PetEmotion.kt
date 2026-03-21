@@ -7,5 +7,6 @@ enum class PetEmotion {
     SLEEPY,
     SAD,
     EXCITED,
-    HUNGRY
+    HUNGRY,
+    THINKING
 }

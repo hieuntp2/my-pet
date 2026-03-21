@@ -161,6 +161,7 @@ class PetAnimationInputMapper(
             PetEmotion.SAD -> PetAnimationEmotion.SAD
             PetEmotion.EXCITED -> PetAnimationEmotion.EXCITED
             PetEmotion.HUNGRY -> PetAnimationEmotion.HUNGRY
+            PetEmotion.THINKING -> PetAnimationEmotion.CALM
         }
     }
 

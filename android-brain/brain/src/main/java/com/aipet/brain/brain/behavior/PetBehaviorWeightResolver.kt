@@ -174,6 +174,7 @@ open class PetBehaviorWeightResolver {
                         updated = updated.withAdjustment("trait.social_bias", -centeredTraitBias(traits.social, 0.10f))
                     }
                     PetEmotion.HUNGRY -> Unit
+                    PetEmotion.THINKING -> Unit
                 }
             }
             if (context.conditions.contains(PetCondition.PLAYFUL) && candidate.behavior == PetEmotion.EXCITED) {

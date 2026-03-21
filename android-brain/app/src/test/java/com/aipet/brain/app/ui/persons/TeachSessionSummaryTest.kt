@@ -27,7 +27,7 @@ class TeachSessionSummaryTest {
         assertEquals(0, summary.warningSampleCount)
         assertEquals(0, summary.totalWarningCount)
         assertFalse(summary.canSave)
-        assertEquals("Capture at least one sample before saving.", summary.blockedReason)
+        assertEquals("Capture at least 3 samples before saving.", summary.blockedReason)
         assertNull(summary.preferredSampleId)
         assertFalse(summary.hasWarnings)
     }
@@ -53,7 +53,15 @@ class TeachSessionSummaryTest {
             qualityStatus = SampleQualityStatus.UNASSESSED,
             qualityFlags = emptySet()
         )
-        val capturedSamples = listOf(failingSample, passingSample)
+        val anotherFailingSample = createSample(
+            observationId = "observation-failing-2",
+            observedAtMs = 20_003L,
+            source = "CAMERA",
+            faceCropUri = null,
+            qualityStatus = SampleQualityStatus.UNASSESSED,
+            qualityFlags = emptySet()
+        )
+        val capturedSamples = listOf(failingSample, anotherFailingSample, passingSample)
         val gateResult = evaluateTeachQualityGate(capturedSamples = capturedSamples)
         val selection = selectBestSamples(capturedSamples = capturedSamples)
 
@@ -63,13 +71,13 @@ class TeachSessionSummaryTest {
             bestSampleSelection = selection
         )
 
-        assertEquals(2, summary.totalSampleCount)
+        assertEquals(3, summary.totalSampleCount)
         assertEquals(1, summary.qualifiedSampleCount)
         assertEquals(1, summary.requiredQualifiedSampleCount)
         assertTrue(summary.canSave)
         assertNull(summary.blockedReason)
-        assertEquals(1, summary.warningSampleCount)
-        assertEquals(failingSample.softWarnings.size, summary.totalWarningCount)
+        assertEquals(2, summary.warningSampleCount)
+        assertEquals(failingSample.softWarnings.size + anotherFailingSample.softWarnings.size, summary.totalWarningCount)
         assertTrue(summary.hasWarnings)
         assertEquals("observation-passing", summary.preferredSampleId)
     }
@@ -84,7 +92,23 @@ class TeachSessionSummaryTest {
             qualityStatus = SampleQualityStatus.UNASSESSED,
             qualityFlags = emptySet()
         )
-        val capturedSamples = listOf(lowOnlySample)
+        val lowOnlySample2 = createSample(
+            observationId = "observation-low-2",
+            observedAtMs = 21_002L,
+            source = "CAMERA",
+            faceCropUri = null,
+            qualityStatus = SampleQualityStatus.UNASSESSED,
+            qualityFlags = emptySet()
+        )
+        val lowOnlySample3 = createSample(
+            observationId = "observation-low-3",
+            observedAtMs = 21_003L,
+            source = "CAMERA",
+            faceCropUri = null,
+            qualityStatus = SampleQualityStatus.UNASSESSED,
+            qualityFlags = emptySet()
+        )
+        val capturedSamples = listOf(lowOnlySample, lowOnlySample2, lowOnlySample3)
         val gateResult = evaluateTeachQualityGate(capturedSamples = capturedSamples)
         val selection = selectBestSamples(capturedSamples = capturedSamples)
 
@@ -120,7 +144,15 @@ class TeachSessionSummaryTest {
             qualityStatus = SampleQualityStatus.UNASSESSED,
             qualityFlags = emptySet()
         )
-        val capturedSamples = listOf(sampleOlder, sampleNewer)
+        val sampleOlder2 = createSample(
+            observationId = "observation-older",
+            observedAtMs = 22_000L,
+            source = "CAMERA",
+            faceCropUri = "content://sample/older-crop.jpg",
+            qualityStatus = SampleQualityStatus.UNASSESSED,
+            qualityFlags = emptySet()
+        )
+        val capturedSamples = listOf(sampleOlder2, sampleOlder, sampleNewer)
         val gateResult = evaluateTeachQualityGate(capturedSamples = capturedSamples)
         val selection = selectBestSamples(capturedSamples = capturedSamples)
 

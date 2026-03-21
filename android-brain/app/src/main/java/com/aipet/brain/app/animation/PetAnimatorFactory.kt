@@ -8,16 +8,18 @@ fun interface PetAnimatorFactory {
 
 enum class PetAnimationRuntimeMode {
     FAKE,
-    RIVE_PLACEHOLDER
+    RIVE_PLACEHOLDER,
+    PIXEL
 }
 
 class DefaultPetAnimatorFactory(
-    private val runtimeMode: PetAnimationRuntimeMode = PetAnimationRuntimeMode.FAKE
+    private val runtimeMode: PetAnimationRuntimeMode = PetAnimationRuntimeMode.PIXEL
 ) : PetAnimatorFactory {
     override fun create(scope: CoroutineScope): PetAnimator {
         return when (runtimeMode) {
             PetAnimationRuntimeMode.FAKE -> FakePetAnimator(scope = scope)
             PetAnimationRuntimeMode.RIVE_PLACEHOLDER -> RivePetAnimator(scope = scope)
+            PetAnimationRuntimeMode.PIXEL -> PixelPetAnimator(scope = scope)
         }
     }
 }
