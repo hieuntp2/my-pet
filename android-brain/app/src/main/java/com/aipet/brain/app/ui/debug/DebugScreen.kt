@@ -64,6 +64,8 @@ fun DebugScreen(
     onNavigateToWorkingMemoryDebug: () -> Unit,
     onNavigateToCamera: () -> Unit,
     onNavigateToAudioDebug: () -> Unit,
+    showAvatarDebugAction: Boolean,
+    onNavigateToAvatarDebug: () -> Unit,
     onForceSleep: () -> Unit,
     onForceWake: () -> Unit,
     onEmitAudioResponseRequestFromStimulus: () -> Unit,
@@ -330,6 +332,12 @@ fun DebugScreen(
             label = "Open Audio Debug",
             onClick = onNavigateToAudioDebug
         )
+        if (showAvatarDebugAction) {
+            DebugActionButton(
+                label = "Open Avatar Debug",
+                onClick = onNavigateToAvatarDebug
+            )
+        }
         DebugActionButton(
             label = "Open Settings",
             onClick = onNavigateToSettings

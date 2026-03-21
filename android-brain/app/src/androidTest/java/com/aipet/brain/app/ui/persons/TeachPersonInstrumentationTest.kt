@@ -1,6 +1,7 @@
 package com.aipet.brain.app.ui.persons
 
 import android.content.Context
+import android.graphics.Bitmap
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertTextContains
@@ -28,7 +29,10 @@ import com.aipet.brain.memory.persons.RoomPersonStore
 import com.aipet.brain.memory.teachsessioncompletion.RoomTeachSessionCompletionStore
 import com.aipet.brain.memory.teachsessioncompletion.TeachSessionCompletionStore
 import com.aipet.brain.memory.teachsamples.RoomTeachSampleStore
+import com.aipet.brain.memory.profiles.FaceProfileStore
+import com.aipet.brain.memory.profiles.RoomFaceProfileStore
 import com.aipet.brain.memory.teachsamples.TeachSampleStore
+import com.aipet.brain.perception.vision.face.embedding.FaceEmbeddingEngine
 import java.util.UUID
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -56,6 +60,14 @@ class TeachPersonInstrumentationTest {
     private lateinit var teachSampleStore: TeachSampleStore
     private lateinit var teachSessionCompletionStore: TeachSessionCompletionStore
     private lateinit var teachSampleImageStorage: TeachSampleImageStorage
+    private lateinit var faceProfileStore: FaceProfileStore
+    private lateinit var teachPersonSaveController: TeachPersonSaveController
+    private val fakeEmbeddingEngine: FaceEmbeddingEngine = object : FaceEmbeddingEngine {
+        override val embeddingDimension: Int = 128
+        override fun generateEmbedding(faceBitmap: Bitmap): Result<FloatArray> =
+            Result.success(FloatArray(128))
+        override fun close() {}
+    }
 
     @Before
     fun setUp() {
@@ -94,6 +106,18 @@ class TeachPersonInstrumentationTest {
         eventBus = InMemoryEventBus(persistEvent = { event ->
             eventStore.save(event)
         })
+        faceProfileStore = RoomFaceProfileStore(
+            faceProfileDao = database.faceProfileDao(),
+            personStore = personStore
+        )
+        teachPersonSaveController = TeachPersonSaveController(
+            database = database,
+            contentResolver = appContext.contentResolver,
+            personStore = personStore,
+            faceProfileStore = faceProfileStore,
+            faceEmbeddingEngine = fakeEmbeddingEngine,
+            eventBus = eventBus
+        )
         observationRecorder = ObservationRecorder(eventBus)
         personSeenEventPublisher = PersonSeenEventPublisher(eventBus)
     }
@@ -116,6 +140,7 @@ class TeachPersonInstrumentationTest {
                 teachSampleStore = teachSampleStore,
                 teachSampleImageStorage = teachSampleImageStorage,
                 personStore = personStore,
+                teachPersonSaveController = teachPersonSaveController,
                 onCaptureSample = { note, imageUri ->
                     runCatching {
                         val observation = observationRecorder.recordPersonLikeObservation(
@@ -179,7 +204,8 @@ class TeachPersonInstrumentationTest {
                 onNavigateBack = {},
                 onNavigateToTeachPerson = {},
                 onNavigateToCreatePerson = {},
-                onNavigateToEditPerson = {}
+                onNavigateToEditPerson = {},
+                onNavigateToPersonDetail = {}
             )
         }
 
@@ -201,6 +227,7 @@ class TeachPersonInstrumentationTest {
                 teachSampleStore = teachSampleStore,
                 teachSampleImageStorage = teachSampleImageStorage,
                 personStore = personStore,
+                teachPersonSaveController = teachPersonSaveController,
                 onCaptureSample = { _, _ ->
                     Result.failure(IllegalStateException("not used"))
                 },
@@ -251,7 +278,8 @@ class TeachPersonInstrumentationTest {
                 onNavigateBack = {},
                 onNavigateToTeachPerson = {},
                 onNavigateToCreatePerson = {},
-                onNavigateToEditPerson = {}
+                onNavigateToEditPerson = {},
+                onNavigateToPersonDetail = {}
             )
         }
 
@@ -395,6 +423,7 @@ class TeachPersonInstrumentationTest {
                 teachSampleStore = teachSampleStore,
                 teachSampleImageStorage = teachSampleImageStorage,
                 personStore = personStore,
+                teachPersonSaveController = teachPersonSaveController,
                 onCaptureSample = { note, imageUri ->
                     runCatching {
                         val observation = observationRecorder.recordPersonLikeObservation(

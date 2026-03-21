@@ -11,8 +11,8 @@
             "matchCommandLine": true
         },
         "Test-Path": true,
-        "git stash": true,
-        ".vscode/settings.json": true,
-        ".\\gradlew": true
+        ".\\gradlew": true,
+        "ForEach-Object": true,
+        "Get-Command": true
     }
 }
