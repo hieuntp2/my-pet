@@ -613,6 +613,19 @@ fun PetBrainApp() {
             cooldownHint = "Repeated taps and care actions pause briefly so each reaction stays readable."
         )
     }
+    val homePixelPetAvatarSignal = remember(
+        currentPetEmotion,
+        currentPetConditions,
+        brainStateSnapshot.currentState,
+        latestAudioStimulus
+    ) {
+        com.aipet.brain.app.ui.home.HomePixelPetAvatarSignal(
+            petEmotion = currentPetEmotion,
+            conditions = currentPetConditions,
+            brainState = brainStateSnapshot.currentState,
+            latestAudioStimulus = latestAudioStimulus
+        )
+    }
 
     LaunchedEffect(
         petStateRepository,
@@ -1103,7 +1116,7 @@ fun PetBrainApp() {
                 AppScreen.Home -> HomeScreen(
                     homeUiModel = homeUiModel,
                     homeInteractionUiState = homeInteractionUiState,
-                    petAnimationState = petAnimationState,
+                    avatarSignal = homePixelPetAvatarSignal,
                     appOpenGreeting = appOpenGreeting,
                     onPetTap = {
                         coroutineScope.launch {
