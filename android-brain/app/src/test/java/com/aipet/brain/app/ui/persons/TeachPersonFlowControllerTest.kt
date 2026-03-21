@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -290,7 +291,7 @@ class TeachPersonFlowControllerTest {
         )
 
         assertEquals(
-            TeachPersonSaveResult.ValidationError("Capture at least 3 samples before saving."),
+            TeachPersonSaveResult.ValidationError("Capture at least 1 sample before saving."),
             result
         )
         assertTrue(fakePersonStore.listAll().isEmpty())
@@ -365,7 +366,7 @@ class TeachPersonFlowControllerTest {
     }
 
     @Test
-    fun saveTaughtPerson_withLowQualityOnlySamples_failsHardQualityGateEvenWhenMinimumCountSatisfied() = runTest {
+    fun saveTaughtPerson_withLowQualityOnlySamples_succeedsWithRelaxedQualityGate() = runTest {
         val fakeStore = TeachFakePersonStore()
         val controller = TeachPersonFlowController(
             personFlowController = PersonFlowController(
@@ -442,12 +443,10 @@ class TeachPersonFlowControllerTest {
             capturedSamples = listOf(sampleWithWarning, sampleWithWarning2, sampleWithWarning3)
         )
 
-        assertEquals(
-            TeachPersonSaveResult.ValidationError(
-                "Capture at least one sample with a face crop and MEDIUM/HIGH quality level before saving."
-            ),
-            result
-        )
+        // Low quality samples (no face crop) now pass the relaxed quality gate since they have a
+        // valid imageUri. The gate allows saving so the person is saved successfully.
+        assertEquals(TeachPersonSaveResult.Success("person-soft-warning"), result)
+        assertNotNull(fakeStore.getById("person-soft-warning"))
     }
 
     @Test
@@ -519,7 +518,7 @@ class TeachPersonFlowControllerTest {
 
         assertFalse(gateResult.canSaveTeachPerson)
         assertEquals(TeachQualityGateFailureReason.MINIMUM_SAMPLE_COUNT_NOT_MET, gateResult.failures.first().reason)
-        assertEquals("Capture at least 3 samples before saving.", gateResult.saveBlockedReason)
+        assertEquals("Capture at least 1 sample before saving.", gateResult.saveBlockedReason)
         assertTrue(gateResult.failingSampleObservationIds.isEmpty())
     }
 
@@ -576,16 +575,9 @@ class TeachPersonFlowControllerTest {
             capturedSamples = listOf(failingA, failingB, failingC)
         )
 
-        assertFalse(gateResult.canSaveTeachPerson)
-        assertEquals(
-            TeachQualityGateFailureReason.MINIMUM_QUALIFIED_SAMPLE_COUNT_NOT_MET,
-            gateResult.failures.first().reason
-        )
-        assertEquals(
-            "Capture at least one sample with a face crop and MEDIUM/HIGH quality level before saving.",
-            gateResult.saveBlockedReason
-        )
-        assertEquals(listOf("observation-a", "observation-b", "observation-c"), gateResult.failingSampleObservationIds)
+        // All samples have non-blank imageUris so they now satisfy the relaxed quality gate.
+        assertTrue(gateResult.canSaveTeachPerson)
+        assertTrue(gateResult.failingSampleObservationIds.isEmpty())
     }
 
     @Test
@@ -833,14 +825,15 @@ class TeachPersonFlowControllerTest {
             completionConfirmedAtMs = cleanupSuccess.updatedCompletionConfirmedAtMs
         )
 
-        assertFalse(gateResult.canSaveTeachPerson)
+        // sample-weak has imageUri → qualifies under relaxed gate (imageUri.isNotBlank())
+        assertTrue(gateResult.canSaveTeachPerson)
         assertEquals("observation-weak", bestSampleSelection.bestSampleId)
-        assertFalse(sessionSummary.canSave)
+        assertTrue(sessionSummary.canSave)
         assertFalse(pruningSuggestions.pruningCandidateIds.contains("observation-weak"))
-        assertFalse(completionState.isReadyToComplete)
+        assertTrue(completionState.isReadyToComplete)
         assertFalse(completionState.isCompleted)
         assertEquals(
-            TeachSessionCompletionStatus.BLOCKED,
+            TeachSessionCompletionStatus.READY_TO_COMPLETE,
             completionState.status
         )
     }
@@ -905,11 +898,8 @@ class TeachPersonFlowControllerTest {
         val gateResult = evaluateTeachQualityGate(capturedSamples = allLowSamples)
 
         assertEquals("observation-low-only", selection.bestSampleId)
-        assertFalse(gateResult.canSaveTeachPerson)
-        assertEquals(
-            TeachQualityGateFailureReason.MINIMUM_QUALIFIED_SAMPLE_COUNT_NOT_MET,
-            gateResult.failures.first().reason
-        )
+        // All samples have a non-blank imageUri so the relaxed gate now allows saving.
+        assertTrue(gateResult.canSaveTeachPerson)
     }
 }
 

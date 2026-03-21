@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -291,95 +292,7 @@ internal fun TeachPersonScreen(
         val pruningSuggestions = uiState.pruningSuggestions
         val completionState = uiState.completionState
 
-        Text(
-            text = when (completionState.status) {
-                TeachSessionCompletionStatus.BLOCKED -> "Completion: BLOCKED"
-                TeachSessionCompletionStatus.READY_TO_COMPLETE -> "Completion: READY"
-                TeachSessionCompletionStatus.COMPLETED -> "Completion: CONFIRMED"
-            },
-            modifier = Modifier
-                .padding(bottom = 8.dp)
-                .testTag(PersonsTestTags.TEACH_PERSON_COMPLETION_STATUS_TEXT)
-        )
-        if (!completionState.isCompleted) {
-            Text(
-                text = "Completion readiness: ${
-                    if (completionState.isReadyToComplete) {
-                        "READY"
-                    } else {
-                        "BLOCKED"
-                    }
-                }",
-                modifier = Modifier.padding(bottom = 8.dp)
-            )
-        }
-        if (!completionState.isCompleted && completionState.completionBlockedReason != null) {
-            Text(
-                text = "Completion blocked reason: ${completionState.completionBlockedReason}",
-                modifier = Modifier
-                    .padding(bottom = 8.dp)
-                    .testTag(PersonsTestTags.TEACH_PERSON_COMPLETION_BLOCKED_REASON_TEXT)
-            )
-        }
-        if (completionState.isCompleted && completionState.completedAtMs != null) {
-            Text(
-                text = "Completion confirmed at: ${
-                    formatter.format(Instant.ofEpochMilli(completionState.completedAtMs))
-                }",
-                modifier = Modifier
-                    .padding(bottom = 8.dp)
-                    .testTag(PersonsTestTags.TEACH_PERSON_COMPLETION_CONFIRMED_AT_TEXT)
-            )
-        }
-        Button(
-            onClick = {
-                coroutineScope.launch {
-                    val confirmationResult = teachFlowController.confirmTeachSessionCompletion(
-                        capturedSamples = uiState.capturedSamples,
-                        completionConfirmedAtMs = uiState.completionConfirmedAtMs
-                    )
-                    when (confirmationResult) {
-                        is TeachSessionCompletionConfirmationResult.Confirmed -> {
-                            val completedAtMs = confirmationResult.completionState.completedAtMs
-                            val persisted = if (completedAtMs != null && onTeachSessionCompletionConfirmed != null) {
-                                onTeachSessionCompletionConfirmed.invoke(completedAtMs)
-                            } else {
-                                true
-                            }
-                            if (persisted) {
-                                uiState = uiState.copy(
-                                    completionConfirmedAtMs = completedAtMs,
-                                    message = "Teach session confirmation recorded."
-                                )
-                            } else {
-                                uiState = uiState.copy(
-                                    message = "Unable to persist teach session confirmation."
-                                )
-                            }
-                        }
-                        is TeachSessionCompletionConfirmationResult.Blocked -> {
-                            uiState = uiState.copy(
-                                message = confirmationResult.completionState.completionBlockedReason
-                                    ?: "Teach session is not ready to complete."
-                            )
-                        }
-                        is TeachSessionCompletionConfirmationResult.AlreadyCompleted -> {
-                            uiState = uiState.copy(message = "Teach session is already confirmed.")
-                        }
-                    }
-                }
-            },
-            enabled = !uiState.isCapturing &&
-                !uiState.isSaving &&
-                completionState.isReadyToComplete &&
-                !completionState.isCompleted,
-            modifier = Modifier
-                .padding(bottom = 12.dp)
-                .testTag(PersonsTestTags.TEACH_PERSON_CONFIRM_COMPLETION_BUTTON)
-        ) {
-            Text(text = if (completionState.isCompleted) "Session Confirmed" else "Confirm Session Completion")
-        }
-
+        // ---- PRIMARY ACTION ----
         Button(
             onClick = {
                 if (uiState.isSaving) {
@@ -387,7 +300,7 @@ internal fun TeachPersonScreen(
                 }
                 if (!minimumSamplesReady) {
                     uiState = uiState.copy(
-                        message = "Capture at least ${TeachPersonSaveController.MINIMUM_REQUIRED_SAMPLES} samples before saving."
+                        message = "Capture at least ${TeachPersonSaveController.MINIMUM_REQUIRED_SAMPLES} sample before saving."
                     )
                     return@Button
                 }
@@ -398,11 +311,22 @@ internal fun TeachPersonScreen(
                     )
                     return@Button
                 }
-                uiState = uiState.copy(
-                    isSaving = true,
-                    message = null
-                )
+                uiState = uiState.copy(isSaving = true, message = null)
                 coroutineScope.launch {
+                    // Auto-confirm session so user does not need to press a separate button first.
+                    if (completionState.isReadyToComplete && !completionState.isCompleted) {
+                        val confirmResult = teachFlowController.confirmTeachSessionCompletion(
+                            capturedSamples = uiState.capturedSamples,
+                            completionConfirmedAtMs = uiState.completionConfirmedAtMs
+                        )
+                        if (confirmResult is TeachSessionCompletionConfirmationResult.Confirmed) {
+                            val completedAtMs = confirmResult.completionState.completedAtMs
+                            if (completedAtMs != null) {
+                                onTeachSessionCompletionConfirmed?.invoke(completedAtMs)
+                                uiState = uiState.copy(completionConfirmedAtMs = completedAtMs)
+                            }
+                        }
+                    }
                     val saveResult = runCatching {
                         teachPersonSaveController.saveTaughtPerson(
                             displayName = uiState.displayName,
@@ -429,53 +353,14 @@ internal fun TeachPersonScreen(
             },
             enabled = !uiState.isCapturing && !uiState.isSaving && minimumSamplesReady && qualityGateResult.canSaveTeachPerson,
             modifier = Modifier
-                .padding(bottom = 12.dp)
+                .fillMaxWidth()
+                .padding(bottom = 8.dp)
                 .testTag(PersonsTestTags.TEACH_PERSON_SAVE_BUTTON)
         ) {
-            Text(text = if (uiState.isSaving) "Saving..." else "Save Taught Person")
+            Text(text = if (uiState.isSaving) "Saving..." else "Save Person")
         }
 
-        Text(
-            text = if (!minimumSamplesReady) {
-                "Save gate: BLOCKED - Capture at least ${TeachPersonSaveController.MINIMUM_REQUIRED_SAMPLES} samples before saving."
-            } else if (qualityGateResult.canSaveTeachPerson) {
-                "Save gate: PASS (${qualityGateResult.qualifiedSampleCount}/${qualityGateResult.requiredQualifiedSampleCount} qualified sample(s))."
-            } else {
-                "Save gate: BLOCKED - ${qualityGateResult.saveBlockedReason ?: "Quality gate conditions not met."}"
-            },
-            modifier = Modifier
-                .padding(bottom = 8.dp)
-                .testTag(PersonsTestTags.TEACH_PERSON_SAVE_GATE_STATUS_TEXT)
-        )
-        if (minimumSamplesReady && !qualityGateResult.canSaveTeachPerson && qualityGateResult.failingSampleObservationIds.isNotEmpty()) {
-            Text(
-                text = "Gate failing sample observation IDs: ${qualityGateResult.failingSampleObservationIds.joinToString()}",
-                modifier = Modifier
-                    .padding(bottom = 12.dp)
-                    .testTag(PersonsTestTags.TEACH_PERSON_SAVE_GATE_FAILURE_SAMPLES_TEXT)
-            )
-        }
-        if (bestSampleSelection.hasPreferredSample) {
-            Text(
-                text = "Preferred sample observation ID: ${bestSampleSelection.bestSampleId}",
-                modifier = Modifier
-                    .padding(bottom = 8.dp)
-                    .testTag(PersonsTestTags.TEACH_PERSON_BEST_SAMPLE_TEXT)
-            )
-        }
-        Text(
-            text = "Session summary: total=${sessionSummary.totalSampleCount}, qualified=${sessionSummary.qualifiedSampleCount}/${sessionSummary.requiredQualifiedSampleCount}, saveReady=${if (sessionSummary.canSave) "YES" else "NO"}, warningSamples=${sessionSummary.warningSampleCount}, totalWarnings=${sessionSummary.totalWarningCount}, preferred=${sessionSummary.preferredSampleId ?: "-"}, blockedReason=${sessionSummary.blockedReason ?: "-"}",
-            modifier = Modifier
-                .padding(bottom = 12.dp)
-                .testTag(PersonsTestTags.TEACH_PERSON_SESSION_SUMMARY_TEXT)
-        )
-        Text(
-            text = "Pruning suggestions: keep=${pruningSuggestions.keepSampleCount}, recapture=${pruningSuggestions.recaptureSuggestedIds.size}, remove=${pruningSuggestions.removeSuggestedIds.size}, candidates=${if (pruningSuggestions.hasPruningCandidates) pruningSuggestions.pruningCandidateIds.joinToString() else "-"}",
-            modifier = Modifier
-                .padding(bottom = 12.dp)
-                .testTag(PersonsTestTags.TEACH_PERSON_PRUNING_SUMMARY_TEXT)
-        )
-
+        // Error/status message always visible directly below Save.
         if (uiState.message != null) {
             Text(
                 text = uiState.message.orEmpty(),
@@ -483,6 +368,121 @@ internal fun TeachPersonScreen(
                     .padding(bottom = 12.dp)
                     .testTag(PersonsTestTags.TEACH_PERSON_MESSAGE_TEXT)
             )
+        }
+
+        // ---- Debug status lines ----
+        Text(
+            text = if (!minimumSamplesReady) {
+                "Save gate: BLOCKED — need at least ${TeachPersonSaveController.MINIMUM_REQUIRED_SAMPLES} sample."
+            } else if (qualityGateResult.canSaveTeachPerson) {
+                "Save gate: PASS (${qualityGateResult.qualifiedSampleCount}/${qualityGateResult.requiredQualifiedSampleCount} qualified)."
+            } else {
+                "Save gate: BLOCKED — ${qualityGateResult.saveBlockedReason ?: "Quality gate not met."}"
+            },
+            modifier = Modifier
+                .padding(bottom = 4.dp)
+                .testTag(PersonsTestTags.TEACH_PERSON_SAVE_GATE_STATUS_TEXT)
+        )
+        if (minimumSamplesReady && !qualityGateResult.canSaveTeachPerson && qualityGateResult.failingSampleObservationIds.isNotEmpty()) {
+            Text(
+                text = "Gate failing IDs: ${qualityGateResult.failingSampleObservationIds.joinToString()}",
+                modifier = Modifier
+                    .padding(bottom = 4.dp)
+                    .testTag(PersonsTestTags.TEACH_PERSON_SAVE_GATE_FAILURE_SAMPLES_TEXT)
+            )
+        }
+        Text(
+            text = when (completionState.status) {
+                TeachSessionCompletionStatus.BLOCKED -> "Completion: BLOCKED"
+                TeachSessionCompletionStatus.READY_TO_COMPLETE -> "Completion: READY"
+                TeachSessionCompletionStatus.COMPLETED -> "Completion: CONFIRMED"
+            },
+            modifier = Modifier
+                .padding(bottom = 4.dp)
+                .testTag(PersonsTestTags.TEACH_PERSON_COMPLETION_STATUS_TEXT)
+        )
+        if (!completionState.isCompleted && completionState.completionBlockedReason != null) {
+            Text(
+                text = completionState.completionBlockedReason!!,
+                modifier = Modifier
+                    .padding(bottom = 4.dp)
+                    .testTag(PersonsTestTags.TEACH_PERSON_COMPLETION_BLOCKED_REASON_TEXT)
+            )
+        }
+        if (completionState.isCompleted && completionState.completedAtMs != null) {
+            Text(
+                text = "Session confirmed at: ${
+                    formatter.format(Instant.ofEpochMilli(completionState.completedAtMs))
+                }",
+                modifier = Modifier
+                    .padding(bottom = 4.dp)
+                    .testTag(PersonsTestTags.TEACH_PERSON_COMPLETION_CONFIRMED_AT_TEXT)
+            )
+        }
+        if (bestSampleSelection.hasPreferredSample) {
+            Text(
+                text = "Preferred sample: ${bestSampleSelection.bestSampleId}",
+                modifier = Modifier
+                    .padding(bottom = 4.dp)
+                    .testTag(PersonsTestTags.TEACH_PERSON_BEST_SAMPLE_TEXT)
+            )
+        }
+        Text(
+            text = "Session: total=${sessionSummary.totalSampleCount}, qualified=${sessionSummary.qualifiedSampleCount}/${sessionSummary.requiredQualifiedSampleCount}, ready=${if (sessionSummary.canSave) "YES" else "NO"}",
+            modifier = Modifier
+                .padding(bottom = 4.dp)
+                .testTag(PersonsTestTags.TEACH_PERSON_SESSION_SUMMARY_TEXT)
+        )
+        Text(
+            text = "Pruning: keep=${pruningSuggestions.keepSampleCount}, candidates=${if (pruningSuggestions.hasPruningCandidates) pruningSuggestions.pruningCandidateIds.joinToString() else "-"}",
+            modifier = Modifier
+                .padding(bottom = 8.dp)
+                .testTag(PersonsTestTags.TEACH_PERSON_PRUNING_SUMMARY_TEXT)
+        )
+        // Secondary: let user manually mark the session complete without saving yet.
+        if (!completionState.isCompleted) {
+            OutlinedButton(
+                onClick = {
+                    coroutineScope.launch {
+                        val confirmationResult = teachFlowController.confirmTeachSessionCompletion(
+                            capturedSamples = uiState.capturedSamples,
+                            completionConfirmedAtMs = uiState.completionConfirmedAtMs
+                        )
+                        when (confirmationResult) {
+                            is TeachSessionCompletionConfirmationResult.Confirmed -> {
+                                val completedAtMs = confirmationResult.completionState.completedAtMs
+                                val persisted = if (completedAtMs != null && onTeachSessionCompletionConfirmed != null) {
+                                    onTeachSessionCompletionConfirmed.invoke(completedAtMs)
+                                } else {
+                                    true
+                                }
+                                uiState = uiState.copy(
+                                    completionConfirmedAtMs = completedAtMs,
+                                    message = if (persisted) "Session marked complete." else "Unable to persist session confirmation."
+                                )
+                            }
+                            is TeachSessionCompletionConfirmationResult.Blocked -> {
+                                uiState = uiState.copy(
+                                    message = confirmationResult.completionState.completionBlockedReason
+                                        ?: "Teach session is not ready to complete."
+                                )
+                            }
+                            is TeachSessionCompletionConfirmationResult.AlreadyCompleted -> {
+                                uiState = uiState.copy(message = "Teach session is already confirmed.")
+                            }
+                        }
+                    }
+                },
+                enabled = !uiState.isCapturing &&
+                    !uiState.isSaving &&
+                    completionState.isReadyToComplete &&
+                    !completionState.isCompleted,
+                modifier = Modifier
+                    .padding(bottom = 12.dp)
+                    .testTag(PersonsTestTags.TEACH_PERSON_CONFIRM_COMPLETION_BUTTON)
+            ) {
+                Text(text = "Mark Session Complete (optional)")
+            }
         }
 
         if (uiState.capturedSamples.isEmpty()) {

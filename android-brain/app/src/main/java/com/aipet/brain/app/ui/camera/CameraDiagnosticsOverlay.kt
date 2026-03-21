@@ -22,7 +22,8 @@ internal fun CameraDiagnosticsOverlay(
     faceCount: Int,
     topObjectLabel: String,
     topObjectConfidence: Float?,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    recognizedPersonLabel: String? = null,
 ) {
     val timestampFormatter = remember {
         DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault())
@@ -46,6 +47,11 @@ internal fun CameraDiagnosticsOverlay(
                 text = "Face count: $faceCount",
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.White
+            )
+            Text(
+                text = "Person: ${recognizedPersonLabel ?: "—"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (recognizedPersonLabel != null) Color(0xFF90EE90) else Color.White
             )
             Text(
                 text = "Object: $topObjectLabel",

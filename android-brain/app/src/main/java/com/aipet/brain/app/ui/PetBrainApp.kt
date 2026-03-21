@@ -195,6 +195,7 @@ fun PetBrainApp() {
     var latestOwnerSeenEvent by remember { mutableStateOf<EventEnvelope?>(null) }
     var latestOwnerGreetingEvent by remember { mutableStateOf<EventEnvelope?>(null) }
     var lastPublishedFaceCount by remember { mutableStateOf(0) }
+    var recognizedPersonLabel by remember { mutableStateOf<String?>(null) }
     var recognitionProbeSummary by remember { mutableStateOf("not_run") }
     val database = remember(appContext) {
         Room.databaseBuilder(appContext, AppDatabase::class.java, AppDatabase.DB_NAME)
@@ -837,6 +838,7 @@ fun PetBrainApp() {
     LaunchedEffect(currentScreen) {
         if (currentScreen != AppScreen.Camera) {
             lastPublishedFaceCount = 0
+            recognizedPersonLabel = null
         }
     }
 
@@ -1519,6 +1521,36 @@ fun PetBrainApp() {
                             Result.failure(error)
                         }
                     },
+                    recognizedPersonLabel = recognizedPersonLabel,
+                    onLiveFaceCropReady = { bitmap, _ ->
+                        coroutineScope.launch(Dispatchers.Default) {
+                            try {
+                                faceEmbeddingEngine.generateEmbedding(bitmap)
+                                    .onSuccess { embedding ->
+                                        val result = personRecognitionService.recognize(embedding)
+                                        recognitionDecisionEventPublisher.publish(result)
+                                        val personId = if (result.accepted) result.bestPersonId else null
+                                        val label = personId?.let { id ->
+                                            withContext(Dispatchers.IO) {
+                                                personStore.getById(id)?.displayName ?: id
+                                            }
+                                        }
+                                        withContext(Dispatchers.Main) {
+                                            recognizedPersonLabel = label
+                                        }
+                                    }
+                                    .onFailure { error ->
+                                        Log.w(
+                                            CAMERA_RECOGNITION_TAG,
+                                            "Live face embedding failed: ${error.message}",
+                                            error
+                                        )
+                                    }
+                            } finally {
+                                bitmap.recycle()
+                            }
+                        }
+                    },
                     onNavigateBack = { currentScreenName = AppScreen.Home.name }
                 )
 
@@ -1682,6 +1714,7 @@ private fun buildAudioStimulusDebugSummary(
 private const val DEBUG_AUDIO_REQUEST_CATEGORY = "ACKNOWLEDGMENT"
 private const val DEBUG_AUDIO_REQUEST_COOLDOWN_KEY = "debug_audio_stimulus_request"
 private const val DEBUG_RECOGNITION_TAG = "RecognitionProbe"
+private const val CAMERA_RECOGNITION_TAG = "LiveRecognition"
 private const val DEBUG_OBJECT_EVENT_TAG = "ObjectEventPublisher"
 private const val DEBUG_OBJECT_CREATE_TAG = "ObjectCreateDebug"
 private const val DEBUG_OBJECT_STATS_TAG = "ObjectSeenStats"

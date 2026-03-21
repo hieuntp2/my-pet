@@ -43,7 +43,7 @@ internal class TeachPersonSaveController(
         }
         if (capturedSamples.size < MINIMUM_REQUIRED_SAMPLES) {
             return TeachPersonPersistenceResult.ValidationError(
-                "Capture at least $MINIMUM_REQUIRED_SAMPLES samples before saving."
+                "Capture at least $MINIMUM_REQUIRED_SAMPLES sample before saving."
             )
         }
 
@@ -70,25 +70,35 @@ internal class TeachPersonSaveController(
                     "Failed to link profile to person."
                 }
 
+                var embeddingCount = 0
                 capturedSamples.forEach { sample ->
-                    val sourceUri = sample.faceCropUri ?: sample.imageUri
-                    val bitmap = loadBitmap(sourceUri)
-                        ?: error("Unable to load sample image: $sourceUri")
+                    // Prefer face crop for better embedding quality; fall back to full image.
+                    var bitmap = sample.faceCropUri?.let { loadBitmap(it) }
+                    if (bitmap == null) {
+                        bitmap = loadBitmap(sample.imageUri)
+                    }
+                    if (bitmap == null) {
+                        // Neither crop nor full image is accessible — skip this sample.
+                        return@forEach
+                    }
                     val embedding = faceEmbeddingEngine.generateEmbedding(bitmap).getOrElse { error ->
                         throw IllegalStateException(
                             "Embedding inference failed for sample ${sample.observationId}: ${error.message}",
                             error
                         )
                     }
-                    check(
+                    if (
                         faceProfileStore.addEmbeddingToProfile(
                             profileId = profile.profileId,
                             values = embedding.toList(),
                             metadata = "teach_session_sample=${sample.observationId}"
                         ) != null
                     ) {
-                        "Unable to persist embedding for sample ${sample.observationId}."
+                        embeddingCount++
                     }
+                }
+                check(embeddingCount > 0) {
+                    "No embeddings could be saved. Check that sample images are still accessible."
                 }
             }
 
@@ -112,16 +122,33 @@ internal class TeachPersonSaveController(
     private fun loadBitmap(imageUri: String): Bitmap? {
         val parsed = Uri.parse(imageUri)
         return runCatching {
+            // First pass: read dimensions only to calculate a safe inSampleSize.
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            contentResolver.openInputStream(parsed)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+
+            val options = BitmapFactory.Options().apply {
+                inSampleSize = if (bounds.outWidth > 0 && bounds.outHeight > 0) {
+                    calculateSampleSize(bounds.outWidth, bounds.outHeight, maxDimPx = 512)
+                } else {
+                    1
+                }
+            }
             contentResolver.openInputStream(parsed)?.use { input ->
-                BitmapFactory.decodeStream(input)
+                BitmapFactory.decodeStream(input, null, options)
             } ?: when (parsed.scheme) {
-                null, "file" -> BitmapFactory.decodeFile(parsed.path)
+                null, "file" -> BitmapFactory.decodeFile(parsed.path, options)
                 else -> null
             }
         }.getOrNull()
     }
 
+    private fun calculateSampleSize(width: Int, height: Int, maxDimPx: Int): Int {
+        var s = 1
+        while (width / s > maxDimPx || height / s > maxDimPx) s *= 2
+        return s
+    }
+
     companion object {
-        const val MINIMUM_REQUIRED_SAMPLES: Int = 3
+        const val MINIMUM_REQUIRED_SAMPLES: Int = 1
     }
 }

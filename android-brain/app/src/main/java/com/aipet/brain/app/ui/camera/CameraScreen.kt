@@ -16,6 +16,12 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
+import android.hardware.camera2.CaptureRequest
+import android.util.Range
+import android.util.Size
+import androidx.camera.camera2.interop.Camera2Interop
+import androidx.camera.core.resolutionselector.ResolutionSelector
+import androidx.camera.core.resolutionselector.ResolutionStrategy
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.layout.Box
@@ -72,7 +78,9 @@ fun CameraScreen(
     onObjectDetected: (label: String, confidence: Float, detectedAtMs: Long) -> Unit,
     onResolveKnownObjectLabel: suspend (canonicalLabel: String) -> String?,
     onRecordPersonLikeObservation: suspend (String?) -> Result<Unit>,
-    onNavigateBack: () -> Unit
+    onNavigateBack: () -> Unit,
+    onLiveFaceCropReady: ((Bitmap, Long) -> Unit)? = null,
+    recognizedPersonLabel: String? = null,
 ) {
     val context = LocalContext.current
     val appContext = remember(context) { context.applicationContext }
@@ -81,6 +89,7 @@ fun CameraScreen(
     val onFrameDiagnosticsState = rememberUpdatedState(onFrameDiagnostics)
     val onFaceDetectionResultState = rememberUpdatedState(onFaceDetectionResult)
     val onObjectDetectedState = rememberUpdatedState(onObjectDetected)
+    val onLiveFaceCropReadyState = rememberUpdatedState(onLiveFaceCropReady)
     val onResolveKnownObjectLabelState = rememberUpdatedState(onResolveKnownObjectLabel)
     var permissionState by remember(context, hasRequestedPermission) {
         mutableStateOf(resolveCameraPermissionState(context, hasRequestedPermission))
@@ -360,6 +369,9 @@ fun CameraScreen(
                         },
                         onCaptureFaceSampleActionChanged = { action ->
                             captureFaceSampleAction = action
+                        },
+                        onLiveFaceCropReady = { bitmap, ts ->
+                            onLiveFaceCropReadyState.value?.invoke(bitmap, ts)
                         }
                     )
                     FaceOverlay(
@@ -372,6 +384,7 @@ fun CameraScreen(
                         faceCount = latestFaceCount,
                         topObjectLabel = topObjectLabelState.displayLabel,
                         topObjectConfidence = topObjectLabelState.confidence,
+                        recognizedPersonLabel = recognizedPersonLabel,
                         modifier = Modifier
                             .align(Alignment.TopStart)
                             .padding(12.dp)
@@ -509,7 +522,8 @@ private fun CameraPreview(
     onFaceDetectionResult: (FaceDetectionResult) -> Unit,
     onObjectDetectionResult: (Result<ObjectDetectionResult>) -> Unit,
     onModelLoadStateChanged: (CameraPerceptionModelLoadState) -> Unit,
-    onCaptureFaceSampleActionChanged: (CaptureFaceSampleAction?) -> Unit
+    onCaptureFaceSampleActionChanged: (CaptureFaceSampleAction?) -> Unit,
+    onLiveFaceCropReady: ((Bitmap, Long) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     if (!isCameraPermissionGranted(context)) {
@@ -542,6 +556,7 @@ private fun CameraPreview(
                 onFacesDetected = { result ->
                     onFaceDetectionResultState.value(result)
                 },
+                onLiveFaceCropReady = onLiveFaceCropReady,
                 onDetectorFailure = { error ->
                     val failureMessage = buildModelLoadFailureMessage(
                         modelName = "Face detector",
@@ -667,8 +682,24 @@ private fun CameraPreview(
                     val previewUseCase = Preview.Builder().build().also { preview ->
                         preview.setSurfaceProvider(previewView.surfaceProvider)
                     }
-                    val analysisUseCase = ImageAnalysis.Builder()
+                    val analysisBuilder = ImageAnalysis.Builder()
+                        .setResolutionSelector(
+                            ResolutionSelector.Builder()
+                                .setResolutionStrategy(
+                                    ResolutionStrategy(
+                                        Size(640, 480),
+                                        ResolutionStrategy.FALLBACK_RULE_CLOSEST_HIGHER_THEN_LOWER
+                                    )
+                                )
+                                .build()
+                        )
                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                    Camera2Interop.Extender(analysisBuilder)
+                        .setCaptureRequestOption(
+                            CaptureRequest.CONTROL_AE_TARGET_FPS_RANGE,
+                            Range(10, 15)
+                        )
+                    val analysisUseCase = analysisBuilder
                         .build()
                         .also { useCase ->
                             useCase.setAnalyzer(analysisExecutor, frameAnalyzer)

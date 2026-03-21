@@ -11,31 +11,8 @@ import org.junit.Test
 class TeachSessionCompletionTest {
     @Test
     fun evaluateTeachSessionCompletionState_whenHardGateFails_isBlocked() {
-        val lowSample = createSample(
-            observationId = "observation-low",
-            observedAtMs = 40_001L,
-            source = "CAMERA",
-            faceCropUri = null,
-            qualityStatus = SampleQualityStatus.UNASSESSED,
-            qualityFlags = emptySet()
-        )
-        val lowSample2 = createSample(
-            observationId = "observation-low-2",
-            observedAtMs = 40_002L,
-            source = "CAMERA",
-            faceCropUri = null,
-            qualityStatus = SampleQualityStatus.UNASSESSED,
-            qualityFlags = emptySet()
-        )
-        val lowSample3 = createSample(
-            observationId = "observation-low-3",
-            observedAtMs = 40_003L,
-            source = "CAMERA",
-            faceCropUri = null,
-            qualityStatus = SampleQualityStatus.UNASSESSED,
-            qualityFlags = emptySet()
-        )
-        val (gateResult, sessionSummary) = buildSessionState(capturedSamples = listOf(lowSample, lowSample2, lowSample3))
+        // Gate fails when there are no samples (minimum count not met).
+        val (gateResult, sessionSummary) = buildSessionState(capturedSamples = emptyList())
 
         val completionState = evaluateTeachSessionCompletionState(
             qualityGateResult = gateResult,
@@ -47,7 +24,7 @@ class TeachSessionCompletionTest {
         assertFalse(completionState.isCompleted)
         assertEquals(TeachSessionCompletionStatus.BLOCKED, completionState.status)
         assertEquals(
-            "Capture at least one sample with a face crop and MEDIUM/HIGH quality level before saving.",
+            "Capture at least 1 sample before saving.",
             completionState.completionBlockedReason
         )
 

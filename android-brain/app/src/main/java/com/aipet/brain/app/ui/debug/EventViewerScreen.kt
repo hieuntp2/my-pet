@@ -18,6 +18,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -102,9 +104,13 @@ fun EventViewerScreen(
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        Text(text = "Event Viewer")
+        Text(
+            text = "Event Viewer",
+            style = MaterialTheme.typography.headlineSmall
+        )
         Text(
             text = "Persisted events: ${events.size}",
+            style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
         )
 
@@ -235,7 +241,7 @@ fun EventViewerScreen(
             }
         }
 
-        Button(
+        OutlinedButton(
             onClick = onNavigateBack,
             modifier = Modifier.padding(bottom = 12.dp)
         ) {
@@ -313,10 +319,27 @@ private fun EventRow(
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(12.dp)) {
-            Text(text = "Type: ${event.type}")
-            Text(text = "Time: $formattedTimestamp")
-            Text(text = "Id: ${event.eventId}")
-            Text(text = "Payload: ${event.payloadJson}")
+            Text(
+                text = event.type.name,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.primary
+            )
+            Text(
+                text = formattedTimestamp,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = event.eventId,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = event.payloadJson.take(120).let {
+                    if (event.payloadJson.length > 120) "$it…" else it
+                },
+                style = MaterialTheme.typography.bodySmall
+            )
         }
     }
 }

@@ -30,7 +30,7 @@ internal data class TeachQualityGateResult(
 
 internal fun evaluateTeachQualityGate(
     capturedSamples: List<TeachPersonCapturedSample>,
-    minimumSampleCount: Int = 3,
+    minimumSampleCount: Int = 1,
     minimumQualifiedSampleCount: Int = 1
 ): TeachQualityGateResult {
     val failures = mutableListOf<TeachQualityGateFailure>()
@@ -40,7 +40,7 @@ internal fun evaluateTeachQualityGate(
     if (capturedSamples.size < normalizedMinimumSampleCount) {
         failures += TeachQualityGateFailure(
             reason = TeachQualityGateFailureReason.MINIMUM_SAMPLE_COUNT_NOT_MET,
-            message = "Capture at least 3 samples before saving."
+            message = "Capture at least 1 sample before saving."
         )
     }
 
@@ -50,7 +50,7 @@ internal fun evaluateTeachQualityGate(
     ) {
         failures += TeachQualityGateFailure(
             reason = TeachQualityGateFailureReason.MINIMUM_QUALIFIED_SAMPLE_COUNT_NOT_MET,
-            message = "Capture at least one sample with a face crop and MEDIUM/HIGH quality level before saving."
+            message = "At least one sample must have a loadable image before saving."
         )
     }
 
@@ -80,5 +80,5 @@ internal fun evaluateTeachQualityGate(
 }
 
 internal fun TeachPersonCapturedSample.isQualifiedForHardGate(): Boolean {
-    return !faceCropUri.isNullOrBlank() && scoredQuality.level != SampleQualityLevel.LOW
+    return imageUri.isNotBlank()
 }

@@ -5,9 +5,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -107,127 +111,75 @@ fun DebugScreen(
             onNavigateDiary = onNavigateToDiary,
             onNavigateDebug = {}
         )
-        Text(text = "Debug")
+        Text(text = "Debug", style = MaterialTheme.typography.headlineSmall)
         if (!hasDebugData) {
             Text(
                 text = "No debug data available yet.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.fillMaxWidth()
             )
         }
-        Text(
-            text = "Latest event: ${latestEvent?.type ?: "None"}",
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = "Latest id: ${latestEvent?.eventId ?: "-"}",
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = "Owner detected: ${if (latestOwnerSeenEvent != null) "Yes" else "No"}",
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = "Greeting triggered: ${if (latestOwnerGreetingEvent != null) "Yes" else "No"}",
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = "Latest audio stimulus: $audioStimulusSummaryText",
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = "Audio runtime:",
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp)
-        )
-        Text(
-            text = "Energy: ${formatAudioEnergySummary(audioRuntimeDebugState)}",
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = "VAD: ${audioRuntimeDebugState.vadState?.name ?: "IDLE"}",
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = "Last sound event: ${formatLastSoundEventSummary(audioRuntimeDebugState)}",
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = "Playback: ${formatPlaybackStatusSummary(audioPlaybackDebugState)}",
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = "Last played: ${formatLastPlayedSummary(audioPlaybackDebugState)}",
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = "Last skipped: ${formatLastSkippedSummary(audioPlaybackDebugState)}",
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = "Current brain state: $currentBrainState",
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = "WorkingMemory.person: ${currentWorkingMemory.currentPersonId ?: "-"}",
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = "WorkingMemory.object: ${currentWorkingMemory.currentObjectId ?: "-"}",
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = "WorkingMemory.lastStimulus: ${currentWorkingMemory.lastStimulusTs ?: "-"}",
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = "Pet mood: ${currentPetState?.mood?.name ?: "-"}",
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = "Pet stats: energy=${currentPetState?.energy ?: "-"}, hunger=${currentPetState?.hunger ?: "-"}, sleepiness=${currentPetState?.sleepiness ?: "-"}",
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = "Pet social/bond: social=${currentPetState?.social ?: "-"}, bond=${currentPetState?.bond ?: "-"}",
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = "Pet personality: ${currentPetPersonalitySummary?.label ?: "-"}",
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = "Pet traits: ${formatPetTraitsSummary(currentPetTraits)}",
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = "Pet conditions: ${formatPetConditionsSummary(currentPetConditions)}",
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = "Behavior source: ${latestBehaviorDecisionSource ?: "-"}",
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = "Behavior selection: ${formatBehaviorSelectionSummary(latestBehaviorDecision)}",
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = "Behavior rationale: ${formatSelectedBehaviorRationale(latestBehaviorDecision)}",
-            modifier = Modifier.fillMaxWidth()
-        )
-        latestBehaviorDecision?.candidates?.forEach { candidate ->
+        DebugStatusCard(title = "Events") {
+            DebugLabelValue(label = "Latest event", value = "${latestEvent?.type ?: "None"}")
+            DebugLabelValue(label = "Event ID", value = latestEvent?.eventId ?: "—")
+            DebugLabelValue(label = "Owner detected", value = if (latestOwnerSeenEvent != null) "Yes" else "No")
+            DebugLabelValue(label = "Greeting triggered", value = if (latestOwnerGreetingEvent != null) "Yes" else "No")
+            DebugLabelValue(label = "Audio stimulus", value = audioStimulusSummaryText)
+        }
+        DebugStatusCard(title = "Audio") {
+            DebugLabelValue(label = "Energy", value = formatAudioEnergySummary(audioRuntimeDebugState))
+            DebugLabelValue(label = "VAD", value = audioRuntimeDebugState.vadState?.name ?: "IDLE")
+            DebugLabelValue(label = "Last sound", value = formatLastSoundEventSummary(audioRuntimeDebugState))
+            DebugLabelValue(label = "Playback", value = formatPlaybackStatusSummary(audioPlaybackDebugState))
+            DebugLabelValue(label = "Last played", value = formatLastPlayedSummary(audioPlaybackDebugState))
+            DebugLabelValue(label = "Last skipped", value = formatLastSkippedSummary(audioPlaybackDebugState))
+        }
+        DebugStatusCard(title = "Brain & Pet") {
+            DebugLabelValue(label = "Brain state", value = currentBrainState)
+            DebugLabelValue(label = "Mood", value = currentPetState?.mood?.name ?: "—")
+            DebugLabelValue(label = "Energy", value = currentPetState?.energy?.toString() ?: "—")
+            DebugLabelValue(label = "Hunger", value = currentPetState?.hunger?.toString() ?: "—")
+            DebugLabelValue(label = "Sleepiness", value = currentPetState?.sleepiness?.toString() ?: "—")
+            DebugLabelValue(label = "Social", value = currentPetState?.social?.toString() ?: "—")
+            DebugLabelValue(label = "Bond", value = currentPetState?.bond?.toString() ?: "—")
+            DebugLabelValue(label = "Personality", value = currentPetPersonalitySummary?.label ?: "—")
+            DebugLabelValue(label = "Traits", value = formatPetTraitsSummary(currentPetTraits))
+            DebugLabelValue(label = "Conditions", value = formatPetConditionsSummary(currentPetConditions))
+        }
+        DebugStatusCard(title = "Working Memory") {
+            DebugLabelValue(label = "Person", value = currentWorkingMemory.currentPersonId ?: "—")
+            DebugLabelValue(label = "Object", value = currentWorkingMemory.currentObjectId ?: "—")
+            DebugLabelValue(label = "Last stimulus", value = currentWorkingMemory.lastStimulusTs?.toString() ?: "—")
+        }
+        DebugStatusCard(title = "Behavior") {
+            DebugLabelValue(label = "Source", value = latestBehaviorDecisionSource ?: "—")
+            DebugLabelValue(label = "Selection", value = formatBehaviorSelectionSummary(latestBehaviorDecision))
+            DebugLabelValue(label = "Rationale", value = formatSelectedBehaviorRationale(latestBehaviorDecision))
+            latestBehaviorDecision?.candidates?.forEach { candidate ->
+                Text(
+                    text = "  • ${candidate.label}: ${formatWeight(candidate.totalWeight)} ${formatCandidateAdjustments(candidate)}",
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+        DebugStatusCard(title = "Recognition") {
             Text(
-                text = "• ${candidate.label}: ${formatWeight(candidate.totalWeight)} ${formatCandidateAdjustments(candidate)}",
+                text = recognitionProbeSummary.ifBlank { "No probe result yet." },
+                style = MaterialTheme.typography.bodySmall,
                 modifier = Modifier.fillMaxWidth()
             )
+            Button(
+                onClick = onRunRecognitionProbe,
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp)
+            ) {
+                Text(text = "Run Recognition Probe")
+            }
         }
-        Text(
-            text = "Recognition probe: $recognitionProbeSummary",
-            modifier = Modifier.fillMaxWidth()
-        )
         Text(
             text = "Manual object creation",
+            style = MaterialTheme.typography.titleMedium,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 8.dp)
@@ -275,6 +227,7 @@ fun DebugScreen(
 
         Text(
             text = "Actions",
+            style = MaterialTheme.typography.titleMedium,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 8.dp)
@@ -296,66 +249,30 @@ fun DebugScreen(
             label = "Force Wake (Debug)",
             onClick = onForceWake
         )
-        DebugActionButton(
-            label = "Run Recognition Probe",
-            onClick = onRunRecognitionProbe
-        )
 
         Text(
             text = "Tools",
+            style = MaterialTheme.typography.titleMedium,
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 8.dp)
         )
 
-        DebugActionButton(
-            label = "Open Event Viewer",
-            onClick = onNavigateToEventViewer
-        )
-        DebugActionButton(
-            label = "Open Diary",
-            onClick = onNavigateToDiary
-        )
-        DebugActionButton(
-            label = "Open Observations",
-            onClick = onNavigateToObservationViewer
-        )
-        DebugActionButton(
-            label = "Open Profile Associations",
-            onClick = onNavigateToProfileAssociations
-        )
-        DebugActionButton(
-            label = "Open Camera",
-            onClick = onNavigateToCamera
-        )
-        DebugActionButton(
-            label = "Open Audio Debug",
-            onClick = onNavigateToAudioDebug
-        )
+        DebugNavButton(label = "Event Viewer", onClick = onNavigateToEventViewer)
+        DebugNavButton(label = "Diary", onClick = onNavigateToDiary)
+        DebugNavButton(label = "Observations", onClick = onNavigateToObservationViewer)
+        DebugNavButton(label = "Profile Associations", onClick = onNavigateToProfileAssociations)
+        DebugNavButton(label = "Camera", onClick = onNavigateToCamera)
+        DebugNavButton(label = "Audio Debug", onClick = onNavigateToAudioDebug)
         if (showAvatarDebugAction) {
-            DebugActionButton(
-                label = "Open Avatar Debug",
-                onClick = onNavigateToAvatarDebug
-            )
+            DebugNavButton(label = "Avatar Debug", onClick = onNavigateToAvatarDebug)
         }
-        DebugActionButton(
-            label = "Open Settings",
-            onClick = onNavigateToSettings
-        )
-        DebugActionButton(
-            label = "Open Persons",
-            onClick = onNavigateToPersons
-        )
-        DebugActionButton(
-            label = "Open Traits",
-            onClick = onNavigateToTraits
-        )
-        DebugActionButton(
-            label = "Open Working Memory",
-            onClick = onNavigateToWorkingMemoryDebug
-        )
+        DebugNavButton(label = "Settings", onClick = onNavigateToSettings)
+        DebugNavButton(label = "Persons", onClick = onNavigateToPersons)
+        DebugNavButton(label = "Traits", onClick = onNavigateToTraits)
+        DebugNavButton(label = "Working Memory", onClick = onNavigateToWorkingMemoryDebug)
 
-        DebugActionButton(
+        DebugNavButton(
             label = "Back to Home",
             onClick = onNavigateToHome,
             modifier = Modifier.padding(top = 8.dp, bottom = 12.dp)
@@ -374,6 +291,61 @@ private fun DebugActionButton(
         modifier = modifier.fillMaxWidth()
     ) {
         Text(text = label)
+    }
+}
+
+@Composable
+private fun DebugNavButton(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Text(text = label)
+    }
+}
+
+@Composable
+private fun DebugStatusCard(
+    title: String,
+    content: @Composable () -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+            content()
+        }
+    }
+}
+
+@Composable
+private fun DebugLabelValue(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            text = "$label:",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodySmall
+        )
     }
 }
 

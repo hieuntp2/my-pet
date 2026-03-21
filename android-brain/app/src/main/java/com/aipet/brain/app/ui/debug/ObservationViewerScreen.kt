@@ -10,6 +10,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -55,9 +57,13 @@ fun ObservationViewerScreen(
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        Text(text = "Observations")
+        Text(
+            text = "Observations",
+            style = MaterialTheme.typography.headlineSmall
+        )
         Text(
             text = "Recent observations: ${observations.size}",
+            style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
         )
 
@@ -84,7 +90,7 @@ fun ObservationViewerScreen(
             Text(text = if (recording) "Recording..." else "Record Debug Observation")
         }
 
-        Button(
+        OutlinedButton(
             onClick = onNavigateBack,
             modifier = Modifier.padding(bottom = 12.dp)
         ) {
@@ -108,15 +114,31 @@ fun ObservationViewerScreen(
                 items(items = observations, key = { record -> record.observationId }) { record ->
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(12.dp)) {
-                            Text(text = "Type: ${record.observationType}")
-                            Text(text = "Source: ${record.source}")
                             Text(
-                                text = "Observed at: ${
-                                    formatter.format(Instant.ofEpochMilli(record.observedAtMs))
-                                }"
+                                text = record.observationType,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary
                             )
-                            Text(text = "Id: ${record.observationId}")
-                            Text(text = "Note: ${record.note ?: "-"}")
+                            Text(
+                                text = "Source: ${record.source}",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Text(
+                                text = formatter.format(Instant.ofEpochMilli(record.observedAtMs)),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = record.observationId,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (record.note != null) {
+                                Text(
+                                    text = record.note,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
                         }
                     }
                 }

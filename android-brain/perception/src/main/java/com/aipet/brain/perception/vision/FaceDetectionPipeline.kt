@@ -1,5 +1,6 @@
 package com.aipet.brain.perception.vision
 
+import android.graphics.Bitmap
 import android.graphics.ImageFormat
 import android.util.Log
 import androidx.camera.core.ImageProxy
@@ -15,7 +16,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class FaceDetectionPipeline(
     private val onFacesDetected: (FaceDetectionResult) -> Unit,
-    private val onDetectorFailure: ((Throwable) -> Unit)? = null
+    private val onDetectorFailure: ((Throwable) -> Unit)? = null,
+    private val onLiveFaceCropReady: ((faceCropBitmap: Bitmap, timestampMs: Long) -> Unit)? = null,
+    private val liveFaceCropIntervalMs: Long = LIVE_CROP_INTERVAL_MS,
 ) {
     private val detectorExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val faceDetector = FaceDetector(callbackExecutor = detectorExecutor)
@@ -26,6 +29,7 @@ class FaceDetectionPipeline(
     private val captureSnapshotLock = Any()
     private var lastCropVerificationTimestampMs = 0L
     private var latestCaptureSnapshot: FaceCaptureSnapshot? = null
+    private var lastLiveCropTimestampMs = 0L
 
     fun processFrame(
         frameId: Long,
@@ -90,6 +94,11 @@ class FaceDetectionPipeline(
                     frameData = frameData,
                     faces = faces
                 )
+                maybeEmitLiveFaceCrop(
+                    timestampMs = timestampMs,
+                    frameData = frameData,
+                    faces = faces
+                )
                 Log.d(
                     TAG,
                     "Face detection completed. frameId=$frameId, faceCount=${faces.size}"
@@ -145,6 +154,32 @@ class FaceDetectionPipeline(
             rotationDegrees = snapshot.rotationDegrees,
             boundingBox = targetFace.boundingBox
         )
+    }
+
+    private fun maybeEmitLiveFaceCrop(
+        timestampMs: Long,
+        frameData: MlKitFrameData,
+        faces: List<DetectedFace>
+    ) {
+        val callback = onLiveFaceCropReady ?: return
+        if (faces.isEmpty()) return
+        if (timestampMs - lastLiveCropTimestampMs < liveFaceCropIntervalMs) return
+        val primaryFace = faces.maxByOrNull { it.boundingBox.area() } ?: return
+        val cropResult = faceCropper.cropFromNv21Frame(
+            nv21Bytes = frameData.nv21Bytes,
+            frameWidth = frameData.frameWidth,
+            frameHeight = frameData.frameHeight,
+            rotationDegrees = frameData.rotationDegrees,
+            boundingBox = primaryFace.boundingBox
+        )
+        val croppedBitmap = cropResult.bitmap ?: return
+        lastLiveCropTimestampMs = timestampMs
+        runCatching {
+            callback(croppedBitmap, timestampMs)
+        }.onFailure { error ->
+            Log.w(TAG, "Live face crop callback threw an exception.", error)
+            croppedBitmap.recycle()
+        }
     }
 
     private fun publishResult(result: FaceDetectionResult) {
@@ -347,6 +382,7 @@ class FaceDetectionPipeline(
         private const val U_PLANE_INDEX = 1
         private const val V_PLANE_INDEX = 2
         private const val CROP_VERIFICATION_INTERVAL_MS = 1_000L
+        private const val LIVE_CROP_INTERVAL_MS = 2_000L
     }
 
     private data class MlKitFrameData(

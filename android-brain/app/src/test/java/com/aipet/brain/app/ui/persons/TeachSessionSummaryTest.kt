@@ -27,7 +27,7 @@ class TeachSessionSummaryTest {
         assertEquals(0, summary.warningSampleCount)
         assertEquals(0, summary.totalWarningCount)
         assertFalse(summary.canSave)
-        assertEquals("Capture at least 3 samples before saving.", summary.blockedReason)
+        assertEquals("Capture at least 1 sample before saving.", summary.blockedReason)
         assertNull(summary.preferredSampleId)
         assertFalse(summary.hasWarnings)
     }
@@ -72,7 +72,7 @@ class TeachSessionSummaryTest {
         )
 
         assertEquals(3, summary.totalSampleCount)
-        assertEquals(1, summary.qualifiedSampleCount)
+        assertEquals(3, summary.qualifiedSampleCount)
         assertEquals(1, summary.requiredQualifiedSampleCount)
         assertTrue(summary.canSave)
         assertNull(summary.blockedReason)
@@ -84,31 +84,8 @@ class TeachSessionSummaryTest {
 
     @Test
     fun deriveTeachSessionSummary_whenGateFails_exposesCurrentGateBlockedReason() {
-        val lowOnlySample = createSample(
-            observationId = "observation-low",
-            observedAtMs = 21_001L,
-            source = "CAMERA",
-            faceCropUri = null,
-            qualityStatus = SampleQualityStatus.UNASSESSED,
-            qualityFlags = emptySet()
-        )
-        val lowOnlySample2 = createSample(
-            observationId = "observation-low-2",
-            observedAtMs = 21_002L,
-            source = "CAMERA",
-            faceCropUri = null,
-            qualityStatus = SampleQualityStatus.UNASSESSED,
-            qualityFlags = emptySet()
-        )
-        val lowOnlySample3 = createSample(
-            observationId = "observation-low-3",
-            observedAtMs = 21_003L,
-            source = "CAMERA",
-            faceCropUri = null,
-            qualityStatus = SampleQualityStatus.UNASSESSED,
-            qualityFlags = emptySet()
-        )
-        val capturedSamples = listOf(lowOnlySample, lowOnlySample2, lowOnlySample3)
+        // Gate fails only when there are zero samples (minimum count not met).
+        val capturedSamples = emptyList<TeachPersonCapturedSample>()
         val gateResult = evaluateTeachQualityGate(capturedSamples = capturedSamples)
         val selection = selectBestSamples(capturedSamples = capturedSamples)
 
@@ -120,7 +97,7 @@ class TeachSessionSummaryTest {
 
         assertFalse(summary.canSave)
         assertEquals(
-            "Capture at least one sample with a face crop and MEDIUM/HIGH quality level before saving.",
+            "Capture at least 1 sample before saving.",
             summary.blockedReason
         )
         assertEquals(gateResult.saveBlockedReason, summary.blockedReason)

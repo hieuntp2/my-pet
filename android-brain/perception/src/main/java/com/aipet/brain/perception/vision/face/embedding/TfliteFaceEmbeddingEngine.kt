@@ -90,6 +90,7 @@ class TfliteFaceEmbeddingEngine(
         )
         val options = Interpreter.Options().apply {
             setNumThreads(numThreads)
+            setUseNNAPI(true)
         }
         return Interpreter(modelBuffer, options)
     }
