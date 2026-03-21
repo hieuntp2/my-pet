@@ -6,6 +6,7 @@ val cameraXVersion = property("dep.cameraX").toString()
 val dataStoreVersion = property("dep.dataStore").toString()
 val junitVersion = property("dep.junit4").toString()
 val coroutinesTestVersion = property("dep.coroutinesTest").toString()
+val mlKitFaceDetectionVersion = property("dep.mlKitFaceDetection").toString()
 val androidJunitVersion = "1.1.5"
 val espressoVersion = "3.5.1"
 
@@ -81,6 +82,8 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:$cameraXVersion")
     implementation("androidx.camera:camera-view:$cameraXVersion")
     implementation("androidx.datastore:datastore-preferences:$dataStoreVersion")
+
+    implementation("com.google.mlkit:face-detection:$mlKitFaceDetectionVersion")
 
     implementation("androidx.room:room-runtime:$roomVersion")
     implementation("androidx.room:room-ktx:$roomVersion")

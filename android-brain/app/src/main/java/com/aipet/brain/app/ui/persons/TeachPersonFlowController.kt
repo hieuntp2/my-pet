@@ -140,6 +140,15 @@ internal class TeachPersonFlowController(
         )
     }
 
+    /**
+     * @deprecated This method saves a person WITHOUT any face embeddings — samples are quality-
+     * gated but then discarded. The person will be created in the DB but will never be recognized
+     * by the face recognition pipeline.
+     *
+     * In production the UI uses [com.aipet.brain.app.persons.TeachPersonSaveController] which
+     * correctly persists embeddings alongside the person record. This method remains only because
+     * unit tests cover it directly via [TeachPersonFlowController].
+     */
     suspend fun saveTaughtPerson(
         displayName: String,
         nickname: String,

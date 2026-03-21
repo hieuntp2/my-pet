@@ -149,7 +149,15 @@ class TeachSamplePruningSuggestionTest {
             qualityStatus = SampleQualityStatus.UNASSESSED,
             qualityFlags = emptySet()
         )
-        val capturedSamples = listOf(failingSample, passingSample)
+        val anotherFailingSample = createSample(
+            observationId = "observation-failing-2",
+            observedAtMs = 33_003L,
+            source = "CAMERA",
+            faceCropUri = null,
+            qualityStatus = SampleQualityStatus.UNASSESSED,
+            qualityFlags = emptySet()
+        )
+        val capturedSamples = listOf(failingSample, anotherFailingSample, passingSample)
 
         val gateResult = evaluateTeachQualityGate(capturedSamples = capturedSamples)
         val selection = selectBestSamples(capturedSamples = capturedSamples)

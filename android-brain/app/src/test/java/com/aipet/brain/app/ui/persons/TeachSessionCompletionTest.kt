@@ -19,7 +19,23 @@ class TeachSessionCompletionTest {
             qualityStatus = SampleQualityStatus.UNASSESSED,
             qualityFlags = emptySet()
         )
-        val (gateResult, sessionSummary) = buildSessionState(capturedSamples = listOf(lowSample))
+        val lowSample2 = createSample(
+            observationId = "observation-low-2",
+            observedAtMs = 40_002L,
+            source = "CAMERA",
+            faceCropUri = null,
+            qualityStatus = SampleQualityStatus.UNASSESSED,
+            qualityFlags = emptySet()
+        )
+        val lowSample3 = createSample(
+            observationId = "observation-low-3",
+            observedAtMs = 40_003L,
+            source = "CAMERA",
+            faceCropUri = null,
+            qualityStatus = SampleQualityStatus.UNASSESSED,
+            qualityFlags = emptySet()
+        )
+        val (gateResult, sessionSummary) = buildSessionState(capturedSamples = listOf(lowSample, lowSample2, lowSample3))
 
         val completionState = evaluateTeachSessionCompletionState(
             qualityGateResult = gateResult,
@@ -54,7 +70,25 @@ class TeachSessionCompletionTest {
             qualityStatus = SampleQualityStatus.UNASSESSED,
             qualityFlags = emptySet()
         )
-        val (gateResult, sessionSummary) = buildSessionState(capturedSamples = listOf(qualifiedSample))
+        val extraSample1 = createSample(
+            observationId = "observation-extra-1",
+            observedAtMs = 41_002L,
+            source = "CAMERA",
+            faceCropUri = null,
+            qualityStatus = SampleQualityStatus.UNASSESSED,
+            qualityFlags = emptySet()
+        )
+        val extraSample2 = createSample(
+            observationId = "observation-extra-2",
+            observedAtMs = 41_003L,
+            source = "CAMERA",
+            faceCropUri = null,
+            qualityStatus = SampleQualityStatus.UNASSESSED,
+            qualityFlags = emptySet()
+        )
+        val (gateResult, sessionSummary) = buildSessionState(
+            capturedSamples = listOf(qualifiedSample, extraSample1, extraSample2)
+        )
 
         val completionState = evaluateTeachSessionCompletionState(
             qualityGateResult = gateResult,
@@ -78,7 +112,25 @@ class TeachSessionCompletionTest {
             qualityStatus = SampleQualityStatus.UNASSESSED,
             qualityFlags = emptySet()
         )
-        val (gateResult, sessionSummary) = buildSessionState(capturedSamples = listOf(qualifiedSample))
+        val extraSample1 = createSample(
+            observationId = "observation-complete-extra-1",
+            observedAtMs = 42_002L,
+            source = "CAMERA",
+            faceCropUri = null,
+            qualityStatus = SampleQualityStatus.UNASSESSED,
+            qualityFlags = emptySet()
+        )
+        val extraSample2 = createSample(
+            observationId = "observation-complete-extra-2",
+            observedAtMs = 42_003L,
+            source = "CAMERA",
+            faceCropUri = null,
+            qualityStatus = SampleQualityStatus.UNASSESSED,
+            qualityFlags = emptySet()
+        )
+        val (gateResult, sessionSummary) = buildSessionState(
+            capturedSamples = listOf(qualifiedSample, extraSample1, extraSample2)
+        )
 
         val completionResult = confirmTeachSessionCompletion(
             qualityGateResult = gateResult,
@@ -116,7 +168,15 @@ class TeachSessionCompletionTest {
             qualityStatus = SampleQualityStatus.UNASSESSED,
             qualityFlags = emptySet()
         )
-        val capturedSamples = listOf(weakSample, qualifiedSample)
+        val anotherWeakSample = createSample(
+            observationId = "observation-weak-2",
+            observedAtMs = 43_003L,
+            source = "CAMERA",
+            faceCropUri = null,
+            qualityStatus = SampleQualityStatus.UNASSESSED,
+            qualityFlags = emptySet()
+        )
+        val capturedSamples = listOf(weakSample, anotherWeakSample, qualifiedSample)
         val (gateResult, sessionSummary) = buildSessionState(capturedSamples = capturedSamples)
         val pruningSuggestions = derivePruningSuggestions(
             capturedSamples = capturedSamples,

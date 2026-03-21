@@ -270,6 +270,12 @@ private class FakePersonDao : PersonDao {
         )
         return 1
     }
+
+    override suspend fun deleteFaceProfilesByPersonId(personId: String): Int = 0
+
+    override suspend fun deleteById(personId: String): Int {
+        return if (personsById.remove(personId) != null) 1 else 0
+    }
 }
 
 private fun testPerson(

@@ -114,6 +114,19 @@ internal class PersonFlowController(
             PersonSeenRecordResult.Failure("Unable to record person seen.")
         }
     }
+
+    suspend fun deletePerson(personId: String): PersonDeleteResult {
+        val normalizedId = personId.trim()
+        if (normalizedId.isBlank()) {
+            return PersonDeleteResult.Failure("Invalid person ID.")
+        }
+        val deleted = personStore.deletePerson(normalizedId)
+        return if (deleted) {
+            PersonDeleteResult.Success(normalizedId)
+        } else {
+            PersonDeleteResult.Failure("Person not found or could not be deleted.")
+        }
+    }
 }
 
 internal data class PersonEditorInput(
@@ -140,4 +153,9 @@ internal sealed interface OwnerAssignmentResult {
 internal sealed interface PersonSeenRecordResult {
     data class Success(val updatedPerson: PersonRecord) : PersonSeenRecordResult
     data class Failure(val message: String) : PersonSeenRecordResult
+}
+
+internal sealed interface PersonDeleteResult {
+    data class Success(val personId: String) : PersonDeleteResult
+    data class Failure(val message: String) : PersonDeleteResult
 }
