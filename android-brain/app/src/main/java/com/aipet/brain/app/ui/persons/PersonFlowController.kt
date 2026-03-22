@@ -2,18 +2,49 @@ package com.aipet.brain.app.ui.persons
 
 import com.aipet.brain.app.reactions.PersonSeenEventPublisher
 import com.aipet.brain.app.reactions.PersonSeenSource
+import com.aipet.brain.brain.events.EventBus
+import com.aipet.brain.brain.events.EventEnvelope
+import com.aipet.brain.brain.events.EventType
+import com.aipet.brain.brain.events.PersonDeletedPayload
 import com.aipet.brain.memory.persons.PersonRecord
 import com.aipet.brain.memory.persons.PersonStore
+import com.aipet.brain.memory.profiles.FaceProfileStore
 import java.util.UUID
 
 internal class PersonFlowController(
     private val personStore: PersonStore,
     private val personSeenEventPublisher: PersonSeenEventPublisher? = null,
+    private val faceProfileStore: FaceProfileStore? = null,
+    private val eventBus: EventBus? = null,
     private val nowProvider: () -> Long = { System.currentTimeMillis() },
     private val idProvider: () -> String = { UUID.randomUUID().toString() }
 ) {
     suspend fun loadPersons(): List<PersonRecord> {
         return personStore.listAll()
+    }
+
+    suspend fun loadPersonCards(): List<PersonDebugCard> {
+        val persons = personStore.listAll()
+        val profileStore = faceProfileStore ?: return persons.map { person ->
+            PersonDebugCard(
+                person = person,
+                profileCount = 0,
+                embeddingCount = 0,
+                previewAvailable = false
+            )
+        }
+        return persons.map { person ->
+            val profiles = profileStore.listProfilesForPerson(person.personId)
+            val embeddingCount = profiles.sumOf { profile ->
+                profileStore.listProfileEmbeddings(profile.profileId).size
+            }
+            PersonDebugCard(
+                person = person,
+                profileCount = profiles.size,
+                embeddingCount = embeddingCount,
+                previewAvailable = false
+            )
+        }
     }
 
     suspend fun loadPerson(personId: String): PersonRecord? {
@@ -120,14 +151,54 @@ internal class PersonFlowController(
         if (normalizedId.isBlank()) {
             return PersonDeleteResult.Failure("Invalid person ID.")
         }
+        val existingPerson = personStore.getById(normalizedId)
+            ?: return PersonDeleteResult.Failure("Person not found or could not be deleted.")
+        val profileStore = faceProfileStore
+        val profileCount = if (profileStore != null) {
+            profileStore.listProfilesForPerson(normalizedId).size
+        } else {
+            0
+        }
+        val embeddingCount = if (profileStore != null) {
+            profileStore.listProfilesForPerson(normalizedId).sumOf { profile ->
+                profileStore.listProfileEmbeddings(profile.profileId).size
+            }
+        } else {
+            0
+        }
         val deleted = personStore.deletePerson(normalizedId)
         return if (deleted) {
-            PersonDeleteResult.Success(normalizedId)
+            eventBus?.publish(
+                EventEnvelope.create(
+                    type = EventType.PERSON_DELETED,
+                    timestampMs = nowProvider(),
+                    payloadJson = PersonDeletedPayload(
+                        personId = normalizedId,
+                        displayName = existingPerson.displayName,
+                        deletedAtMs = nowProvider(),
+                        profileCount = profileCount,
+                        embeddingCount = embeddingCount
+                    ).toJson()
+                )
+            )
+            PersonDeleteResult.Success(
+                personId = normalizedId,
+                deletedDisplayName = existingPerson.displayName,
+                profileCount = profileCount,
+                embeddingCount = embeddingCount
+            )
         } else {
             PersonDeleteResult.Failure("Person not found or could not be deleted.")
         }
     }
 }
+
+internal data class PersonDebugCard(
+    val person: PersonRecord,
+    val profileCount: Int,
+    val embeddingCount: Int,
+    val previewAvailable: Boolean
+)
 
 internal data class PersonEditorInput(
     val displayName: String,
@@ -156,6 +227,11 @@ internal sealed interface PersonSeenRecordResult {
 }
 
 internal sealed interface PersonDeleteResult {
-    data class Success(val personId: String) : PersonDeleteResult
+    data class Success(
+        val personId: String,
+        val deletedDisplayName: String,
+        val profileCount: Int,
+        val embeddingCount: Int
+    ) : PersonDeleteResult
     data class Failure(val message: String) : PersonDeleteResult
 }

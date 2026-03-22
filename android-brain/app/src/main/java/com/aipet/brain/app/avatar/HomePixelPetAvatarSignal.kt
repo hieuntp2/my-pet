@@ -9,5 +9,7 @@ data class HomePixelPetAvatarSignal(
     val petEmotion: PetEmotion,
     val conditions: Set<PetCondition>,
     val brainState: BrainState,
-    val latestAudioStimulus: AudioStimulus? = null
+    val latestAudioStimulus: AudioStimulus? = null,
+    val isPerceptionLooking: Boolean = false,
+    val isPerceptionAsking: Boolean = false
 )

@@ -216,6 +216,8 @@ fun PetBrainApp() {
     var recognitionProbeSummary by remember { mutableStateOf("not_run") }
     // Unknown entity dialog state
     var activeTeachTarget by remember { mutableStateOf<TeachUnknownTarget?>(null) }
+    var perceptionLookingUntilMs by remember { mutableStateOf(0L) }
+    var perceptionAskingUntilMs by remember { mutableStateOf(0L) }
     val database = remember(appContext) {
         Room.databaseBuilder(appContext, AppDatabase::class.java, AppDatabase.DB_NAME)
             .addMigrations(
@@ -671,17 +673,23 @@ fun PetBrainApp() {
             cooldownHint = "Repeated taps and care actions pause briefly so each reaction stays readable."
         )
     }
+    val isPerceptionLooking = perceptionLookingUntilMs > System.currentTimeMillis()
+    val isPerceptionAsking = perceptionAskingUntilMs > System.currentTimeMillis()
     val homePixelPetAvatarSignal = remember(
         currentPetEmotion,
         currentPetConditions,
         brainStateSnapshot.currentState,
-        latestAudioStimulus
+        latestAudioStimulus,
+        isPerceptionLooking,
+        isPerceptionAsking
     ) {
         com.aipet.brain.app.avatar.HomePixelPetAvatarSignal(
             petEmotion = currentPetEmotion,
             conditions = currentPetConditions,
             brainState = brainStateSnapshot.currentState,
-            latestAudioStimulus = latestAudioStimulus
+            latestAudioStimulus = latestAudioStimulus,
+            isPerceptionLooking = isPerceptionLooking,
+            isPerceptionAsking = isPerceptionAsking
         )
     }
     val debugPixelPetBridgeAdapter = remember { RealPixelPetBridgeStateAdapter() }
@@ -809,6 +817,8 @@ fun PetBrainApp() {
                 EventType.OWNER_SEEN_DETECTED -> latestOwnerSeenEvent = event
                 EventType.ROBOT_GREETING_OWNER_TRIGGERED -> latestOwnerGreetingEvent = event
                 EventType.CANDIDATE_PERSON_READY_FOR_TEACH -> {
+                    perceptionLookingUntilMs = maxOf(perceptionLookingUntilMs, event.timestampMs + PERCEPTION_LOOKING_HOLD_MS)
+                    perceptionAskingUntilMs = maxOf(perceptionAskingUntilMs, event.timestampMs + PERCEPTION_ASKING_HOLD_MS)
                     if (activeTeachTarget == null) {
                         val payload = CandidatePersonReadyForTeachPayload.fromJson(event.payloadJson)
                         if (payload != null) {
@@ -827,6 +837,18 @@ fun PetBrainApp() {
                             )
                         }
                     }
+                }
+                EventType.PERSON_RECOGNIZED,
+                EventType.PERSON_UNKNOWN,
+                EventType.FACE_DETECTED,
+                EventType.FACES_DETECTED,
+                EventType.OBJECT_DETECTED -> {
+                    perceptionLookingUntilMs = maxOf(perceptionLookingUntilMs, event.timestampMs + PERCEPTION_LOOKING_HOLD_MS)
+                }
+                EventType.UNKNOWN_FACE_CANDIDATE_READY_TO_ASK,
+                EventType.UNKNOWN_OBJECT_DETECTED -> {
+                    perceptionLookingUntilMs = maxOf(perceptionLookingUntilMs, event.timestampMs + PERCEPTION_LOOKING_HOLD_MS)
+                    perceptionAskingUntilMs = maxOf(perceptionAskingUntilMs, event.timestampMs + PERCEPTION_ASKING_HOLD_MS)
                 }
                 EventType.AUDIO_RESPONSE_STARTED -> {
                     val payload = com.aipet.brain.brain.events.audio.AudioResponsePayload
@@ -1541,6 +1563,14 @@ fun PetBrainApp() {
                     },
                     onFaceDetectionResult = { detectionResult ->
                         val currentFaceCount = detectionResult.faces.size
+                        if (currentFaceCount <= 0) {
+                            recognizedPersonLabel = null
+                        } else {
+                            perceptionLookingUntilMs = maxOf(
+                                perceptionLookingUntilMs,
+                                detectionResult.timestampMs + PERCEPTION_LOOKING_HOLD_MS
+                            )
+                        }
                         if (currentFaceCount == lastPublishedFaceCount) {
                             return@CameraScreen
                         }
@@ -1556,6 +1586,7 @@ fun PetBrainApp() {
                         }
                     },
                     onObjectDetected = { label, confidence, detectedAtMs ->
+                        perceptionLookingUntilMs = maxOf(perceptionLookingUntilMs, detectedAtMs + PERCEPTION_LOOKING_HOLD_MS)
                         coroutineScope.launch {
                             val seenUpdateResult = runCatching {
                                 objectRepository.recordKnownObjectSeen(
@@ -1639,6 +1670,12 @@ fun PetBrainApp() {
                         }
                     },
                     recognizedPersonLabel = recognizedPersonLabel,
+                    perceptionLoopState = when {
+                        isPerceptionAsking -> "asking"
+                        isPerceptionLooking -> "looking"
+                        else -> "idle"
+                    },
+                    avatarPerceptionState = homePixelPetDebugBridgeState.intent.name.lowercase(),
                     onLiveFaceCropReady = { rawBitmap, _, cameraRotation ->
                         // If the phone is in portrait orientation, the face crop from FaceCropper
                         // is upright but the stored embeddings were generated from landscape-oriented
@@ -1708,6 +1745,8 @@ fun PetBrainApp() {
                 AppScreen.Persons -> PersonsScreen(
                     personStore = personStore,
                     personSeenEventPublisher = personSeenEventPublisher,
+                    faceProfileStore = faceProfileStore,
+                    eventBus = eventBus,
                     onNavigateBack = { currentScreenName = AppScreen.Debug.name },
                     onNavigateToTeachPerson = {
                         currentScreenName = AppScreen.TeachPerson.name
@@ -1984,14 +2023,16 @@ private const val MAX_PET_NAME_LENGTH = 24
 
 // Auto-learning: minimum recognition score (cosine similarity) before a live frame
 // embedding is added to the person's profile automatically.
-private const val AUTO_LEARN_MIN_SCORE = 0.60f
+private const val AUTO_LEARN_MIN_SCORE = 0.82f
+private const val PERCEPTION_LOOKING_HOLD_MS = 2_500L
+private const val PERCEPTION_ASKING_HOLD_MS = 4_500L
 
 // Cap total auto-learned embeddings per-person to avoid unbounded DB growth.
 private const val AUTO_LEARN_MAX_EMBEDDINGS_PER_PERSON = 20
 
 // Score at or above this threshold (but below acceptance) is shown as a near-miss
 // in the diagnostics overlay so the threshold can be tuned visually.
-private const val RECOGNITION_NEAR_MISS_THRESHOLD = 0.40f
+private const val RECOGNITION_NEAR_MISS_THRESHOLD = 0.65f
 
 private suspend fun autoLearnEmbeddingIfNeeded(
     personId: String,

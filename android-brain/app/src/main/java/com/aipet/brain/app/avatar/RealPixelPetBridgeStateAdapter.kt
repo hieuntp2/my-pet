@@ -52,6 +52,8 @@ class RealPixelPetBridgeStateAdapter(
         val sourceSummary = buildList {
             if (hasAudioAttention) add("audio_attention")
             if (hasDirectEngagement) add("direct_engagement")
+            if (signal.isPerceptionLooking) add("perception_looking")
+            if (signal.isPerceptionAsking) add("perception_asking")
             if (hasAttentiveInterest) add("attentive_interest")
             if (hasLowEnergy) add("low_energy")
             signal.latestAudioStimulus?.let { add(it.toDebugSummary()) }
@@ -64,6 +66,8 @@ class RealPixelPetBridgeStateAdapter(
             hasDirectEngagement = hasDirectEngagement,
             hasAttentiveInterest = hasAttentiveInterest,
             hasLowEnergy = hasLowEnergy,
+            hasPerceptionLooking = signal.isPerceptionLooking,
+            hasPerceptionAsking = signal.isPerceptionAsking,
             sourceSummary = sourceSummary
         )
     }

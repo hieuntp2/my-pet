@@ -69,6 +69,7 @@ class BackgroundPerceptionOrchestrator(
 
     private val unknownObjectCooldowns = ConcurrentHashMap<String, Long>()
     private val suppressionEventAtByCandidate = ConcurrentHashMap<String, Long>()
+    private val objectEvidenceTracker = StableObjectEvidenceTracker()
     private val stateLock = Any()
     private val boostObserverStarted = AtomicBoolean(false)
     private var activeEncounter: UnknownFaceEncounterState? = null
@@ -228,6 +229,10 @@ class BackgroundPerceptionOrchestrator(
             val bitmap = rotateBitmapForPortrait(rawBitmap, cameraRotation)
             try {
                 val quality = evaluateFaceQuality(bitmap)
+                if (quality.score < MIN_FACE_RECOGNITION_QUALITY_SCORE) {
+                    Log.d(TAG, "Skipping face recognition due to low quality=${quality.score}")
+                    return@launch
+                }
                 faceEmbeddingEngine.generateEmbedding(bitmap)
                     .onSuccess { embedding ->
                         processFaceObservation(
@@ -714,15 +719,22 @@ class BackgroundPerceptionOrchestrator(
     }
 
     private fun handleObjectDetectionResult(result: Result<ObjectDetectionResult>) {
-        val detectionResult = result.getOrNull() ?: return
-        val topDetection = detectionResult.detections.firstOrNull() ?: return
-        val label = topDetection.label.trim().ifBlank { return }
-        val confidence = topDetection.confidence.coerceIn(0f, 1f)
-        val detectedAtMs = detectionResult.timestampMs
-
-        if (confidence < UNKNOWN_OBJECT_MIN_CONFIDENCE) {
+        val detectionResult = result.getOrNull()
+        val topDetection = detectionResult?.detections
+            ?.firstOrNull { detection ->
+                detection.boundingBox?.isUsableForStableTracking() == true
+            }
+        val snapshot = objectEvidenceTracker.update(
+            detection = topDetection,
+            observedAtMs = detectionResult?.timestampMs ?: System.currentTimeMillis()
+        )
+        if (!snapshot.readyForDecision || snapshot.label == null || snapshot.displayConfidence < UNKNOWN_OBJECT_MIN_CONFIDENCE) {
             return
         }
+
+        val label = snapshot.label
+        val confidence = snapshot.displayConfidence.coerceIn(0f, 1f)
+        val detectedAtMs = snapshot.timestampMs
 
         coroutineScope.launch(Dispatchers.IO) {
             val resolvedName = objectRepository.resolveKnownObjectDisplayName(label)
@@ -1063,20 +1075,20 @@ class BackgroundPerceptionOrchestrator(
     companion object {
         private const val TAG = "BackgroundPercOrch"
 
-        private const val UNKNOWN_OBJECT_MIN_CONFIDENCE = 0.65f
+        private const val UNKNOWN_OBJECT_MIN_CONFIDENCE = 0.72f
         private const val UNKNOWN_OBJECT_COOLDOWN_MS = 60_000L
 
-        private const val ENCOUNTER_BREAK_MS = 2_800L
-        private const val DECISION_THROTTLE_MS = 500L
-        private const val MAX_SAMPLES_PER_ENCOUNTER = 12
-        private const val MIN_ELIGIBLE_SAMPLES_FOR_DECISION = 4
-        private const val READY_MIN_ELIGIBLE_SAMPLES = 6
-        private const val READY_MIN_DURATION_MS = 2_000L
-        private const val READY_MIN_STABILITY = 0.72f
-        private const val READY_MIN_AVERAGE_QUALITY = 0.42f
-        private const val KNOWN_STRICT_SIMILARITY = 0.70f
+        private const val ENCOUNTER_BREAK_MS = 2_400L
+        private const val DECISION_THROTTLE_MS = 800L
+        private const val MAX_SAMPLES_PER_ENCOUNTER = 14
+        private const val MIN_ELIGIBLE_SAMPLES_FOR_DECISION = 5
+        private const val READY_MIN_ELIGIBLE_SAMPLES = 7
+        private const val READY_MIN_DURATION_MS = 2_600L
+        private const val READY_MIN_STABILITY = 0.78f
+        private const val READY_MIN_AVERAGE_QUALITY = 0.48f
+        private const val KNOWN_STRICT_SIMILARITY = 0.80f
         private const val KNOWN_MIN_STABLE_FRAMES = 4
-        private const val KNOWN_STABLE_RATIO = 0.60f
+        private const val KNOWN_STABLE_RATIO = 0.70f
         private const val UNKNOWN_MAX_CLOSEST_SIMILARITY = 0.35f
 
         internal const val CANDIDATE_MERGE_MIN_SIMILARITY = 0.80f
@@ -1092,6 +1104,7 @@ class BackgroundPerceptionOrchestrator(
         private const val AUTO_TEACH_MIN_SIMILARITY = 0.72f
         private const val AUTO_TEACH_DUPLICATE_SIMILARITY = 0.98f
         private const val AUTO_TEACH_CAPTURE_MIN_INTERVAL_MS = 700L
+        private const val MIN_FACE_RECOGNITION_QUALITY_SCORE = 0.28f
     }
 }
 
@@ -1452,3 +1465,79 @@ private const val QUALITY_SAMPLE_GRID = 24
 private const val PREVIEW_CAPTURE_MIN_QUALITY_SCORE = 0.45f
 private const val PREVIEW_MAX_SIZE_PX = 160
 private const val PREVIEW_JPEG_QUALITY = 75
+
+
+private data class ObjectEvidenceSnapshot(
+    val label: String?,
+    val displayConfidence: Float,
+    val timestampMs: Long,
+    val readyForDecision: Boolean
+)
+
+private class StableObjectEvidenceTracker(
+    private val continuityGapMs: Long = 3_500L,
+    private val minStableFrames: Int = 2,
+    private val stableThreshold: Float = 0.74f,
+    private val growthWeight: Float = 0.58f,
+    private val decayFactor: Float = 0.35f
+) {
+    private var activeLabel: String? = null
+    private var smoothedConfidence: Float = 0f
+    private var stableFrames: Int = 0
+    private var lastSeenAtMs: Long = 0L
+
+    fun update(
+        detection: com.aipet.brain.perception.vision.objectdetection.model.DetectedObject?,
+        observedAtMs: Long
+    ): ObjectEvidenceSnapshot {
+        if (detection == null) {
+            smoothedConfidence *= decayFactor
+            if (smoothedConfidence < 0.12f) {
+                activeLabel = null
+                stableFrames = 0
+                smoothedConfidence = 0f
+            }
+            lastSeenAtMs = observedAtMs
+            return ObjectEvidenceSnapshot(
+                label = activeLabel,
+                displayConfidence = smoothedConfidence.coerceIn(0f, 1f),
+                timestampMs = observedAtMs,
+                readyForDecision = false
+            )
+        }
+
+        val normalizedLabel = detection.label.trim().ifBlank { null }
+        val confidence = detection.confidence.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 0f
+        val sameTrack = normalizedLabel != null &&
+            normalizedLabel == activeLabel &&
+            observedAtMs - lastSeenAtMs <= continuityGapMs
+
+        if (!sameTrack) {
+            activeLabel = normalizedLabel
+            smoothedConfidence = confidence * 0.55f
+            stableFrames = 1
+        } else {
+            smoothedConfidence = ((smoothedConfidence * (1f - growthWeight)) + (confidence * growthWeight))
+                .coerceIn(0f, 1f)
+            stableFrames += 1
+        }
+        lastSeenAtMs = observedAtMs
+
+        return ObjectEvidenceSnapshot(
+            label = activeLabel,
+            displayConfidence = smoothedConfidence,
+            timestampMs = observedAtMs,
+            readyForDecision = stableFrames >= minStableFrames && smoothedConfidence >= stableThreshold
+        )
+    }
+}
+
+private fun com.aipet.brain.perception.vision.objectdetection.model.ObjectBoundingBox.isUsableForStableTracking(): Boolean {
+    val width = right - left
+    val height = bottom - top
+    if (width <= 0 || height <= 0) {
+        return false
+    }
+    val aspectRatio = width.toFloat() / height.toFloat().coerceAtLeast(1f)
+    return width >= 36 && height >= 36 && aspectRatio in 0.30f..3.50f
+}

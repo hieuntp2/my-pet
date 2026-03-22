@@ -1,8 +1,10 @@
 package com.aipet.brain.ui.avatar.pixel.catalog
 
 import com.aipet.brain.ui.avatar.pixel.bridge.PixelAnimationSetRegistry
+import com.aipet.brain.ui.avatar.pixel.model.Asking
 import com.aipet.brain.ui.avatar.pixel.model.Curious
 import com.aipet.brain.ui.avatar.pixel.model.Happy
+import com.aipet.brain.ui.avatar.pixel.model.Looking
 import com.aipet.brain.ui.avatar.pixel.model.Neutral
 import com.aipet.brain.ui.avatar.pixel.model.PixelAnimationClip
 import com.aipet.brain.ui.avatar.pixel.model.PixelAnimationFrameEntry
@@ -30,6 +32,14 @@ object AuthoredPixelPetAnimationPack {
                 Curious to PixelPetAnimationStateSet(
                     state = Curious,
                     variants = createCuriousVariants()
+                ),
+                Looking to PixelPetAnimationStateSet(
+                    state = Looking,
+                    variants = createLookingVariants()
+                ),
+                Asking to PixelPetAnimationStateSet(
+                    state = Asking,
+                    variants = createAskingVariants()
                 ),
                 Thinking to PixelPetAnimationStateSet(
                     state = Thinking,
@@ -177,6 +187,73 @@ object AuthoredPixelPetAnimationPack {
                     frame(durationMillis = 260, frame = CuriousEyeTemplate.focusSquintFrame())
                 ),
                 categories = setOf("curious")
+            )
+        )
+    }
+
+    private fun createLookingVariants(): List<PixelAnimationVariant> {
+        return listOf(
+            expressiveVariant(
+                id = "Looking_A_FocusLeft",
+                frameEntries = listOf(
+                    frame(durationMillis = 260, frame = LookingEyeTemplate.centerFrame()),
+                    frame(durationMillis = 300, frame = LookingEyeTemplate.scanLeftFrame()),
+                    frame(durationMillis = 220, frame = LookingEyeTemplate.holdLeftFrame()),
+                    frame(durationMillis = 260, frame = LookingEyeTemplate.centerFrame())
+                ),
+                categories = setOf("looking")
+            ),
+            expressiveVariant(
+                id = "Looking_B_FocusRight",
+                frameEntries = listOf(
+                    frame(durationMillis = 240, frame = LookingEyeTemplate.centerFrame()),
+                    frame(durationMillis = 320, frame = LookingEyeTemplate.scanRightFrame()),
+                    frame(durationMillis = 220, frame = LookingEyeTemplate.holdRightFrame()),
+                    frame(durationMillis = 240, frame = LookingEyeTemplate.centerFrame())
+                ),
+                categories = setOf("looking")
+            ),
+            expressiveVariant(
+                id = "Looking_C_TightObserve",
+                frameEntries = listOf(
+                    frame(durationMillis = 340, frame = LookingEyeTemplate.tightObserveFrame()),
+                    frame(durationMillis = 220, frame = LookingEyeTemplate.pulseFrame()),
+                    frame(durationMillis = 360, frame = LookingEyeTemplate.tightObserveFrame())
+                ),
+                categories = setOf("looking")
+            )
+        )
+    }
+
+    private fun createAskingVariants(): List<PixelAnimationVariant> {
+        return listOf(
+            expressiveVariant(
+                id = "Asking_A_QuestionTiltLeft",
+                frameEntries = listOf(
+                    frame(durationMillis = 260, frame = AskingEyeTemplate.questionLeftFrame()),
+                    frame(durationMillis = 280, frame = AskingEyeTemplate.questionPulseLeftFrame()),
+                    frame(durationMillis = 260, frame = AskingEyeTemplate.questionLeftFrame())
+                ),
+                categories = setOf("asking")
+            ),
+            expressiveVariant(
+                id = "Asking_B_QuestionTiltRight",
+                frameEntries = listOf(
+                    frame(durationMillis = 260, frame = AskingEyeTemplate.questionRightFrame()),
+                    frame(durationMillis = 280, frame = AskingEyeTemplate.questionPulseRightFrame()),
+                    frame(durationMillis = 260, frame = AskingEyeTemplate.questionRightFrame())
+                ),
+                categories = setOf("asking")
+            ),
+            expressiveVariant(
+                id = "Asking_C_CuriousPause",
+                tier = PixelAnimationVariantTier.RARE,
+                frameEntries = listOf(
+                    frame(durationMillis = 420, frame = AskingEyeTemplate.questionCenterFrame()),
+                    frame(durationMillis = 260, frame = AskingEyeTemplate.questionPulseLeftFrame()),
+                    frame(durationMillis = 420, frame = AskingEyeTemplate.questionCenterFrame())
+                ),
+                categories = setOf("asking")
             )
         )
     }
@@ -481,6 +558,132 @@ object AuthoredPixelPetAnimationPack {
         )
     }
 
+    private object LookingEyeTemplate {
+        fun centerFrame(): PixelFrame64 = CanonicalEyeRenderer.buildFrame(
+            leftTopLidRows = 2,
+            rightTopLidRows = 2,
+            leftBottomLidRows = 1,
+            rightBottomLidRows = 1,
+            eyebrowLeftYOffset = -1,
+            eyebrowRightYOffset = -1
+        )
+
+        fun scanLeftFrame(): PixelFrame64 = CanonicalEyeRenderer.buildFrame(
+            leftPupilOffset = -2,
+            rightPupilOffset = -2,
+            leftTopLidRows = 2,
+            rightTopLidRows = 3,
+            leftBottomLidRows = 1,
+            rightBottomLidRows = 1,
+            eyebrowLeftYOffset = 0,
+            eyebrowRightYOffset = -1
+        )
+
+        fun holdLeftFrame(): PixelFrame64 = CanonicalEyeRenderer.buildFrame(
+            leftPupilOffset = -2,
+            rightPupilOffset = -1,
+            leftTopLidRows = 3,
+            rightTopLidRows = 3,
+            leftBottomLidRows = 1,
+            rightBottomLidRows = 1,
+            eyebrowLeftYOffset = 0,
+            eyebrowRightYOffset = 0
+        )
+
+        fun scanRightFrame(): PixelFrame64 = CanonicalEyeRenderer.buildFrame(
+            leftPupilOffset = 2,
+            rightPupilOffset = 2,
+            leftTopLidRows = 3,
+            rightTopLidRows = 2,
+            leftBottomLidRows = 1,
+            rightBottomLidRows = 1,
+            eyebrowLeftYOffset = -1,
+            eyebrowRightYOffset = 0
+        )
+
+        fun holdRightFrame(): PixelFrame64 = CanonicalEyeRenderer.buildFrame(
+            leftPupilOffset = 1,
+            rightPupilOffset = 2,
+            leftTopLidRows = 3,
+            rightTopLidRows = 3,
+            leftBottomLidRows = 1,
+            rightBottomLidRows = 1,
+            eyebrowLeftYOffset = 0,
+            eyebrowRightYOffset = 0
+        )
+
+        fun tightObserveFrame(): PixelFrame64 = CanonicalEyeRenderer.buildFrame(
+            leftTopLidRows = 4,
+            rightTopLidRows = 4,
+            leftBottomLidRows = 1,
+            rightBottomLidRows = 1,
+            eyebrowLeftYOffset = 0,
+            eyebrowRightYOffset = 0
+        )
+
+        fun pulseFrame(): PixelFrame64 = CanonicalEyeRenderer.buildFrame(
+            leftTopLidRows = 3,
+            rightTopLidRows = 3,
+            leftBottomLidRows = 1,
+            rightBottomLidRows = 1,
+            eyebrowLeftYOffset = -1,
+            eyebrowRightYOffset = -1,
+            extraHighlight = true
+        )
+    }
+
+    private object AskingEyeTemplate {
+        fun questionCenterFrame(): PixelFrame64 = CanonicalEyeRenderer.buildFrame(
+            leftTopLidRows = 2,
+            rightTopLidRows = 2,
+            eyebrowLeftYOffset = -1,
+            eyebrowRightYOffset = 0,
+            questionMarkMode = QuestionMarkMode.CENTER
+        )
+
+        fun questionLeftFrame(): PixelFrame64 = CanonicalEyeRenderer.buildFrame(
+            leftPupilOffset = -1,
+            rightPupilOffset = 1,
+            leftTopLidRows = 2,
+            rightTopLidRows = 3,
+            eyebrowLeftYOffset = -1,
+            eyebrowRightYOffset = 0,
+            questionMarkMode = QuestionMarkMode.LEFT
+        )
+
+        fun questionPulseLeftFrame(): PixelFrame64 = CanonicalEyeRenderer.buildFrame(
+            leftPupilOffset = -1,
+            rightPupilOffset = 1,
+            leftTopLidRows = 3,
+            rightTopLidRows = 3,
+            eyebrowLeftYOffset = -1,
+            eyebrowRightYOffset = 0,
+            extraHighlight = true,
+            questionMarkMode = QuestionMarkMode.LEFT
+        )
+
+        fun questionRightFrame(): PixelFrame64 = CanonicalEyeRenderer.buildFrame(
+            leftPupilOffset = 1,
+            rightPupilOffset = -1,
+            leftTopLidRows = 3,
+            rightTopLidRows = 2,
+            eyebrowLeftYOffset = 0,
+            eyebrowRightYOffset = -1,
+            questionMarkMode = QuestionMarkMode.RIGHT
+        )
+
+        fun questionPulseRightFrame(): PixelFrame64 = CanonicalEyeRenderer.buildFrame(
+            leftPupilOffset = 1,
+            rightPupilOffset = -1,
+            leftTopLidRows = 3,
+            rightTopLidRows = 3,
+            eyebrowLeftYOffset = 0,
+            eyebrowRightYOffset = -1,
+            extraHighlight = true,
+            questionMarkMode = QuestionMarkMode.RIGHT
+        )
+    }
+
     private object SleepyEyeTemplate {
         fun halfLidFrame(): PixelFrame64 = CanonicalEyeRenderer.buildFrame(
             leftTopLidRows = 4,
@@ -664,6 +867,13 @@ object AuthoredPixelPetAnimationPack {
         )
     }
 
+    private enum class QuestionMarkMode {
+        NONE,
+        LEFT,
+        CENTER,
+        RIGHT
+    }
+
     private object CanonicalEyeRenderer {
         private val palette = PixelPetDefaultPalette.palette
         private val transparent = palette.indexOf(PixelPetDefaultPalette.TransparentKey)
@@ -711,7 +921,8 @@ object AuthoredPixelPetAnimationPack {
             eyebrowRightYOffset: Int = 0,
             eyebrowLeftColor: Int = accent,
             eyebrowRightColor: Int = accent,
-            extraHighlight: Boolean = false
+            extraHighlight: Boolean = false,
+            questionMarkMode: QuestionMarkMode = QuestionMarkMode.NONE
         ): PixelFrame64 {
             require(leftPupilOffset in -maxHorizontalPupilOffset..maxHorizontalPupilOffset)
             require(rightPupilOffset in -maxHorizontalPupilOffset..maxHorizontalPupilOffset)
@@ -757,6 +968,8 @@ object AuthoredPixelPetAnimationPack {
                     extraHighlight = extraHighlight
                 )
             }
+
+            drawQuestionMark(pixels = pixels, mode = questionMarkMode)
 
             return PixelFrame64(
                 palette = palette,
@@ -881,6 +1094,28 @@ object AuthoredPixelPetAnimationPack {
             fillRect(pixels, xRange = (startX + 2)..(startX + 12), yRange = (eyeTop + 9)..(eyeTop + 9), colorIndex = highlight)
         }
 
+        private fun drawQuestionMark(
+            pixels: MutableList<Int>,
+            mode: QuestionMarkMode
+        ) {
+            val centerX = when (mode) {
+                QuestionMarkMode.NONE -> return
+                QuestionMarkMode.LEFT -> 24
+                QuestionMarkMode.CENTER -> 31
+                QuestionMarkMode.RIGHT -> 40
+            }
+            val topY = 9
+            val dotY = 17
+            setPixel(pixels, centerX - 1, topY, highlight)
+            setPixel(pixels, centerX, topY, highlight)
+            setPixel(pixels, centerX + 1, topY + 1, highlight)
+            setPixel(pixels, centerX + 1, topY + 2, highlight)
+            setPixel(pixels, centerX, topY + 3, highlight)
+            setPixel(pixels, centerX, topY + 5, highlight)
+            setPixel(pixels, centerX, dotY, highlight)
+        }
+
+        private fun fillRect(
         private fun fillRect(
             pixels: MutableList<Int>,
             xRange: IntRange,

@@ -165,18 +165,18 @@ class BackgroundPerceptionController(
         private const val TAG = "BackgroundPerception"
 
         /** Base interval between face-crop emissions when idle. */
-        const val BASE_FACE_CROP_INTERVAL_MS = 1_000L
+        const val BASE_FACE_CROP_INTERVAL_MS = 1_500L
 
         /** Base interval between object detection runs when idle. */
-        const val BASE_OBJECT_DETECTION_INTERVAL_MS = 5_000L
+        const val BASE_OBJECT_DETECTION_INTERVAL_MS = 6_000L
 
         /** Reduced face-crop interval when scan boost is active. */
-        const val ACTIVE_FACE_CROP_INTERVAL_MS = 300L
+        const val ACTIVE_FACE_CROP_INTERVAL_MS = 650L
 
         /** Reduced object-detection interval when scan boost is active. */
-        const val ACTIVE_OBJECT_DETECTION_INTERVAL_MS = 1_000L
+        const val ACTIVE_OBJECT_DETECTION_INTERVAL_MS = 1_800L
 
         /** How long a boost from [boostScanRate] lasts. */
-        const val BOOST_DURATION_MS = 30_000L
+        const val BOOST_DURATION_MS = 24_000L
     }
 }

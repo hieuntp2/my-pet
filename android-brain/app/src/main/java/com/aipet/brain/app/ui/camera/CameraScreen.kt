@@ -81,6 +81,8 @@ fun CameraScreen(
     onNavigateBack: () -> Unit,
     onLiveFaceCropReady: ((Bitmap, Long, Int) -> Unit)? = null,
     recognizedPersonLabel: String? = null,
+    perceptionLoopState: String = "idle",
+    avatarPerceptionState: String = "neutral",
 ) {
     val context = LocalContext.current
     val appContext = remember(context) { context.applicationContext }
@@ -385,6 +387,8 @@ fun CameraScreen(
                         topObjectLabel = topObjectLabelState.displayLabel,
                         topObjectConfidence = topObjectLabelState.confidence,
                         recognizedPersonLabel = recognizedPersonLabel,
+                        perceptionLoopState = perceptionLoopState,
+                        avatarPerceptionState = avatarPerceptionState,
                         modifier = Modifier
                             .align(Alignment.TopStart)
                             .padding(12.dp)

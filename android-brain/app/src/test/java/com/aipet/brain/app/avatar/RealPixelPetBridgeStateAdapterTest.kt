@@ -9,8 +9,10 @@ import com.aipet.brain.brain.state.BrainState
 import com.aipet.brain.ui.avatar.pixel.bridge.DefaultPixelPetStateMapper
 import com.aipet.brain.ui.avatar.pixel.bridge.PixelPetAvatarIntent
 import com.aipet.brain.ui.avatar.pixel.bridge.PixelPetBridgeState
+import com.aipet.brain.ui.avatar.pixel.model.Asking
 import com.aipet.brain.ui.avatar.pixel.model.Curious
 import com.aipet.brain.ui.avatar.pixel.model.Happy
+import com.aipet.brain.ui.avatar.pixel.model.Looking
 import com.aipet.brain.ui.avatar.pixel.model.Thinking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -131,6 +133,34 @@ class RealPixelPetBridgeStateAdapterTest {
     }
 
     @Test
+    fun `perception signals resolve looking and asking intents`() {
+        val adapter = RealPixelPetBridgeStateAdapter()
+        val mapper = DefaultPixelPetStateMapper()
+
+        val looking = adapter.map(
+            HomePixelPetAvatarSignal(
+                petEmotion = PetEmotion.IDLE,
+                conditions = emptySet(),
+                brainState = BrainState.IDLE,
+                isPerceptionLooking = true
+            )
+        )
+        val asking = adapter.map(
+            HomePixelPetAvatarSignal(
+                petEmotion = PetEmotion.IDLE,
+                conditions = emptySet(),
+                brainState = BrainState.IDLE,
+                isPerceptionAsking = true
+            )
+        )
+
+        assertEquals(PixelPetAvatarIntent.LOOKING, looking.intent)
+        assertEquals(PixelPetAvatarIntent.ASKING, asking.intent)
+        assertEquals(Looking, mapper.map(looking))
+        assertEquals(Asking, mapper.map(asking))
+    }
+
+    @Test
     fun `adapter exposes latest intent resolution for debug inspection`() {
         val adapter = RealPixelPetBridgeStateAdapter()
 
@@ -146,7 +176,7 @@ class RealPixelPetBridgeStateAdapterTest {
 
         assertNotNull(resolution)
         assertEquals(PixelPetAvatarIntent.ATTENTIVE, resolution?.intent)
-        assertTrue(resolution?.policySummary?.contains("processing>engaged") == true)
+        assertTrue(resolution?.policySummary?.contains("processing>engaged>asking>looking") == true)
     }
 
     @Test
@@ -157,12 +187,12 @@ class RealPixelPetBridgeStateAdapterTest {
                 chosenIntent = "processing",
                 priorityReason = "audio_attention_detected",
                 sourceSummary = "audio_attention",
-                policySummary = "processing>engaged>low_energy>attentive>neutral"
+                policySummary = "processing>engaged>asking>looking>low_energy>attentive>neutral"
             )
         ).debugMetadata
 
         assertEquals(
-            "intent=processing reason=audio_attention_detected policy=processing>engaged>low_energy>attentive>neutral sources=audio_attention",
+            "intent=processing reason=audio_attention_detected policy=processing>engaged>asking>looking>low_energy>attentive>neutral sources=audio_attention",
             metadata?.toLogSummary()
         )
     }

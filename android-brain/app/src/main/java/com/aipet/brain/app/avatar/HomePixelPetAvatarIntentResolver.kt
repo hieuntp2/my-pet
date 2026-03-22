@@ -26,6 +26,22 @@ class HomePixelPetAvatarIntentResolver(
                     )
                 )
             }
+            if (bridgeInput.hasPerceptionAsking) {
+                add(
+                    HomePixelPetAvatarIntentCandidate(
+                        intent = PixelPetAvatarIntent.ASKING,
+                        reason = "stable_unknown_candidate_detected"
+                    )
+                )
+            }
+            if (bridgeInput.hasPerceptionLooking) {
+                add(
+                    HomePixelPetAvatarIntentCandidate(
+                        intent = PixelPetAvatarIntent.LOOKING,
+                        reason = "perception_scan_active"
+                    )
+                )
+            }
             if (bridgeInput.hasLowEnergy) {
                 add(
                     HomePixelPetAvatarIntentCandidate(
@@ -88,15 +104,17 @@ data class HomePixelPetAvatarIntentCandidate(
 class HomePixelPetAvatarIntentPriorityPolicy {
     // Higher score wins; map order is the explicit tie-break if scores later converge.
     private val priorities = linkedMapOf(
-        PixelPetAvatarIntent.PROCESSING to 400,
-        PixelPetAvatarIntent.ENGAGED to 300,
+        PixelPetAvatarIntent.PROCESSING to 500,
+        PixelPetAvatarIntent.ENGAGED to 400,
+        PixelPetAvatarIntent.ASKING to 300,
+        PixelPetAvatarIntent.LOOKING to 250,
         PixelPetAvatarIntent.LOW_ENERGY to 200,
         PixelPetAvatarIntent.ATTENTIVE to 100,
         PixelPetAvatarIntent.NEUTRAL to 0
     )
 
     val policySummary: String =
-        "processing>engaged>low_energy>attentive>neutral; keep_previous_over_neutral=true"
+        "processing>engaged>asking>looking>low_energy>attentive>neutral; keep_previous_over_neutral=true"
 
     fun selectCandidate(candidates: List<HomePixelPetAvatarIntentCandidate>): HomePixelPetAvatarIntentCandidate {
         return candidates.maxWithOrNull(

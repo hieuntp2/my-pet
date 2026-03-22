@@ -1,9 +1,9 @@
 package com.aipet.brain.brain.recognition.model
 
-// MobileFaceNet cosine similarity between the same person's embeddings typically
-// falls in the 0.5–0.9 range. 0.55 gives a good balance for few-shot enrollment
-// (1–3 captured samples) without excessive false positives.
-const val DEFAULT_RECOGNITION_THRESHOLD: Float = 0.55f
+// MobileFaceNet cosine similarity scores are similarity measures, not calibrated probabilities.
+// The final known-person decision is intentionally conservative so recognition only accepts
+// strong matches and keeps debug/UI thresholds separate from the recognizer threshold.
+const val DEFAULT_RECOGNITION_THRESHOLD: Float = 0.80f
 
 data class RecognitionThresholdConfig(
     val acceptanceThreshold: Float = DEFAULT_RECOGNITION_THRESHOLD

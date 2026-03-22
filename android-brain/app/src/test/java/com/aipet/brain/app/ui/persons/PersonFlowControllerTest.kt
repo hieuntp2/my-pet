@@ -238,6 +238,10 @@ private class FakePersonStore : PersonStore {
         personsById[personId] = updated
         return updated
     }
+
+    override suspend fun deletePerson(personId: String): Boolean {
+        return personsById.remove(personId) != null
+    }
 }
 
 private fun testPerson(
