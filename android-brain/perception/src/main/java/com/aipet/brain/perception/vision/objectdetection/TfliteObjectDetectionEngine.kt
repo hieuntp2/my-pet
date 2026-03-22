@@ -158,7 +158,10 @@ class TfliteObjectDetectionEngine(
                 detectionIndex = index,
                 sourceWidth = sourceWidth,
                 sourceHeight = sourceHeight
-            )
+            ) ?: continue
+            if (!boundingBox.isValidDetection(sourceWidth = sourceWidth, sourceHeight = sourceHeight)) {
+                continue
+            }
             detections += DetectedObject(
                 label = CocoLabelMapper.labelForClassId(classId),
                 confidence = confidence.coerceIn(0f, 1f),
@@ -427,3 +430,26 @@ class TfliteObjectDetectionEngine(
         private const val NS_PER_MS = 1_000_000L
     }
 }
+
+
+private fun ObjectBoundingBox.isValidDetection(
+    sourceWidth: Int,
+    sourceHeight: Int
+): Boolean {
+    val width = right - left
+    val height = bottom - top
+    if (width < MIN_OBJECT_SIDE_PX || height < MIN_OBJECT_SIDE_PX) {
+        return false
+    }
+    val areaRatio = (width * height).toFloat() / (sourceWidth * sourceHeight).toFloat().coerceAtLeast(1f)
+    if (areaRatio < MIN_OBJECT_AREA_RATIO) {
+        return false
+    }
+    val aspectRatio = width.toFloat() / height.toFloat().coerceAtLeast(1f)
+    return aspectRatio in MIN_OBJECT_ASPECT_RATIO..MAX_OBJECT_ASPECT_RATIO
+}
+
+private const val MIN_OBJECT_SIDE_PX = 36
+private const val MIN_OBJECT_AREA_RATIO = 0.018f
+private const val MIN_OBJECT_ASPECT_RATIO = 0.30f
+private const val MAX_OBJECT_ASPECT_RATIO = 3.50f

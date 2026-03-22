@@ -1,7 +1,9 @@
 package com.aipet.brain.ui.avatar.pixel.bridge
 
+import com.aipet.brain.ui.avatar.pixel.model.Asking
 import com.aipet.brain.ui.avatar.pixel.model.Curious
 import com.aipet.brain.ui.avatar.pixel.model.Happy
+import com.aipet.brain.ui.avatar.pixel.model.Looking
 import com.aipet.brain.ui.avatar.pixel.model.Neutral
 import com.aipet.brain.ui.avatar.pixel.model.PixelPetVisualState
 import com.aipet.brain.ui.avatar.pixel.model.Sleepy
@@ -15,6 +17,8 @@ enum class PixelPetAvatarIntent {
     NEUTRAL,
     ENGAGED,
     ATTENTIVE,
+    LOOKING,
+    ASKING,
     PROCESSING,
     LOW_ENERGY
 }
@@ -41,6 +45,8 @@ class DefaultPixelPetStateMapper : PixelPetStateMapper<PixelPetBridgeState> {
             PixelPetAvatarIntent.NEUTRAL -> Neutral
             PixelPetAvatarIntent.ENGAGED -> Happy
             PixelPetAvatarIntent.ATTENTIVE -> Curious
+            PixelPetAvatarIntent.LOOKING -> Looking
+            PixelPetAvatarIntent.ASKING -> Asking
             PixelPetAvatarIntent.PROCESSING -> Thinking
             PixelPetAvatarIntent.LOW_ENERGY -> Sleepy
         }

@@ -5,5 +5,7 @@ data class HomePixelPetAvatarBridgeInput(
     val hasDirectEngagement: Boolean,
     val hasAttentiveInterest: Boolean,
     val hasLowEnergy: Boolean,
+    val hasPerceptionLooking: Boolean,
+    val hasPerceptionAsking: Boolean,
     val sourceSummary: String
 )

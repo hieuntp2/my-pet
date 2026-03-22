@@ -1,7 +1,9 @@
 package com.aipet.brain.ui.avatar.pixel.catalog
 
+import com.aipet.brain.ui.avatar.pixel.model.Asking
 import com.aipet.brain.ui.avatar.pixel.model.Curious
 import com.aipet.brain.ui.avatar.pixel.model.Happy
+import com.aipet.brain.ui.avatar.pixel.model.Looking
 import com.aipet.brain.ui.avatar.pixel.model.Neutral
 import com.aipet.brain.ui.avatar.pixel.model.PixelAnimationVariant
 import com.aipet.brain.ui.avatar.pixel.model.PixelAnimationVariantTier
@@ -24,6 +26,8 @@ class AuthoredPixelPetAnimationPackTest {
         assertNotNull(registry[Neutral])
         assertNotNull(registry[Happy])
         assertNotNull(registry[Curious])
+        assertNotNull(registry[Looking])
+        assertNotNull(registry[Asking])
         assertNotNull(registry[Thinking])
         assertNotNull(registry[Sleepy])
     }
@@ -177,9 +181,13 @@ class AuthoredPixelPetAnimationPackTest {
         val curiousFrame = registry.requireAnimationSet(Curious).variants.first().clip.frames.first().frame
         val sleepyFrame = registry.requireAnimationSet(Sleepy).variants.first().clip.frames.first().frame
         val thinkingFrame = registry.requireAnimationSet(Thinking).variants.first().clip.frames.first().frame
+        val lookingFrame = registry.requireAnimationSet(Looking).variants.first().clip.frames.first().frame
+        val askingFrame = registry.requireAnimationSet(Asking).variants.first().clip.frames.first().frame
 
         assertNotEquals(neutralFrame, sleepyFrame)
         assertNotEquals(curiousFrame, thinkingFrame)
+        assertNotEquals(curiousFrame, lookingFrame)
+        assertNotEquals(curiousFrame, askingFrame)
     }
 
     private fun eyeBaseBounds(frame: PixelFrame64): IntRangeSummary {

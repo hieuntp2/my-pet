@@ -118,7 +118,7 @@ class PersonRecognitionServiceTest {
     }
 
     @Test
-    fun recognize_belowThreshold_classifiesAsUnknown() = runTest {
+    fun recognize_belowConservativeThreshold_classifiesAsUnknown() = runTest {
         val knownPersons = listOf(
             KnownPersonEmbeddings(
                 personId = "person-a",

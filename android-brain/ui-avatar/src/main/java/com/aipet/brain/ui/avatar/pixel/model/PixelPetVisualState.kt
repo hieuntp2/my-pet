@@ -8,6 +8,8 @@ sealed interface PixelPetVisualState {
             Neutral,
             Happy,
             Curious,
+            Looking,
+            Asking,
             Sleepy,
             Thinking
         )
@@ -24,6 +26,14 @@ object Happy : PixelPetVisualState {
 
 object Curious : PixelPetVisualState {
     override val id: String = "curious"
+}
+
+object Looking : PixelPetVisualState {
+    override val id: String = "looking"
+}
+
+object Asking : PixelPetVisualState {
+    override val id: String = "asking"
 }
 
 object Sleepy : PixelPetVisualState {

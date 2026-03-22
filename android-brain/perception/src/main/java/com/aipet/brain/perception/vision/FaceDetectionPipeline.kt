@@ -72,11 +72,14 @@ class FaceDetectionPipeline(
             image = frameData.inputImage,
             timestampMs = timestampMs,
             onSuccess = { faces ->
+                val validFaces = faces.filter { face ->
+                    face.boundingBox.isValidForRecognition(frameWidth = frameWidth, frameHeight = frameHeight)
+                }
                 updateCaptureSnapshot(
                     frameId = frameId,
                     timestampMs = timestampMs,
                     frameData = frameData,
-                    faces = faces
+                    faces = validFaces
                 )
                 publishResult(
                     FaceDetectionResult(
@@ -85,23 +88,23 @@ class FaceDetectionPipeline(
                         frameWidth = frameWidth,
                         frameHeight = frameHeight,
                         rotationDegrees = rotationDegrees,
-                        faces = faces
+                        faces = validFaces
                     )
                 )
                 logCropVerification(
                     frameId = frameId,
                     timestampMs = timestampMs,
                     frameData = frameData,
-                    faces = faces
+                    faces = validFaces
                 )
                 maybeEmitLiveFaceCrop(
                     timestampMs = timestampMs,
                     frameData = frameData,
-                    faces = faces
+                    faces = validFaces
                 )
                 Log.d(
                     TAG,
-                    "Face detection completed. frameId=$frameId, faceCount=${faces.size}"
+                    "Face detection completed. frameId=$frameId, faceCount=${validFaces.size}, rawFaceCount=${faces.size}"
                 )
             },
             onFailure = { error ->
@@ -409,3 +412,26 @@ private fun com.aipet.brain.perception.vision.model.FaceBoundingBox.area(): Int 
     val height = (bottom - top).coerceAtLeast(0)
     return width * height
 }
+
+
+private fun com.aipet.brain.perception.vision.model.FaceBoundingBox.isValidForRecognition(
+    frameWidth: Int,
+    frameHeight: Int
+): Boolean {
+    val width = right - left
+    val height = bottom - top
+    if (width < FACE_MIN_BOX_SIZE_PX || height < FACE_MIN_BOX_SIZE_PX) {
+        return false
+    }
+    val areaRatio = (width * height).toFloat() / (frameWidth * frameHeight).toFloat().coerceAtLeast(1f)
+    if (areaRatio < FACE_MIN_AREA_RATIO) {
+        return false
+    }
+    val aspectRatio = width.toFloat() / height.toFloat().coerceAtLeast(1f)
+    return aspectRatio in FACE_MIN_ASPECT_RATIO..FACE_MAX_ASPECT_RATIO
+}
+
+private const val FACE_MIN_BOX_SIZE_PX = 72
+private const val FACE_MIN_AREA_RATIO = 0.035f
+private const val FACE_MIN_ASPECT_RATIO = 0.65f
+private const val FACE_MAX_ASPECT_RATIO = 1.55f

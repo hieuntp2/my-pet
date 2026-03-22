@@ -24,6 +24,8 @@ internal fun CameraDiagnosticsOverlay(
     topObjectConfidence: Float?,
     modifier: Modifier = Modifier,
     recognizedPersonLabel: String? = null,
+    perceptionLoopState: String = "idle",
+    avatarPerceptionState: String = "neutral",
 ) {
     val timestampFormatter = remember {
         DateTimeFormatter.ofPattern("HH:mm:ss").withZone(ZoneId.systemDefault())
@@ -56,6 +58,16 @@ internal fun CameraDiagnosticsOverlay(
                     recognizedPersonLabel.startsWith("?") -> Color(0xFFFFB74D) // amber — near-miss
                     else -> Color(0xFF90EE90) // green — recognized
                 }
+            )
+            Text(
+                text = "Perception loop: $perceptionLoopState",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White
+            )
+            Text(
+                text = "Avatar perception: $avatarPerceptionState",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White
             )
             Text(
                 text = "Object: $topObjectLabel",
