@@ -31,7 +31,18 @@ import androidx.compose.ui.unit.dp
 
 /** Sealed type representing what the pet has spotted that is unknown. */
 sealed class TeachUnknownTarget {
-    data class UnknownFace(val thumbnail: Bitmap?) : TeachUnknownTarget()
+    data class UnknownFace(
+        val candidateId: String,
+        val centroidEmbedding: List<Float>,
+        val sampleCount: Int,
+        val stableScore: Float,
+        val seenFrameCount: Int,
+        val seenEncounterCount: Int,
+        val averageQualityScore: Float,
+        val closestKnownPersonId: String?,
+        val closestKnownSimilarity: Float?,
+        val thumbnail: Bitmap?
+    ) : TeachUnknownTarget()
     data class UnknownObject(val canonicalLabel: String, val confidence: Float, val thumbnail: Bitmap? = null) : TeachUnknownTarget()
 }
 

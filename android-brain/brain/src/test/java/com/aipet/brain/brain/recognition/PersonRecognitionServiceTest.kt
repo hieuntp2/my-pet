@@ -143,6 +143,35 @@ class PersonRecognitionServiceTest {
         assertTrue(result.bestScore < result.threshold)
         assertEquals(5000L, result.timestamp)
     }
+
+    @Test
+    fun recognizeWithThreshold_usesProvidedThresholdOverride() = runTest {
+        val knownPersons = listOf(
+            KnownPersonEmbeddings(
+                personId = "person-a",
+                displayName = "Alice",
+                embeddings = listOf(
+                    KnownFaceEmbedding("a-1", floatArrayOf(1f, 0f, 0f))
+                )
+            )
+        )
+        val service = PersonRecognitionService(
+            knownPersonEmbeddingsSource = FakeKnownPersonEmbeddingsSource(knownPersons),
+            thresholdConfig = RecognitionThresholdConfig(acceptanceThreshold = 0.95f),
+            nowProvider = { 6000L }
+        )
+
+        val overrideResult = service.recognizeWithThreshold(
+            currentEmbedding = floatArrayOf(0.75f, 0.66f, 0f),
+            acceptanceThreshold = 0.70f
+        )
+
+        assertEquals(RecognitionClassification.RECOGNIZED, overrideResult.classification)
+        assertEquals(true, overrideResult.accepted)
+        assertEquals("person-a", overrideResult.bestPersonId)
+        assertEquals(0.70f, overrideResult.threshold, 0f)
+        assertEquals(6000L, overrideResult.timestamp)
+    }
 }
 
 private class FakeKnownPersonEmbeddingsSource(

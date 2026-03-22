@@ -1,7 +1,9 @@
 package com.aipet.brain.app.ui
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.util.Base64
 import android.util.Log
 import com.aipet.brain.app.BuildConfig
 import androidx.compose.material3.MaterialTheme
@@ -71,6 +73,7 @@ import com.aipet.brain.app.settings.CameraSelection
 import com.aipet.brain.app.settings.CameraSelectionStore
 import com.aipet.brain.app.settings.KeywordSpottingConfigStore
 import com.aipet.brain.brain.events.CameraFrameReceivedPayload
+import com.aipet.brain.brain.events.CandidatePersonReadyForTeachPayload
 import com.aipet.brain.brain.events.EventEnvelope
 import com.aipet.brain.brain.events.EventType
 import com.aipet.brain.brain.events.InMemoryEventBus
@@ -78,6 +81,7 @@ import com.aipet.brain.brain.events.ObjectDetectedEventPayload
 import com.aipet.brain.brain.events.PetActivityAppliedEventPayload
 import com.aipet.brain.brain.events.PetGreetedEventPayload
 import com.aipet.brain.brain.events.UserInteractedPetEventPayload
+import com.aipet.brain.brain.events.UserTaughtPersonEventPayload
 import com.aipet.brain.brain.events.audio.AudioResponseRequestPayload
 import com.aipet.brain.brain.events.vision.FaceBoundingBoxPayload
 import com.aipet.brain.brain.events.vision.FacesDetectedEventPayload
@@ -144,6 +148,8 @@ import com.aipet.brain.memory.teachsessioncompletion.TeachSessionCompletionStore
 import com.aipet.brain.memory.teachsamples.RoomTeachSampleStore
 import com.aipet.brain.memory.teachsamples.TeachSampleStore
 import com.aipet.brain.memory.traits.RoomTraitsSnapshotRepository
+import com.aipet.brain.memory.unknownfaces.RoomUnknownFaceCandidateStore
+import com.aipet.brain.memory.unknownfaces.UnknownFaceCandidateStore
 import com.aipet.brain.perception.camera.FrameDiagnostics
 import com.aipet.brain.perception.vision.face.embedding.FaceEmbeddingEngine
 import com.aipet.brain.perception.vision.face.embedding.TfliteFaceEmbeddingEngine
@@ -230,7 +236,8 @@ fun PetBrainApp() {
                 AppDatabase.MIGRATION_15_16,
                 AppDatabase.MIGRATION_16_17,
                 AppDatabase.MIGRATION_17_18,
-                AppDatabase.MIGRATION_18_19
+                AppDatabase.MIGRATION_18_19,
+                AppDatabase.MIGRATION_19_20
             )
             .fallbackToDestructiveMigrationOnDowngrade()
             .build()
@@ -251,6 +258,9 @@ fun PetBrainApp() {
             faceProfileDao = database.faceProfileDao(),
             personStore = personStore
         )
+    }
+    val unknownFaceCandidateStore: UnknownFaceCandidateStore = remember(database) {
+        RoomUnknownFaceCandidateStore(database.unknownFaceCandidateDao())
     }
     val knownPersonEmbeddingsSource = remember(database) {
         RoomKnownPersonEmbeddingsSource(
@@ -798,6 +808,26 @@ fun PetBrainApp() {
             when (event.type) {
                 EventType.OWNER_SEEN_DETECTED -> latestOwnerSeenEvent = event
                 EventType.ROBOT_GREETING_OWNER_TRIGGERED -> latestOwnerGreetingEvent = event
+                EventType.CANDIDATE_PERSON_READY_FOR_TEACH -> {
+                    if (activeTeachTarget == null) {
+                        val payload = CandidatePersonReadyForTeachPayload.fromJson(event.payloadJson)
+                        if (payload != null) {
+                            val previewBitmap = payload.previewImageBase64?.toBitmapFromBase64()
+                            activeTeachTarget = TeachUnknownTarget.UnknownFace(
+                                candidateId = payload.candidateId,
+                                centroidEmbedding = payload.centroidEmbedding.toFiniteEmbedding(),
+                                sampleCount = payload.sampleCount,
+                                stableScore = payload.stableScore,
+                                seenFrameCount = payload.seenFrameCount,
+                                seenEncounterCount = payload.seenEncounterCount,
+                                averageQualityScore = payload.averageQualityScore,
+                                closestKnownPersonId = payload.closestKnownPersonId,
+                                closestKnownSimilarity = payload.closestKnownSimilarity,
+                                thumbnail = previewBitmap
+                            )
+                        }
+                    }
+                }
                 EventType.AUDIO_RESPONSE_STARTED -> {
                     val payload = com.aipet.brain.brain.events.audio.AudioResponsePayload
                         .fromJson(event.payloadJson)
@@ -900,7 +930,9 @@ fun PetBrainApp() {
         personRecognitionService,
         recognitionDecisionEventPublisher,
         objectDetectionEngineForBackground,
-        objectRepository
+        objectRepository,
+        unknownFaceCandidateStore,
+        faceProfileStore
     ) {
         BackgroundPerceptionOrchestrator(
             context = appContext,
@@ -912,11 +944,8 @@ fun PetBrainApp() {
             recognitionDecisionEventPublisher = recognitionDecisionEventPublisher,
             objectDetectionEngine = objectDetectionEngineForBackground,
             objectRepository = objectRepository,
-            onUnknownFaceDetected = { bitmap, _ ->
-                if (activeTeachTarget == null) {
-                    activeTeachTarget = TeachUnknownTarget.UnknownFace(bitmap)
-                }
-            },
+            unknownFaceCandidateStore = unknownFaceCandidateStore,
+            faceProfileStore = faceProfileStore,
             onUnknownObjectDetected = { thumbnail, label, confidence, _ ->
                 if (activeTeachTarget == null) {
                     activeTeachTarget = TeachUnknownTarget.UnknownObject(label, confidence, thumbnail)
@@ -1790,20 +1819,57 @@ fun PetBrainApp() {
                             when (target) {
                                 is TeachUnknownTarget.UnknownFace -> {
                                     withContext(Dispatchers.IO) {
+                                        val now = System.currentTimeMillis()
                                         val trimmedName = name.trim().take(MAX_PET_NAME_LENGTH)
+                                        val personId = UUID.randomUUID().toString()
                                         personStore.insert(
                                             PersonRecord(
-                                                personId = UUID.randomUUID().toString(),
+                                                personId = personId,
                                                 displayName = trimmedName,
                                                 nickname = null,
                                                 isOwner = false,
-                                                createdAtMs = System.currentTimeMillis(),
-                                                updatedAtMs = System.currentTimeMillis(),
+                                                createdAtMs = now,
+                                                updatedAtMs = now,
                                                 lastSeenAtMs = null,
                                                 seenCount = 0,
                                                 familiarityScore = 0f
                                             )
                                         )
+
+                                        val profile = faceProfileStore.createProfileCandidate(
+                                            label = trimmedName,
+                                            note = "unknown_candidate:${target.candidateId}"
+                                        )
+                                        faceProfileStore.linkProfileToPerson(
+                                            profileId = profile.profileId,
+                                            personId = personId
+                                        )
+                                        val seedEmbedding = target.centroidEmbedding.toFiniteEmbedding()
+                                        if (seedEmbedding.isNotEmpty()) {
+                                            faceProfileStore.addEmbeddingToProfile(
+                                                profileId = profile.profileId,
+                                                values = seedEmbedding,
+                                                metadata = "unknown_candidate_seed"
+                                            )
+                                        }
+                                        eventBus.publish(
+                                            EventEnvelope.create(
+                                                type = EventType.USER_TAUGHT_PERSON,
+                                                timestampMs = now,
+                                                payloadJson = UserTaughtPersonEventPayload(
+                                                    personId = personId,
+                                                    displayName = trimmedName,
+                                                    sampleCount = 1
+                                                ).toJson()
+                                            )
+                                        )
+                                        backgroundOrchestrator
+                                            .resolveUnknownFaceCandidateAndStartAutoCapture(
+                                                candidateId = target.candidateId,
+                                                personId = personId,
+                                                profileId = profile.profileId,
+                                                seedEmbedding = seedEmbedding
+                                            )
                                     }
                                 }
                                 is TeachUnknownTarget.UnknownObject -> {
@@ -1815,7 +1881,15 @@ fun PetBrainApp() {
                             activeTeachTarget = null
                         }
                     },
-                    onDismiss = { activeTeachTarget = null }
+                    onDismiss = {
+                        if (target is TeachUnknownTarget.UnknownFace) {
+                            backgroundOrchestrator.suppressUnknownFaceCandidate(
+                                candidateId = target.candidateId,
+                                reason = "user_skipped_dialog"
+                            )
+                        }
+                        activeTeachTarget = null
+                    }
                 )
             }
         }
@@ -1824,6 +1898,23 @@ fun PetBrainApp() {
 
 private fun String.toAppScreen(): AppScreen {
     return AppScreen.entries.firstOrNull { it.name == this } ?: AppScreen.Home
+}
+
+private fun String.toBitmapFromBase64(): Bitmap? {
+    return runCatching {
+        val bytes = Base64.decode(this, Base64.DEFAULT)
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    }.getOrNull()
+}
+
+private fun List<Float>.toFiniteEmbedding(): List<Float> {
+    if (isEmpty()) {
+        return emptyList()
+    }
+    if (!all { value -> value.isFinite() }) {
+        return emptyList()
+    }
+    return toList()
 }
 
 private fun FrameDiagnostics.toCameraFramePayloadJson(): String {

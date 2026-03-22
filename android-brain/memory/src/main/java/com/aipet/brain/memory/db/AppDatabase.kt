@@ -19,6 +19,7 @@ import com.aipet.brain.memory.pet.PetStateEntity
         FaceProfileEntity::class,
         FaceProfileObservationLinkEntity::class,
         FaceProfileEmbeddingEntity::class,
+        UnknownFaceCandidateEntity::class,
         TeachSampleEntity::class,
         TeachSessionCompletionEntity::class,
         TraitsSnapshotEntity::class,
@@ -26,7 +27,7 @@ import com.aipet.brain.memory.pet.PetStateEntity
         PetProfileEntity::class,
         PetTraitEntity::class
     ],
-    version = 19,
+    version = 20,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -34,6 +35,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun personDao(): PersonDao
     abstract fun objectDao(): ObjectDao
     abstract fun faceProfileDao(): FaceProfileDao
+    abstract fun unknownFaceCandidateDao(): UnknownFaceCandidateDao
     abstract fun teachSampleDao(): TeachSampleDao
     abstract fun teachSessionCompletionDao(): TeachSessionCompletionDao
     abstract fun traitsSnapshotDao(): TraitsSnapshotDao
@@ -411,6 +413,46 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS `index_pet_traits_updated_at` ON `pet_traits` (`updated_at`)"
+                )
+            }
+        }
+
+        val MIGRATION_19_20: Migration = object : Migration(19, 20) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `unknown_face_candidates` (
+                        `candidate_id` TEXT NOT NULL,
+                        `status` TEXT NOT NULL,
+                        `representative_embedding_blob` BLOB NOT NULL,
+                        `embedding_dim` INTEGER NOT NULL,
+                        `preview_image_base64` TEXT,
+                        `first_seen_at_ms` INTEGER NOT NULL,
+                        `last_seen_at_ms` INTEGER NOT NULL,
+                        `seen_frame_count` INTEGER NOT NULL,
+                        `seen_encounter_count` INTEGER NOT NULL,
+                        `average_quality_score` REAL NOT NULL,
+                        `last_prompt_at_ms` INTEGER,
+                        `suppressed_until_ms` INTEGER,
+                        `closest_known_person_id` TEXT,
+                        `closest_known_similarity` REAL,
+                        `last_decision` TEXT NOT NULL,
+                        `updated_at_ms` INTEGER NOT NULL,
+                        PRIMARY KEY(`candidate_id`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_unknown_face_candidates_status` ON `unknown_face_candidates` (`status`)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_unknown_face_candidates_last_seen_at_ms` ON `unknown_face_candidates` (`last_seen_at_ms`)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_unknown_face_candidates_suppressed_until_ms` ON `unknown_face_candidates` (`suppressed_until_ms`)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_unknown_face_candidates_updated_at_ms` ON `unknown_face_candidates` (`updated_at_ms`)"
                 )
             }
         }

@@ -13,7 +13,31 @@ class PersonRecognitionService(
     private val nowProvider: () -> Long = { System.currentTimeMillis() }
 ) {
     suspend fun recognize(currentEmbedding: FloatArray): RecognitionResult {
-        val threshold = thresholdConfig.normalizedAcceptanceThreshold
+        return recognizeInternal(
+            currentEmbedding = currentEmbedding,
+            threshold = thresholdConfig.normalizedAcceptanceThreshold
+        )
+    }
+
+    suspend fun recognizeWithThreshold(
+        currentEmbedding: FloatArray,
+        acceptanceThreshold: Float
+    ): RecognitionResult {
+        val threshold = if (acceptanceThreshold.isFinite()) {
+            acceptanceThreshold.coerceIn(-1f, 1f)
+        } else {
+            thresholdConfig.normalizedAcceptanceThreshold
+        }
+        return recognizeInternal(
+            currentEmbedding = currentEmbedding,
+            threshold = threshold
+        )
+    }
+
+    private suspend fun recognizeInternal(
+        currentEmbedding: FloatArray,
+        threshold: Float
+    ): RecognitionResult {
         val decisionTimestamp = nowProvider()
         if (!currentEmbedding.isValidRawEmbedding()) {
             return createUnknownResult(

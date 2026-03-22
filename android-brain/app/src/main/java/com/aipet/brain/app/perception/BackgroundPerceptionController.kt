@@ -27,9 +27,9 @@ import java.util.concurrent.atomic.AtomicBoolean
  * The camera also stops automatically when the LifecycleOwner is destroyed.
  *
  * The base scan interval is [BASE_OBJECT_DETECTION_INTERVAL_MS] for object detection
- * and [BASE_FACE_CROP_INTERVAL_MS] for face crop emissions. Both can be temporarily
- * reduced to [ACTIVE_SCAN_INTERVAL_MS] by calling [boostScanRate] (e.g. when a person
- * is known to be nearby). The boost lasts for [BOOST_DURATION_MS].
+ * and [BASE_FACE_CROP_INTERVAL_MS] for face crop emissions. During boost, intervals are
+ * reduced to [ACTIVE_OBJECT_DETECTION_INTERVAL_MS] and [ACTIVE_FACE_CROP_INTERVAL_MS].
+ * The boost lasts for [BOOST_DURATION_MS].
  */
 class BackgroundPerceptionController(
     private val context: Context,
@@ -57,14 +57,14 @@ class BackgroundPerceptionController(
 
     private val currentFaceCropIntervalMs: Long
         get() = if (System.currentTimeMillis() < boostUntilMs) {
-            ACTIVE_SCAN_INTERVAL_MS
+            ACTIVE_FACE_CROP_INTERVAL_MS
         } else {
             BASE_FACE_CROP_INTERVAL_MS
         }
 
     private val currentObjectDetectionIntervalMs: Long
         get() = if (System.currentTimeMillis() < boostUntilMs) {
-            ACTIVE_SCAN_INTERVAL_MS
+            ACTIVE_OBJECT_DETECTION_INTERVAL_MS
         } else {
             BASE_OBJECT_DETECTION_INTERVAL_MS
         }
@@ -165,13 +165,16 @@ class BackgroundPerceptionController(
         private const val TAG = "BackgroundPerception"
 
         /** Base interval between face-crop emissions when idle. */
-        const val BASE_FACE_CROP_INTERVAL_MS = 5_000L
+        const val BASE_FACE_CROP_INTERVAL_MS = 1_000L
 
         /** Base interval between object detection runs when idle. */
         const val BASE_OBJECT_DETECTION_INTERVAL_MS = 5_000L
 
-        /** Reduced interval when scan boost is active (person nearby etc.). */
-        const val ACTIVE_SCAN_INTERVAL_MS = 1_000L
+        /** Reduced face-crop interval when scan boost is active. */
+        const val ACTIVE_FACE_CROP_INTERVAL_MS = 300L
+
+        /** Reduced object-detection interval when scan boost is active. */
+        const val ACTIVE_OBJECT_DETECTION_INTERVAL_MS = 1_000L
 
         /** How long a boost from [boostScanRate] lasts. */
         const val BOOST_DURATION_MS = 30_000L
