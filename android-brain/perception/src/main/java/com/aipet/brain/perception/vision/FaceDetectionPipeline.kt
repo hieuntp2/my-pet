@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 class FaceDetectionPipeline(
     private val onFacesDetected: (FaceDetectionResult) -> Unit,
     private val onDetectorFailure: ((Throwable) -> Unit)? = null,
-    private val onLiveFaceCropReady: ((faceCropBitmap: Bitmap, timestampMs: Long) -> Unit)? = null,
+    private val onLiveFaceCropReady: ((faceCropBitmap: Bitmap, timestampMs: Long, cameraRotation: Int) -> Unit)? = null,
     private val liveFaceCropIntervalMs: Long = LIVE_CROP_INTERVAL_MS,
 ) {
     private val detectorExecutor: ExecutorService = Executors.newSingleThreadExecutor()
@@ -175,7 +175,7 @@ class FaceDetectionPipeline(
         val croppedBitmap = cropResult.bitmap ?: return
         lastLiveCropTimestampMs = timestampMs
         runCatching {
-            callback(croppedBitmap, timestampMs)
+            callback(croppedBitmap, timestampMs, frameData.rotationDegrees)
         }.onFailure { error ->
             Log.w(TAG, "Live face crop callback threw an exception.", error)
             croppedBitmap.recycle()
@@ -382,7 +382,7 @@ class FaceDetectionPipeline(
         private const val U_PLANE_INDEX = 1
         private const val V_PLANE_INDEX = 2
         private const val CROP_VERIFICATION_INTERVAL_MS = 1_000L
-        private const val LIVE_CROP_INTERVAL_MS = 2_000L
+        private const val LIVE_CROP_INTERVAL_MS = 1_000L
     }
 
     private data class MlKitFrameData(

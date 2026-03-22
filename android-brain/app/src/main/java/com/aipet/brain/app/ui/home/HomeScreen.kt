@@ -117,6 +117,11 @@ fun HomeScreen(
             )
         }
 
+        KnownEntityCountsSection(
+            knownPersons = homeUiModel.knownPersons,
+            knownObjects = homeUiModel.knownObjects
+        )
+
         if (homeInteractionUiState.feedbackMessage != null) {
             StatusCard(
                 title = if (homeInteractionUiState.feedbackIsBlocked) {
@@ -199,6 +204,74 @@ private fun PetAvatarSurface(
         onTap = onTap,
         onLongPress = onLongPress
     )
+}
+
+@Composable
+private fun KnownEntityCountsSection(
+    knownPersons: List<HomeKnownEntityCount>,
+    knownObjects: List<HomeKnownEntityCount>
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        KnownEntityCountCard(
+            title = "Known people",
+            items = knownPersons,
+            emptyMessage = "No known people yet."
+        )
+        KnownEntityCountCard(
+            title = "Known objects",
+            items = knownObjects,
+            emptyMessage = "No known objects yet."
+        )
+    }
+}
+
+@Composable
+private fun KnownEntityCountCard(
+    title: String,
+    items: List<HomeKnownEntityCount>,
+    emptyMessage: String
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium
+            )
+            if (items.isEmpty()) {
+                Text(
+                    text = emptyMessage,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                items.forEach { item ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = item.name,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            text = "Seen ${item.seenCount}",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable

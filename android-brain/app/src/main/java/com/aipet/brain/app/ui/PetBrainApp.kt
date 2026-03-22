@@ -1,5 +1,7 @@
 package com.aipet.brain.app.ui
 
+import android.graphics.Bitmap
+import android.graphics.Matrix
 import android.util.Log
 import com.aipet.brain.app.BuildConfig
 import androidx.compose.material3.MaterialTheme
@@ -36,11 +38,13 @@ import com.aipet.brain.app.ui.audio.AudioPlaybackEngine
 import com.aipet.brain.app.ui.camera.CameraScreen
 import com.aipet.brain.app.ui.debug.AvatarAnimationDebugScreen
 import com.aipet.brain.app.ui.debug.DebugScreen
+import com.aipet.brain.app.ui.debug.FaceAutoEnrollDebugScreen
 import com.aipet.brain.app.ui.diary.DiaryScreen
 import com.aipet.brain.app.ui.debug.EventViewerScreen
 import com.aipet.brain.app.ui.debug.ObservationViewerScreen
 import com.aipet.brain.app.ui.debug.WorkingMemoryDebugScreen
 import com.aipet.brain.app.ui.home.HomeInteractionUiState
+import com.aipet.brain.app.ui.home.HomeKnownEntityCount
 import com.aipet.brain.app.ui.home.HomeScreen
 import com.aipet.brain.app.ui.home.HomeTodaySummaryResolver
 import com.aipet.brain.app.ui.home.HomeUiModelBuilder
@@ -152,6 +156,12 @@ import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import com.aipet.brain.app.ui.audio.model.AudioCategory
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import com.aipet.brain.app.perception.BackgroundPerceptionOrchestrator
+import com.aipet.brain.app.ui.perception.TeachUnknownDialog
+import com.aipet.brain.app.ui.perception.TeachUnknownTarget
+import com.aipet.brain.perception.vision.objectdetection.RealObjectDetectionEngine
+import com.aipet.brain.memory.persons.PersonRecord
 
 private enum class AppScreen {
     Home,
@@ -170,7 +180,8 @@ private enum class AppScreen {
     Traits,
     TeachPerson,
     PersonEditor,
-    PersonDetail
+    PersonDetail,
+    FaceAutoEnroll
 }
 
 @Composable
@@ -197,6 +208,8 @@ fun PetBrainApp() {
     var lastPublishedFaceCount by remember { mutableStateOf(0) }
     var recognizedPersonLabel by remember { mutableStateOf<String?>(null) }
     var recognitionProbeSummary by remember { mutableStateOf("not_run") }
+    // Unknown entity dialog state
+    var activeTeachTarget by remember { mutableStateOf<TeachUnknownTarget?>(null) }
     val database = remember(appContext) {
         Room.databaseBuilder(appContext, AppDatabase::class.java, AppDatabase.DB_NAME)
             .addMigrations(
@@ -222,14 +235,16 @@ fun PetBrainApp() {
             .fallbackToDestructiveMigrationOnDowngrade()
             .build()
     }
+    val personDao = remember(database) { database.personDao() }
+    val objectDao = remember(database) { database.objectDao() }
     val eventStore: EventStore = remember(database) {
         RoomEventStore(database.eventDao())
     }
-    val personStore: PersonStore = remember(database) {
-        RoomPersonStore(database.personDao())
+    val personStore: PersonStore = remember(personDao) {
+        RoomPersonStore(personDao)
     }
-    val objectRepository = remember(database) {
-        ObjectRepository(database.objectDao())
+    val objectRepository = remember(objectDao) {
+        ObjectRepository(objectDao)
     }
     val faceProfileStore: FaceProfileStore = remember(database, personStore) {
         RoomFaceProfileStore(
@@ -280,6 +295,24 @@ fun PetBrainApp() {
     }
     val homeTodaySummaryResolver = remember {
         HomeTodaySummaryResolver()
+    }
+    val knownPersonEntities by personDao.observeBySeenCount().collectAsState(initial = emptyList())
+    val knownObjectEntities by objectDao.observeBySeenCount().collectAsState(initial = emptyList())
+    val homeKnownPersons = remember(knownPersonEntities) {
+        knownPersonEntities.map { entity ->
+            HomeKnownEntityCount(
+                name = entity.displayName.ifBlank { "Unknown person" },
+                seenCount = entity.seenCount
+            )
+        }
+    }
+    val homeKnownObjects = remember(knownObjectEntities) {
+        knownObjectEntities.map { entity ->
+            HomeKnownEntityCount(
+                name = entity.name.ifBlank { "Unnamed object" },
+                seenCount = entity.seenCount
+            )
+        }
     }
     val diaryEvents by eventStore.observeLatest(limit = 400).collectAsState(initial = emptyList())
     val diaryMemoryCards = remember(diaryEvents, eventToMemoryCardMapper) {
@@ -604,7 +637,9 @@ fun PetBrainApp() {
         currentPetEmotion,
         currentPetConditions,
         currentPetTraits,
-        homeTodaySummary
+        homeTodaySummary,
+        homeKnownPersons,
+        homeKnownObjects
     ) {
         HomeUiModelBuilder.build(
             petName = activePetProfile?.name ?: PetProfileRepository.DEFAULT_PET_NAME,
@@ -612,7 +647,9 @@ fun PetBrainApp() {
             emotion = currentPetEmotion,
             conditions = currentPetConditions,
             traits = currentPetTraits,
-            todaySummary = homeTodaySummary
+            todaySummary = homeTodaySummary,
+            knownPersons = homeKnownPersons,
+            knownObjects = homeKnownObjects
         )
     }
     val homeInteractionUiState = remember(homeInteractionFeedback) {
@@ -846,6 +883,56 @@ fun PetBrainApp() {
         onDispose {
             audioPlaybackEngine.release()
             faceEmbeddingEngine.close()
+        }
+    }
+
+    // ── Background perception (camera eye running continuously) ──────────────────
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val objectDetectionEngineForBackground = remember(appContext) {
+        runCatching { RealObjectDetectionEngine(appContext.assets) }.getOrNull()
+    }
+    val backgroundOrchestrator = remember(
+        appContext,
+        lifecycleOwner,
+        coroutineScope,
+        eventBus,
+        faceEmbeddingEngine,
+        personRecognitionService,
+        recognitionDecisionEventPublisher,
+        objectDetectionEngineForBackground,
+        objectRepository
+    ) {
+        BackgroundPerceptionOrchestrator(
+            context = appContext,
+            lifecycleOwner = lifecycleOwner,
+            coroutineScope = coroutineScope,
+            eventBus = eventBus,
+            faceEmbeddingEngine = faceEmbeddingEngine,
+            personRecognitionService = personRecognitionService,
+            recognitionDecisionEventPublisher = recognitionDecisionEventPublisher,
+            objectDetectionEngine = objectDetectionEngineForBackground,
+            objectRepository = objectRepository,
+            onUnknownFaceDetected = { bitmap, _ ->
+                if (activeTeachTarget == null) {
+                    activeTeachTarget = TeachUnknownTarget.UnknownFace(bitmap)
+                }
+            },
+            onUnknownObjectDetected = { thumbnail, label, confidence, _ ->
+                if (activeTeachTarget == null) {
+                    activeTeachTarget = TeachUnknownTarget.UnknownObject(label, confidence, thumbnail)
+                }
+            }
+        )
+    }
+
+    LaunchedEffect(hasRequestedCameraPermission) {
+        backgroundOrchestrator.start()
+    }
+
+    DisposableEffect(backgroundOrchestrator, objectDetectionEngineForBackground) {
+        onDispose {
+            backgroundOrchestrator.release()
+            objectDetectionEngineForBackground?.close()
         }
     }
 
@@ -1223,6 +1310,7 @@ fun PetBrainApp() {
                     onNavigateToWorkingMemoryDebug = { currentScreenName = AppScreen.WorkingMemoryDebug.name },
                     onNavigateToCamera = { currentScreenName = AppScreen.Camera.name },
                     onNavigateToAudioDebug = { currentScreenName = AppScreen.AudioDebug.name },
+                    onNavigateToFaceAutoEnroll = { currentScreenName = AppScreen.FaceAutoEnroll.name },
                     showAvatarDebugAction = avatarDebugEnabled,
                     onNavigateToAvatarDebug = {
                         if (avatarDebugEnabled) {
@@ -1522,7 +1610,11 @@ fun PetBrainApp() {
                         }
                     },
                     recognizedPersonLabel = recognizedPersonLabel,
-                    onLiveFaceCropReady = { bitmap, _ ->
+                    onLiveFaceCropReady = { rawBitmap, _, cameraRotation ->
+                        // If the phone is in portrait orientation, the face crop from FaceCropper
+                        // is upright but the stored embeddings were generated from landscape-oriented
+                        // (raw sensor) frames. Rotate 90° to match that stored orientation.
+                        val bitmap = rotateBitmapForPortrait(rawBitmap, cameraRotation)
                         coroutineScope.launch(Dispatchers.Default) {
                             try {
                                 faceEmbeddingEngine.generateEmbedding(bitmap)
@@ -1530,10 +1622,40 @@ fun PetBrainApp() {
                                         val result = personRecognitionService.recognize(embedding)
                                         recognitionDecisionEventPublisher.publish(result)
                                         val personId = if (result.accepted) result.bestPersonId else null
-                                        val label = personId?.let { id ->
+
+                                        // Auto-learn: silently reinforce the face profile every time
+                                        // recognition is confident enough. This expands the profile
+                                        // over time without requiring manual re-teaching.
+                                        if (personId != null && result.bestScore >= AUTO_LEARN_MIN_SCORE) {
                                             withContext(Dispatchers.IO) {
-                                                personStore.getById(id)?.displayName ?: id
+                                                runCatching {
+                                                    autoLearnEmbeddingIfNeeded(
+                                                        personId = personId,
+                                                        embedding = embedding,
+                                                        faceProfileStore = faceProfileStore
+                                                    )
+                                                }.onFailure { error ->
+                                                    Log.w(
+                                                        CAMERA_RECOGNITION_TAG,
+                                                        "Auto-learn failed for personId=$personId: ${error.message}"
+                                                    )
+                                                }
                                             }
+                                        }
+
+                                        val label: String? = when {
+                                            personId != null -> {
+                                                val name = withContext(Dispatchers.IO) {
+                                                    personStore.getById(personId)?.displayName ?: personId
+                                                }
+                                                "$name (${String.format(java.util.Locale.US, "%.2f", result.bestScore)})"
+                                            }
+                                            result.bestScore >= RECOGNITION_NEAR_MISS_THRESHOLD -> {
+                                                // Below acceptance threshold but possibly the right person.
+                                                // Prefix "?" signals the overlay to use amber colour.
+                                                "? (${String.format(java.util.Locale.US, "%.2f", result.bestScore)})"
+                                            }
+                                            else -> null
                                         }
                                         withContext(Dispatchers.Main) {
                                             recognizedPersonLabel = label
@@ -1648,6 +1770,53 @@ fun PetBrainApp() {
                     faceProfileStore = faceProfileStore,
                     onNavigateBack = { currentScreenName = AppScreen.Persons.name }
                 )
+                AppScreen.FaceAutoEnroll -> FaceAutoEnrollDebugScreen(
+                    knownPersonEmbeddingsSource = knownPersonEmbeddingsSource,
+                    personRecognitionService = personRecognitionService,
+                    faceEmbeddingEngine = faceEmbeddingEngine,
+                    faceProfileStore = faceProfileStore,
+                    onNavigateBack = { currentScreenName = AppScreen.Debug.name },
+                    hasRequestedCameraPermission = hasRequestedCameraPermission,
+                    onPermissionRequestTracked = { hasRequestedCameraPermission = true }
+                )
+            }
+
+            // ── Unknown entity teach dialog — floats over all screens ──────────
+            activeTeachTarget?.let { target ->
+                TeachUnknownDialog(
+                    target = target,
+                    onSave = { name ->
+                        coroutineScope.launch {
+                            when (target) {
+                                is TeachUnknownTarget.UnknownFace -> {
+                                    withContext(Dispatchers.IO) {
+                                        val trimmedName = name.trim().take(MAX_PET_NAME_LENGTH)
+                                        personStore.insert(
+                                            PersonRecord(
+                                                personId = UUID.randomUUID().toString(),
+                                                displayName = trimmedName,
+                                                nickname = null,
+                                                isOwner = false,
+                                                createdAtMs = System.currentTimeMillis(),
+                                                updatedAtMs = System.currentTimeMillis(),
+                                                lastSeenAtMs = null,
+                                                seenCount = 0,
+                                                familiarityScore = 0f
+                                            )
+                                        )
+                                    }
+                                }
+                                is TeachUnknownTarget.UnknownObject -> {
+                                    withContext(Dispatchers.IO) {
+                                        objectRepository.createObject(name.trim())
+                                    }
+                                }
+                            }
+                            activeTeachTarget = null
+                        }
+                    },
+                    onDismiss = { activeTeachTarget = null }
+                )
             }
         }
     }
@@ -1721,6 +1890,53 @@ private const val DEBUG_OBJECT_STATS_TAG = "ObjectSeenStats"
 private const val DEBUG_OBJECT_ALIAS_TAG = "ObjectAliasResolver"
 private const val DEBUG_STARTUP_TAG = "PetBrainStartup"
 private const val MAX_PET_NAME_LENGTH = 24
+
+// Auto-learning: minimum recognition score (cosine similarity) before a live frame
+// embedding is added to the person's profile automatically.
+private const val AUTO_LEARN_MIN_SCORE = 0.60f
+
+// Cap total auto-learned embeddings per-person to avoid unbounded DB growth.
+private const val AUTO_LEARN_MAX_EMBEDDINGS_PER_PERSON = 20
+
+// Score at or above this threshold (but below acceptance) is shown as a near-miss
+// in the diagnostics overlay so the threshold can be tuned visually.
+private const val RECOGNITION_NEAR_MISS_THRESHOLD = 0.40f
+
+private suspend fun autoLearnEmbeddingIfNeeded(
+    personId: String,
+    embedding: FloatArray,
+    faceProfileStore: com.aipet.brain.memory.profiles.FaceProfileStore
+) {
+    val profiles = faceProfileStore.listProfilesForPerson(personId)
+    if (profiles.isEmpty()) return
+    val primaryProfile = profiles.first()
+    val existingEmbeddings = faceProfileStore.listProfileEmbeddings(primaryProfile.profileId)
+    if (existingEmbeddings.size >= AUTO_LEARN_MAX_EMBEDDINGS_PER_PERSON) return
+    faceProfileStore.addEmbeddingToProfile(
+        profileId = primaryProfile.profileId,
+        values = embedding.toList(),
+        metadata = "auto_learn_live_recognition"
+    )
+    android.util.Log.d(
+        CAMERA_RECOGNITION_TAG,
+        "Auto-learned face embedding for personId=$personId, total=${existingEmbeddings.size + 1}"
+    )
+}
+
+/**
+ * When the phone is portrait (cameraRotation 90° or 270°), FaceCropper produces an upright face
+ * crop that doesn't match embeddings trained/stored from landscape-oriented (raw sensor) captures.
+ * Rotate 90° CW to bring the crop back to the landscape-equivalent orientation.
+ *
+ * The original bitmap is recycled; callers must use the returned value.
+ */
+private fun rotateBitmapForPortrait(bitmap: Bitmap, cameraRotation: Int): Bitmap {
+    if (cameraRotation != 90 && cameraRotation != 270) return bitmap
+    val matrix = Matrix().apply { postRotate(90f) }
+    val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true)
+    bitmap.recycle()
+    return rotated
+}
 
 private data class StartupPetSnapshot(
     val profile: PetProfile,

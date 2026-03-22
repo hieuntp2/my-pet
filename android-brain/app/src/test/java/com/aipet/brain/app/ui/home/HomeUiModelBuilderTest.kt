@@ -62,6 +62,33 @@ class HomeUiModelBuilderTest {
     }
 
     @Test
+    fun `build carries known people and known object counts`() {
+        val model = HomeUiModelBuilder.build(
+            petName = "Cun",
+            petState = state(),
+            emotion = PetEmotion.HAPPY,
+            conditions = emptySet(),
+            knownPersons = listOf(
+                HomeKnownEntityCount(
+                    name = "Hieu",
+                    seenCount = 7
+                )
+            ),
+            knownObjects = listOf(
+                HomeKnownEntityCount(
+                    name = "Red ball",
+                    seenCount = 4
+                )
+            )
+        )
+
+        assertEquals("Hieu", model.knownPersons.first().name)
+        assertEquals(7, model.knownPersons.first().seenCount)
+        assertEquals("Red ball", model.knownObjects.first().name)
+        assertEquals(4, model.knownObjects.first().seenCount)
+    }
+
+    @Test
     fun `build prioritizes hungry status and user friendly indicator labels`() {
         val model = HomeUiModelBuilder.build(
             petName = "Cun",

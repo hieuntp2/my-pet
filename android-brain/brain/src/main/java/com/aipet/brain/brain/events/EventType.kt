@@ -37,6 +37,7 @@ enum class EventType {
     AUDIO_RESPONSE_STARTED,
     AUDIO_RESPONSE_COMPLETED,
     AUDIO_RESPONSE_SKIPPED,
+    UNKNOWN_OBJECT_DETECTED,
     UNKNOWN;
 
     companion object {

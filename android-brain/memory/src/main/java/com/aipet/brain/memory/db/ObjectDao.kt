@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface ObjectDao {
@@ -20,6 +21,14 @@ interface ObjectDao {
         """
     )
     suspend fun getAllObjects(): List<ObjectEntity>
+
+    @Query(
+        """
+        SELECT * FROM objects
+        ORDER BY seen_count DESC, last_seen_at_ms DESC, name ASC, object_id ASC
+        """
+    )
+    fun observeBySeenCount(): Flow<List<ObjectEntity>>
 
     @Query(
         """

@@ -4,10 +4,12 @@ import android.graphics.Bitmap
 import com.aipet.brain.perception.vision.face.embedding.model.PixelNormalization
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import org.tensorflow.lite.DataType
 
 class FaceEmbeddingPreprocessor(
     private val inputWidth: Int,
     private val inputHeight: Int,
+    private val inputDataType: DataType,
     private val pixelNormalization: PixelNormalization
 ) {
     private val inputPixelCount = inputWidth * inputHeight
@@ -15,6 +17,11 @@ class FaceEmbeddingPreprocessor(
     init {
         require(inputWidth > 0 && inputHeight > 0) {
             "Input dimensions must be positive."
+        }
+        require(
+            inputDataType == DataType.FLOAT32 || inputDataType == DataType.UINT8
+        ) {
+            "Unsupported face embedding input data type: $inputDataType"
         }
     }
 
@@ -35,7 +42,7 @@ class FaceEmbeddingPreprocessor(
                 }
 
                 val inputBuffer = ByteBuffer.allocateDirect(
-                    inputPixelCount * CHANNEL_COUNT * BYTES_PER_FLOAT
+                    inputPixelCount * CHANNEL_COUNT * bytesPerChannel(inputDataType)
                 ).order(ByteOrder.nativeOrder())
 
                 val pixels = IntArray(inputPixelCount)
@@ -54,9 +61,21 @@ class FaceEmbeddingPreprocessor(
                     val green = (pixel shr GREEN_SHIFT and CHANNEL_MASK).toFloat()
                     val blue = (pixel and CHANNEL_MASK).toFloat()
 
-                    inputBuffer.putFloat(normalize(red))
-                    inputBuffer.putFloat(normalize(green))
-                    inputBuffer.putFloat(normalize(blue))
+                    when (inputDataType) {
+                        DataType.FLOAT32 -> {
+                            inputBuffer.putFloat(normalize(red))
+                            inputBuffer.putFloat(normalize(green))
+                            inputBuffer.putFloat(normalize(blue))
+                        }
+
+                        DataType.UINT8 -> {
+                            inputBuffer.put(red.toInt().toByte())
+                            inputBuffer.put(green.toInt().toByte())
+                            inputBuffer.put(blue.toInt().toByte())
+                        }
+
+                        else -> error("Unsupported input type: $inputDataType")
+                    }
                 }
 
                 inputBuffer.rewind()
@@ -78,13 +97,22 @@ class FaceEmbeddingPreprocessor(
         }
     }
 
+    private fun bytesPerChannel(dataType: DataType): Int {
+        return when (dataType) {
+            DataType.FLOAT32 -> FLOAT_BYTES
+            DataType.UINT8 -> UINT8_BYTES
+            else -> error("Unsupported input type: $dataType")
+        }
+    }
+
     companion object {
         private const val CHANNEL_COUNT = 3
-        private const val BYTES_PER_FLOAT = 4
         private const val CHANNEL_MASK = 0xFF
         private const val RED_SHIFT = 16
         private const val GREEN_SHIFT = 8
         private const val MAX_COLOR_VALUE = 255f
         private const val COLOR_OFFSET = 127.5f
+        private const val FLOAT_BYTES = 4
+        private const val UINT8_BYTES = 1
     }
 }

@@ -6,6 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface PersonDao {
@@ -34,6 +35,14 @@ interface PersonDao {
         """
     )
     suspend fun listTopByFamiliarity(limit: Int): List<PersonEntity>
+
+    @Query(
+        """
+        SELECT * FROM persons
+        ORDER BY seen_count DESC, familiarity_score DESC, updated_at_ms DESC, person_id ASC
+        """
+    )
+    fun observeBySeenCount(): Flow<List<PersonEntity>>
 
     @Query("SELECT * FROM persons WHERE is_owner = 1 ORDER BY updated_at_ms DESC LIMIT 1")
     suspend fun getOwner(): PersonEntity?

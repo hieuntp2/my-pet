@@ -13,13 +13,20 @@ data class HomeUiModel(
     val moodLabel: String,
     val personalityLabel: String?,
     val todaySummary: HomeTodaySummary?,
-    val indicators: List<HomeStateIndicator>
+    val indicators: List<HomeStateIndicator>,
+    val knownPersons: List<HomeKnownEntityCount>,
+    val knownObjects: List<HomeKnownEntityCount>
 )
 
 data class HomeStateIndicator(
     val label: String,
     val value: String,
     val progress: Float
+)
+
+data class HomeKnownEntityCount(
+    val name: String,
+    val seenCount: Int
 )
 
 object HomeUiModelBuilder {
@@ -31,7 +38,9 @@ object HomeUiModelBuilder {
         emotion: PetEmotion,
         conditions: Set<PetCondition>,
         traits: PetTrait? = null,
-        todaySummary: HomeTodaySummary? = null
+        todaySummary: HomeTodaySummary? = null,
+        knownPersons: List<HomeKnownEntityCount> = emptyList(),
+        knownObjects: List<HomeKnownEntityCount> = emptyList()
     ): HomeUiModel {
         val safeName = petName.ifBlank { "Pet" }
         val state = petState
@@ -49,7 +58,9 @@ object HomeUiModelBuilder {
                     HomeStateIndicator(label = "Energy", value = "Starting up", progress = 0.5f),
                     HomeStateIndicator(label = "Hunger", value = "Unknown", progress = 0.3f),
                     HomeStateIndicator(label = "Company", value = "Unknown", progress = 0.5f)
-                )
+                ),
+                knownPersons = knownPersons,
+                knownObjects = knownObjects
             )
         }
         return HomeUiModel(
@@ -79,7 +90,9 @@ object HomeUiModelBuilder {
                     value = state.social.toCompanyLabel(),
                     progress = (100 - state.social).toProgress()
                 )
-            )
+            ),
+            knownPersons = knownPersons,
+            knownObjects = knownObjects
         )
     }
 

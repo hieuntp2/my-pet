@@ -22,7 +22,8 @@ class FrameAnalyzer(
     private val onDiagnostics: ((FrameDiagnostics) -> Unit)? = null,
     private val objectDetectionEngine: ObjectDetectionEngine? = null,
     private val minObjectDetectionIntervalMs: Long = DEFAULT_OBJECT_DETECTION_INTERVAL_MS,
-    private val onObjectDetectionResult: ((Result<ObjectDetectionResult>) -> Unit)? = null
+    private val onObjectDetectionResult: ((Result<ObjectDetectionResult>) -> Unit)? = null,
+    private val onFrameSnapshotCaptured: ((Bitmap) -> Unit)? = null
 ) : ImageAnalysis.Analyzer {
 
     private var lastEmittedAtMs: Long = 0L
@@ -109,6 +110,14 @@ class FrameAnalyzer(
                 rotationDegrees = imageProxy.imageInfo.rotationDegrees
             )
         } finally {
+            // Deliver a snapshot copy before recycling the original.
+            val frameSnapshotCallback = onFrameSnapshotCaptured
+            if (frameSnapshotCallback != null) {
+                runCatching {
+                    val snapshot = frameBitmap.copy(frameBitmap.config ?: Bitmap.Config.ARGB_8888, false)
+                    if (snapshot != null) frameSnapshotCallback(snapshot)
+                }.onFailure { Log.w(TAG, "Frame snapshot copy failed.") }
+            }
             if (!frameBitmap.isRecycled) {
                 frameBitmap.recycle()
             }

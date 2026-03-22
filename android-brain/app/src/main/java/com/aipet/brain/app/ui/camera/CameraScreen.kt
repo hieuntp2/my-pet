@@ -79,7 +79,7 @@ fun CameraScreen(
     onResolveKnownObjectLabel: suspend (canonicalLabel: String) -> String?,
     onRecordPersonLikeObservation: suspend (String?) -> Result<Unit>,
     onNavigateBack: () -> Unit,
-    onLiveFaceCropReady: ((Bitmap, Long) -> Unit)? = null,
+    onLiveFaceCropReady: ((Bitmap, Long, Int) -> Unit)? = null,
     recognizedPersonLabel: String? = null,
 ) {
     val context = LocalContext.current
@@ -370,8 +370,8 @@ fun CameraScreen(
                         onCaptureFaceSampleActionChanged = { action ->
                             captureFaceSampleAction = action
                         },
-                        onLiveFaceCropReady = { bitmap, ts ->
-                            onLiveFaceCropReadyState.value?.invoke(bitmap, ts)
+                        onLiveFaceCropReady = { bitmap, ts, rotation ->
+                            onLiveFaceCropReadyState.value?.invoke(bitmap, ts, rotation)
                         }
                     )
                     FaceOverlay(
@@ -523,7 +523,7 @@ private fun CameraPreview(
     onObjectDetectionResult: (Result<ObjectDetectionResult>) -> Unit,
     onModelLoadStateChanged: (CameraPerceptionModelLoadState) -> Unit,
     onCaptureFaceSampleActionChanged: (CaptureFaceSampleAction?) -> Unit,
-    onLiveFaceCropReady: ((Bitmap, Long) -> Unit)? = null,
+    onLiveFaceCropReady: ((Bitmap, Long, Int) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     if (!isCameraPermissionGranted(context)) {

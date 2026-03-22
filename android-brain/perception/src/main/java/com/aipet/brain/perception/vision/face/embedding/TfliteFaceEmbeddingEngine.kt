@@ -9,19 +9,17 @@ import com.aipet.brain.core.common.math.VectorMath
 import com.aipet.brain.perception.vision.face.embedding.model.FaceEmbeddingModelConfig
 import com.aipet.brain.perception.vision.face.embedding.preprocess.FaceEmbeddingPreprocessor
 import java.io.FileInputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.nio.channels.FileChannel
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
+import org.tensorflow.lite.DataType
 import org.tensorflow.lite.Interpreter
 
 class TfliteFaceEmbeddingEngine(
     private val assetManager: AssetManager,
-    private val modelConfig: FaceEmbeddingModelConfig = FaceEmbeddingModelConfig(),
-    private val preprocessor: FaceEmbeddingPreprocessor = FaceEmbeddingPreprocessor(
-        inputWidth = modelConfig.inputWidth,
-        inputHeight = modelConfig.inputHeight,
-        pixelNormalization = modelConfig.pixelNormalization
-    )
+    private val modelConfig: FaceEmbeddingModelConfig = FaceEmbeddingModelConfig()
 ) : FaceEmbeddingEngine {
 
     private val closed = AtomicBoolean(false)
@@ -31,29 +29,72 @@ class TfliteFaceEmbeddingEngine(
         modelAssetPath = modelConfig.modelAssetPath,
         numThreads = modelConfig.numThreads
     )
+    private val inputTensorSpec = resolveInputTensorSpec(interpreter)
+    private val outputTensorSpec = resolveOutputTensorSpec(interpreter)
+    private val preprocessor = FaceEmbeddingPreprocessor(
+        inputWidth = inputTensorSpec.width,
+        inputHeight = inputTensorSpec.height,
+        inputDataType = inputTensorSpec.dataType,
+        pixelNormalization = modelConfig.pixelNormalization
+    )
 
-    override val embeddingDimension: Int = resolveEmbeddingDimension(interpreter)
+    override val embeddingDimension: Int = outputTensorSpec.embeddingDimension
+
+    init {
+        Log.i(
+            TAG,
+            "Face embedding model loaded asset=${modelConfig.modelAssetPath}, " +
+                "input=${inputTensorSpec.width}x${inputTensorSpec.height} " +
+                "${inputTensorSpec.dataType} batch=${inputTensorSpec.batchSize} " +
+                "(${inputTensorSpec.byteCount} bytes), " +
+                "outputDim=$embeddingDimension outputBatch=${outputTensorSpec.batchSize}"
+        )
+        if (inputTensorSpec.batchSize > 1) {
+            Log.w(
+                TAG,
+                "Face embedding model input batch=${inputTensorSpec.batchSize}. " +
+                    "Engine duplicates each face sample across batch and uses the first embedding."
+            )
+        }
+    }
 
     override fun generateEmbedding(faceBitmap: Bitmap): Result<FloatArray> {
         if (closed.get()) {
             return Result.failure(IllegalStateException("Face embedding engine is closed."))
         }
 
-        val inputBuffer = preprocessor.toModelInput(faceBitmap).getOrElse { error ->
+        val singleSampleInput = preprocessor.toModelInput(faceBitmap).getOrElse { error ->
             Log.w(TAG, "Face embedding preprocessing failed: ${error.message}", error)
             return Result.failure(error)
         }
+        if (singleSampleInput.capacity() != inputTensorSpec.singleSampleByteCount) {
+            return Result.failure(
+                IllegalStateException(
+                    "Face embedding input buffer size mismatch: expectedSingleSample=" +
+                        "${inputTensorSpec.singleSampleByteCount}, actual=${singleSampleInput.capacity()}"
+                )
+            )
+        }
+        val modelInputBuffer = buildModelInputBuffer(singleSampleInput)
+        if (modelInputBuffer.capacity() != inputTensorSpec.byteCount) {
+            return Result.failure(
+                IllegalStateException(
+                    "Face embedding model input size mismatch: expected=${inputTensorSpec.byteCount}, " +
+                        "actual=${modelInputBuffer.capacity()}"
+                )
+            )
+        }
 
         return runCatching {
-            val outputTensor = Array(1) { FloatArray(embeddingDimension) }
+            val outputTensor = Array(outputTensorSpec.batchSize) { FloatArray(embeddingDimension) }
             val inferenceStartedNs = SystemClock.elapsedRealtimeNanos()
 
             synchronized(interpreterLock) {
-                inputBuffer.rewind()
-                interpreter.run(inputBuffer, outputTensor)
+                modelInputBuffer.rewind()
+                interpreter.run(modelInputBuffer, outputTensor)
             }
 
-            val normalized = VectorMath.l2Normalize(outputTensor[0])
+            val normalized = VectorMath.l2Normalize(outputTensor.first())
             val inferenceMs = (SystemClock.elapsedRealtimeNanos() - inferenceStartedNs) / NS_PER_MS
             Log.d(
                 TAG,
@@ -77,6 +118,26 @@ class TfliteFaceEmbeddingEngine(
                 Log.w(TAG, "Failed to close face embedding interpreter safely.", error)
             }
         }
+    }
+
+    private fun buildModelInputBuffer(singleSampleInput: ByteBuffer): ByteBuffer {
+        if (inputTensorSpec.batchSize == 1) {
+            singleSampleInput.rewind()
+            return singleSampleInput
+        }
+
+        val sampleBytes = ByteArray(inputTensorSpec.singleSampleByteCount)
+        val sampleReader = singleSampleInput.duplicate()
+        sampleReader.rewind()
+        sampleReader.get(sampleBytes)
+
+        val batchedInput = ByteBuffer.allocateDirect(inputTensorSpec.byteCount)
+            .order(ByteOrder.nativeOrder())
+        repeat(inputTensorSpec.batchSize) {
+            batchedInput.put(sampleBytes)
+        }
+        batchedInput.rewind()
+        return batchedInput
     }
 
     private fun createInterpreter(
@@ -108,16 +169,76 @@ class TfliteFaceEmbeddingEngine(
         }
     }
 
-    private fun resolveEmbeddingDimension(interpreter: Interpreter): Int {
+    private fun resolveOutputTensorSpec(interpreter: Interpreter): OutputTensorSpec {
         val outputShape = interpreter.getOutputTensor(OUTPUT_TENSOR_INDEX).shape()
         if (outputShape.isEmpty()) {
             throw IllegalStateException("Face embedding model output tensor shape is empty.")
+        }
+        val batchSize = if (outputShape.size > 1) {
+            outputShape[BATCH_DIMENSION_INDEX]
+        } else {
+            1
+        }
+        require(batchSize > 0) {
+            "Face embedding model output batch size is invalid: $batchSize"
         }
         val candidateDimension = outputShape.last()
         require(candidateDimension > 0) {
             "Face embedding model output dimension is invalid: $candidateDimension"
         }
-        return candidateDimension
+
+        val outputDataType = interpreter.getOutputTensor(OUTPUT_TENSOR_INDEX).dataType()
+        require(outputDataType == DataType.FLOAT32) {
+            "Unsupported face embedding output data type: $outputDataType"
+        }
+
+        return OutputTensorSpec(
+            batchSize = batchSize,
+            embeddingDimension = candidateDimension
+        )
+    }
+
+    private fun resolveInputTensorSpec(interpreter: Interpreter): InputTensorSpec {
+        val tensor = interpreter.getInputTensor(INPUT_TENSOR_INDEX)
+        val shape = tensor.shape()
+        require(shape.size == INPUT_DIMENSION_COUNT) {
+            "Face embedding model input must be 4D but was ${shape.contentToString()}"
+        }
+        val batchSize = shape[BATCH_DIMENSION_INDEX]
+        require(batchSize > 0) {
+            "Face embedding model batch size is invalid: $batchSize"
+        }
+        require(shape[CHANNEL_DIMENSION_INDEX] == RGB_CHANNEL_COUNT) {
+            "Face embedding model must use RGB input channels but was ${shape[CHANNEL_DIMENSION_INDEX]}"
+        }
+
+        val width = shape[WIDTH_DIMENSION_INDEX]
+        val height = shape[HEIGHT_DIMENSION_INDEX]
+        require(width > 0 && height > 0) {
+            "Face embedding input dimensions are invalid: ${shape.contentToString()}"
+        }
+
+        val dataType = tensor.dataType()
+        require(dataType == DataType.FLOAT32 || dataType == DataType.UINT8) {
+            "Unsupported face embedding input data type: $dataType"
+        }
+
+        val byteCount = tensor.numBytes()
+        require(byteCount > 0) {
+            "Face embedding model input byte size is invalid: $byteCount"
+        }
+        require(byteCount % batchSize == 0) {
+            "Face embedding model input byte size is not divisible by batch size: bytes=$byteCount, batch=$batchSize"
+        }
+
+        return InputTensorSpec(
+            batchSize = batchSize,
+            width = width,
+            height = height,
+            dataType = dataType,
+            byteCount = byteCount,
+            singleSampleByteCount = byteCount / batchSize
+        )
     }
 
     private fun FloatArray.previewValues(): String {
@@ -150,8 +271,29 @@ class TfliteFaceEmbeddingEngine(
 
     companion object {
         private const val TAG = "FaceEmbeddingEngine"
+        private const val INPUT_TENSOR_INDEX = 0
         private const val OUTPUT_TENSOR_INDEX = 0
+        private const val INPUT_DIMENSION_COUNT = 4
+        private const val BATCH_DIMENSION_INDEX = 0
+        private const val HEIGHT_DIMENSION_INDEX = 1
+        private const val WIDTH_DIMENSION_INDEX = 2
+        private const val CHANNEL_DIMENSION_INDEX = 3
+        private const val RGB_CHANNEL_COUNT = 3
         private const val NS_PER_MS = 1_000_000L
         private const val PREVIEW_VALUE_COUNT = 3
     }
+
+    private data class InputTensorSpec(
+        val batchSize: Int,
+        val width: Int,
+        val height: Int,
+        val dataType: DataType,
+        val byteCount: Int,
+        val singleSampleByteCount: Int
+    )
+
+    private data class OutputTensorSpec(
+        val batchSize: Int,
+        val embeddingDimension: Int
+    )
 }

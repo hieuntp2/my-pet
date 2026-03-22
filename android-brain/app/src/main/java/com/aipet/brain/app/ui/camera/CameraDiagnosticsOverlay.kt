@@ -51,7 +51,11 @@ internal fun CameraDiagnosticsOverlay(
             Text(
                 text = "Person: ${recognizedPersonLabel ?: "—"}",
                 style = MaterialTheme.typography.bodySmall,
-                color = if (recognizedPersonLabel != null) Color(0xFF90EE90) else Color.White
+                color = when {
+                    recognizedPersonLabel == null -> Color.White
+                    recognizedPersonLabel.startsWith("?") -> Color(0xFFFFB74D) // amber — near-miss
+                    else -> Color(0xFF90EE90) // green — recognized
+                }
             )
             Text(
                 text = "Object: $topObjectLabel",

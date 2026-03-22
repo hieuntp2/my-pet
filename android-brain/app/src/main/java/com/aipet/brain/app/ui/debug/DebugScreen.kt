@@ -68,6 +68,7 @@ fun DebugScreen(
     onNavigateToWorkingMemoryDebug: () -> Unit,
     onNavigateToCamera: () -> Unit,
     onNavigateToAudioDebug: () -> Unit,
+    onNavigateToFaceAutoEnroll: () -> Unit,
     showAvatarDebugAction: Boolean,
     onNavigateToAvatarDebug: () -> Unit,
     onForceSleep: () -> Unit,
@@ -264,6 +265,7 @@ fun DebugScreen(
         DebugNavButton(label = "Profile Associations", onClick = onNavigateToProfileAssociations)
         DebugNavButton(label = "Camera", onClick = onNavigateToCamera)
         DebugNavButton(label = "Audio Debug", onClick = onNavigateToAudioDebug)
+        DebugNavButton(label = "Face Auto-Enroll", onClick = onNavigateToFaceAutoEnroll)
         if (showAvatarDebugAction) {
             DebugNavButton(label = "Avatar Debug", onClick = onNavigateToAvatarDebug)
         }
