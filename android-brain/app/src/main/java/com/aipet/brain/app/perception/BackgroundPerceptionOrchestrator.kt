@@ -99,6 +99,17 @@ class BackgroundPerceptionOrchestrator(
         controller.release()
     }
 
+    fun inspectUnknownObjectPromptSuppression(
+        canonicalLabel: String?,
+        nowMs: Long = System.currentTimeMillis()
+    ): UnknownObjectPromptSuppressionDebugState {
+        return inspectUnknownObjectPromptSuppression(
+            canonicalLabel = canonicalLabel,
+            suppressedUntilByLabel = unknownObjectCooldowns,
+            nowMs = nowMs
+        )
+    }
+
     fun suppressUnknownFaceCandidate(
         candidateId: String,
         reason: String = "dialog_skipped"
@@ -1107,6 +1118,13 @@ class BackgroundPerceptionOrchestrator(
         private const val MIN_FACE_RECOGNITION_QUALITY_SCORE = 0.28f
     }
 }
+
+data class UnknownObjectPromptSuppressionDebugState(
+    val canonicalLabel: String? = null,
+    val isSuppressed: Boolean = false,
+    val suppressedUntilMs: Long? = null,
+    val remainingMs: Long = 0L
+)
 
 private data class ClosestKnownProbe(
     val closestPersonId: String?,

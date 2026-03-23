@@ -52,6 +52,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.aipet.brain.app.settings.CameraSelection
+import com.aipet.brain.app.perception.UnknownObjectPromptSuppressionDebugState
 import com.aipet.brain.perception.camera.FrameAnalyzer
 import com.aipet.brain.perception.camera.FrameDiagnostics
 import com.aipet.brain.perception.vision.FaceDetectionPipeline
@@ -60,7 +61,6 @@ import com.aipet.brain.perception.vision.model.FaceDetectionResult
 import com.aipet.brain.perception.vision.objectdetection.RealObjectDetectionEngine
 import com.aipet.brain.perception.vision.objectdetection.model.ObjectDetectionResult
 import java.io.File
-import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -77,6 +77,7 @@ fun CameraScreen(
     onFaceDetectionResult: (FaceDetectionResult) -> Unit,
     onObjectDetected: (label: String, confidence: Float, detectedAtMs: Long) -> Unit,
     onResolveKnownObjectLabel: suspend (canonicalLabel: String) -> String?,
+    onInspectUnknownObjectPromptSuppression: suspend (canonicalLabel: String?) -> UnknownObjectPromptSuppressionDebugState,
     onRecordPersonLikeObservation: suspend (String?) -> Result<Unit>,
     onNavigateBack: () -> Unit,
     onLiveFaceCropReady: ((Bitmap, Long, Int) -> Unit)? = null,
@@ -93,6 +94,8 @@ fun CameraScreen(
     val onObjectDetectedState = rememberUpdatedState(onObjectDetected)
     val onLiveFaceCropReadyState = rememberUpdatedState(onLiveFaceCropReady)
     val onResolveKnownObjectLabelState = rememberUpdatedState(onResolveKnownObjectLabel)
+    val onInspectUnknownObjectPromptSuppressionState =
+        rememberUpdatedState(onInspectUnknownObjectPromptSuppression)
     var permissionState by remember(context, hasRequestedPermission) {
         mutableStateOf(resolveCameraPermissionState(context, hasRequestedPermission))
     }
@@ -109,6 +112,9 @@ fun CameraScreen(
     var topObjectLabelState by remember {
         mutableStateOf(CameraTopObjectLabelState.noDetection())
     }
+    var objectPerceptionDebugState by remember {
+        mutableStateOf(CameraObjectPerceptionDebugState.empty())
+    }
     val coroutineScope = rememberCoroutineScope()
 
     LaunchedEffect(context, hasRequestedPermission) {
@@ -123,6 +129,7 @@ fun CameraScreen(
             captureFaceSampleAction = null
             perceptionModelLoadState = CameraPerceptionModelLoadState()
             topObjectLabelState = CameraTopObjectLabelState.noDetection()
+            objectPerceptionDebugState = CameraObjectPerceptionDebugState.empty()
         }
     }
     LaunchedEffect(selectedCamera) {
@@ -130,6 +137,7 @@ fun CameraScreen(
         latestFaceCount = 0
         captureFaceSampleAction = null
         topObjectLabelState = CameraTopObjectLabelState.noDetection()
+        objectPerceptionDebugState = CameraObjectPerceptionDebugState.empty()
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(
@@ -170,15 +178,19 @@ fun CameraScreen(
                                     CAMERA_UI_TAG,
                                     "Object label UI update: no detection available; showing fallback='$NO_OBJECT_LABEL'."
                                 )
+                                objectPerceptionDebugState = CameraObjectPerceptionDebugState(
+                                    modelName = detectionResult.modelName,
+                                    inferenceDurationMs = detectionResult.inferenceDurationMs,
+                                    updatedAtMs = detectionResult.timestampMs
+                                )
                                 CameraTopObjectLabelState.noDetection()
                             } else {
-                                val resolvedLabel = resolveObjectLabelForDisplay(topDetection.label)
-                                val canonicalLabel = resolvedLabel.label
-                                val normalizedConfidence = topDetection.confidence
-                                    .takeIf { it.isFinite() }
-                                    ?.coerceIn(0f, 1f)
-                                val preferredDisplayLabel = if (resolvedLabel.fallbackReason == null) {
-                                    runCatching {
+                                val knownObjectDisplayNames = linkedMapOf<String, String?>()
+                                suspend fun resolveKnownDisplayName(canonicalLabel: String): String? {
+                                    if (knownObjectDisplayNames.containsKey(canonicalLabel)) {
+                                        return knownObjectDisplayNames[canonicalLabel]
+                                    }
+                                    val resolvedName = runCatching {
                                         onResolveKnownObjectLabelState.value(canonicalLabel)
                                     }.onFailure { lookupError ->
                                         Log.w(
@@ -189,10 +201,35 @@ fun CameraScreen(
                                     }.getOrNull()
                                         ?.trim()
                                         ?.takeIf { candidate -> candidate.isNotBlank() }
-                                        ?: canonicalLabel
-                                } else {
-                                    canonicalLabel
+                                    knownObjectDisplayNames[canonicalLabel] = resolvedName
+                                    return resolvedName
                                 }
+                                val resolvedLabel = resolveObjectLabelForDisplay(topDetection.label)
+                                val canonicalLabel = resolvedLabel.label
+                                val normalizedConfidence = topDetection.confidence
+                                    .takeIf { it.isFinite() }
+                                    ?.coerceIn(0f, 1f)
+                                val knownDisplayNamesByCanonical = linkedMapOf<String, String?>()
+                                detectionResult.detections.forEach { detection ->
+                                    val mappedLabel = resolveObjectLabelForDisplay(detection.label)
+                                    if (mappedLabel.fallbackReason == null && !knownDisplayNamesByCanonical.containsKey(mappedLabel.label)) {
+                                        knownDisplayNamesByCanonical[mappedLabel.label] = resolveKnownDisplayName(mappedLabel.label)
+                                    }
+                                }
+                                val preferredDisplayLabel = preferredObjectDisplayLabel(
+                                    rawLabel = topDetection.label,
+                                    knownDisplayNamesByCanonical = knownDisplayNamesByCanonical
+                                )
+                                val promptSuppression = if (resolvedLabel.fallbackReason == null) {
+                                    onInspectUnknownObjectPromptSuppressionState.value(canonicalLabel)
+                                } else {
+                                    UnknownObjectPromptSuppressionDebugState()
+                                }
+                                objectPerceptionDebugState = buildCameraObjectPerceptionDebugState(
+                                    detectionResult = detectionResult,
+                                    knownDisplayNamesByCanonical = knownDisplayNamesByCanonical,
+                                    promptSuppression = promptSuppression
+                                )
                                 if (resolvedLabel.fallbackReason == null) {
                                     if (preferredDisplayLabel == canonicalLabel) {
                                         Log.i(
@@ -260,6 +297,7 @@ fun CameraScreen(
                                 "Object label UI update failed; showing fallback='$NO_OBJECT_LABEL'.",
                                 error
                             )
+                            objectPerceptionDebugState = CameraObjectPerceptionDebugState.empty()
                             CameraTopObjectLabelState.noDetection()
                         }
                     )
@@ -386,6 +424,7 @@ fun CameraScreen(
                         faceCount = latestFaceCount,
                         topObjectLabel = topObjectLabelState.displayLabel,
                         topObjectConfidence = topObjectLabelState.confidence,
+                        objectPerceptionDebugState = objectPerceptionDebugState,
                         recognizedPersonLabel = recognizedPersonLabel,
                         perceptionLoopState = perceptionLoopState,
                         avatarPerceptionState = avatarPerceptionState,
@@ -919,38 +958,7 @@ private data class CameraTopObjectLabelState(
     }
 }
 
-private data class ResolvedObjectLabel(
-    val label: String,
-    val fallbackReason: String? = null
-)
-
-private fun resolveObjectLabelForDisplay(rawLabel: String?): ResolvedObjectLabel {
-    val sanitized = rawLabel?.trim().orEmpty()
-    if (sanitized.isBlank()) {
-        return ResolvedObjectLabel(
-            label = UNKNOWN_OBJECT_LABEL,
-            fallbackReason = "missing_label"
-        )
-    }
-    if (sanitized == OBJECT_UNKNOWN_TOKEN || sanitized.startsWith(OBJECT_CLASS_FALLBACK_PREFIX)) {
-        return ResolvedObjectLabel(
-            label = UNKNOWN_OBJECT_LABEL,
-            fallbackReason = "class_id_fallback:$sanitized"
-        )
-    }
-    return ResolvedObjectLabel(label = sanitized)
-}
-
-private fun formatConfidence(confidence: Float?): String {
-    return confidence?.let { value ->
-        String.format(Locale.US, "%.3f", value)
-    } ?: "n/a"
-}
-
 private const val FACE_SAMPLE_DIRECTORY = "face_samples/captured"
 private const val FACE_SAMPLE_JPEG_QUALITY = 92
 private const val CAMERA_UI_TAG = "CameraObjectLabel"
 private const val NO_OBJECT_LABEL = "none"
-private const val UNKNOWN_OBJECT_LABEL = "Unknown object"
-private const val OBJECT_UNKNOWN_TOKEN = "???"
-private const val OBJECT_CLASS_FALLBACK_PREFIX = "class_"

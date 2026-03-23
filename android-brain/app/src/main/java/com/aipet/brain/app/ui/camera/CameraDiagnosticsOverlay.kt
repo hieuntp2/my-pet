@@ -22,6 +22,7 @@ internal fun CameraDiagnosticsOverlay(
     faceCount: Int,
     topObjectLabel: String,
     topObjectConfidence: Float?,
+    objectPerceptionDebugState: CameraObjectPerceptionDebugState,
     modifier: Modifier = Modifier,
     recognizedPersonLabel: String? = null,
     perceptionLoopState: String = "idle",
@@ -83,6 +84,50 @@ internal fun CameraDiagnosticsOverlay(
                 style = MaterialTheme.typography.bodySmall,
                 color = Color.White
             )
+            Text(
+                text = "Object model: ${objectPerceptionDebugState.modelName ?: "n/a"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White
+            )
+            Text(
+                text = "Object inference: ${objectPerceptionDebugState.inferenceDurationMs?.let { "$it ms" } ?: "n/a"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.White
+            )
+            val promptSuppression = objectPerceptionDebugState.promptSuppression
+            Text(
+                text = formatPromptCooldownText(promptSuppression),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (promptSuppression.isSuppressed) Color(0xFFFFCC80) else Color.White
+            )
+            if (objectPerceptionDebugState.detections.isEmpty()) {
+                Text(
+                    text = "Top detections: none",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White
+                )
+            } else {
+                Text(
+                    text = "Top detections:",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color.White
+                )
+                objectPerceptionDebugState.detections.forEachIndexed { index, detection ->
+                    Text(
+                        text = formatDetectionSummaryLine(
+                            index = index,
+                            detection = detection,
+                            nowMs = System.currentTimeMillis()
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = when (detection.knownState) {
+                            CameraObjectKnownState.KNOWN -> Color(0xFF90EE90)
+                            CameraObjectKnownState.UNKNOWN -> Color.White
+                            CameraObjectKnownState.UNRESOLVED -> Color(0xFFFFE082)
+                        }
+                    )
+                }
+            }
 
             if (diagnostics == null) {
                 Text(

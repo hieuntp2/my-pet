@@ -26,6 +26,9 @@ class TfliteObjectDetectionEngine(
     private val modelConfig: ObjectDetectionModelConfig = ObjectDetectionModelConfig()
 ) : ObjectDetectionEngine {
 
+    override val modelName: String = resolveObjectDetectionModelName(modelConfig.modelAssetPath)
+        ?: modelConfig.modelAssetPath
+
     private val closed = AtomicBoolean(false)
     private val interpreterLock = Any()
     private val interpreter = createInterpreter(
@@ -100,6 +103,10 @@ class TfliteObjectDetectionEngine(
             )
             ObjectDetectionResult(
                 timestampMs = timestampMs,
+                sourceFrameWidth = preprocessedFrame.sourceFrameWidth,
+                sourceFrameHeight = preprocessedFrame.sourceFrameHeight,
+                modelName = modelName,
+                inferenceDurationMs = inferenceMs,
                 detections = detections
             )
         }.onFailure { error ->
