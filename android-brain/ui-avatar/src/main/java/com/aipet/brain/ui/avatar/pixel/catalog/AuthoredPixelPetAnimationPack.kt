@@ -1116,7 +1116,6 @@ object AuthoredPixelPetAnimationPack {
         }
 
         private fun fillRect(
-        private fun fillRect(
             pixels: MutableList<Int>,
             xRange: IntRange,
             yRange: IntRange,
