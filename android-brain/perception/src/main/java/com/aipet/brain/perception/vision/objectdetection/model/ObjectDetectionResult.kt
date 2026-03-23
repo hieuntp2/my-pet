@@ -2,6 +2,10 @@ package com.aipet.brain.perception.vision.objectdetection.model
 
 data class ObjectDetectionResult(
     val timestampMs: Long,
+    val sourceFrameWidth: Int,
+    val sourceFrameHeight: Int,
+    val modelName: String? = null,
+    val inferenceDurationMs: Long? = null,
     val detections: List<DetectedObject>
 )
 

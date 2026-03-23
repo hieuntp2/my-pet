@@ -19,6 +19,9 @@ class RealObjectDetectionEngine(
         modelConfig = modelConfig
     )
 
+    override val modelName: String?
+        get() = delegate.modelName
+
     override fun detectObjects(
         frameBitmap: Bitmap,
         timestampMs: Long,

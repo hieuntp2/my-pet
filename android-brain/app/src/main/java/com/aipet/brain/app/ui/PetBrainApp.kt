@@ -1658,6 +1658,9 @@ fun PetBrainApp() {
                         }
                         resolvedDisplayName
                     },
+                    onInspectUnknownObjectPromptSuppression = { canonicalLabel ->
+                        backgroundOrchestrator.inspectUnknownObjectPromptSuppression(canonicalLabel)
+                    },
                     onRecordPersonLikeObservation = { note ->
                         try {
                             observationRecorder.recordPersonLikeObservation(
