@@ -24,6 +24,10 @@ interface KeywordSpotter {
     fun processFrame(frame: AudioFrame): KeywordDetectionResult?
 
     fun setDetectionListener(listener: KeywordDetectionListener?)
+
+    fun release() {
+        stop()
+    }
 }
 
 fun interface KeywordDetectionListener {

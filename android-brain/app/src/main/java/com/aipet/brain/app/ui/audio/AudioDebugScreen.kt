@@ -114,7 +114,9 @@ fun AudioDebugScreen(
     val keywordSpottingConfig by keywordSpottingConfigStore.config.collectAsState(
         initial = KeywordSpottingConfig.DEFAULT
     )
-    val keywordSpotterFactory = remember { KeywordSpotterFactory() }
+    val keywordSpotterFactory = remember(context.applicationContext) {
+        KeywordSpotterFactory(context.applicationContext)
+    }
     var keywordProviderRuntimeNote by remember { mutableStateOf<String?>(null) }
     var keywordSpotterRuntimeState by remember { mutableStateOf(KeywordSpotterState.IDLE) }
     var keywordDetectionCount by remember { mutableStateOf(0L) }

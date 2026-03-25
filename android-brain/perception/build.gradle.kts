@@ -1,6 +1,9 @@
 val cameraXVersion = property("dep.cameraX").toString()
 val mlKitFaceDetectionVersion = property("dep.mlKitFaceDetection").toString()
 val liteRtVersion = property("dep.liteRt").toString()
+val voskAndroidVersion = property("dep.voskAndroid").toString()
+val jnaVersion = property("dep.jna").toString()
+val junitVersion = property("dep.junit4").toString()
 
 plugins {
     id("com.android.library")
@@ -29,4 +32,8 @@ dependencies {
     implementation("androidx.camera:camera-core:$cameraXVersion")
     implementation("com.google.mlkit:face-detection:$mlKitFaceDetectionVersion")
     implementation("com.google.ai.edge.litert:litert:$liteRtVersion")
+    implementation("com.alphacephei:vosk-android:$voskAndroidVersion@aar")
+    implementation("net.java.dev.jna:jna:$jnaVersion@aar")
+
+    testImplementation("junit:junit:$junitVersion")
 }

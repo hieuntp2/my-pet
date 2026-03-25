@@ -298,6 +298,7 @@ class AudioCaptureController(
 
     private fun processKeywordFrame(frame: AudioFrame) {
         val activeSpotter = keywordSpotter ?: return
+        latestKeywordSpotterState = activeSpotter.state()
         if (latestKeywordSpotterState != KeywordSpotterState.RUNNING) {
             return
         }
@@ -371,6 +372,11 @@ class AudioCaptureController(
             spotter.stop()
         } catch (error: Throwable) {
             Log.w(TAG, "Keyword spotter stop failed during detach. spotterId=${spotter.spotterId}", error)
+        }
+        try {
+            spotter.release()
+        } catch (error: Throwable) {
+            Log.w(TAG, "Keyword spotter release failed during detach. spotterId=${spotter.spotterId}", error)
         }
     }
 

@@ -16,6 +16,10 @@ enum class KeywordSpottingProvider(
         persistedValue = "tflite",
         displayName = "TensorFlow Lite"
     ),
+    VOSK(
+        persistedValue = "vosk",
+        displayName = "Vosk"
+    ),
     CUSTOM(
         persistedValue = "custom",
         displayName = "Custom"
