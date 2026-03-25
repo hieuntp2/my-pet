@@ -9,6 +9,8 @@ import com.aipet.brain.brain.events.PersonRecognizedPayload
 import com.aipet.brain.brain.events.PersonSeenEventPayload
 import com.aipet.brain.brain.logic.audio.AudioMeaningfulStimulusPolicy
 import com.aipet.brain.brain.logic.audio.AudioStimulusMapper
+import com.aipet.brain.brain.logic.audio.MeaningfulAudioStimulusGate
+import com.aipet.brain.brain.logic.audio.MeaningfulAudioStimulusRejectionReason
 import kotlinx.coroutines.flow.collect
 
 class WorkingMemoryUpdater(
@@ -17,6 +19,11 @@ class WorkingMemoryUpdater(
     private val audioStimulusMapper: AudioStimulusMapper = AudioStimulusMapper(),
     private val audioMeaningfulStimulusPolicy: AudioMeaningfulStimulusPolicy = AudioMeaningfulStimulusPolicy()
 ) {
+    private val meaningfulAudioStimulusGate = MeaningfulAudioStimulusGate(
+        audioStimulusMapper = audioStimulusMapper,
+        audioMeaningfulStimulusPolicy = audioMeaningfulStimulusPolicy
+    )
+
     suspend fun observeEventsAndUpdateMemory() {
         eventBus.observe().collect { event ->
             when (event.type) {
@@ -90,21 +97,27 @@ class WorkingMemoryUpdater(
     }
 
     private fun handleAudioStimulusMemoryUpdate(event: EventEnvelope) {
-        val stimulus = audioStimulusMapper.map(event) ?: run {
-            Log.w(
-                TAG,
-                "Ignored audio event for working memory update due to invalid payload. " +
-                    "eventType=${event.type.name}, eventId=${event.eventId}"
-            )
-            return
-        }
-        val meaningfulStimulus = audioMeaningfulStimulusPolicy.evaluate(stimulus)
+        val gateResult = meaningfulAudioStimulusGate.evaluate(event)
+        val meaningfulStimulus = gateResult.meaningfulStimulus
         if (meaningfulStimulus == null) {
-            Log.d(
-                TAG,
-                "Audio stimulus ignored for lastStimulusTs update. source=${stimulus.sourceEventType.name}, " +
-                    "stimulusTs=${stimulus.timestampMs}"
-            )
+            when (gateResult.rejectionReason) {
+                MeaningfulAudioStimulusRejectionReason.INVALID_PAYLOAD -> {
+                    Log.w(
+                        TAG,
+                        "Ignored audio event for working memory update due to invalid payload. " +
+                            "eventType=${event.type.name}, eventId=${event.eventId}"
+                    )
+                }
+
+                MeaningfulAudioStimulusRejectionReason.POLICY_REJECTED,
+                null -> {
+                    Log.d(
+                        TAG,
+                        "Audio stimulus ignored for lastStimulusTs update. source=${gateResult.sourceEventType.name}, " +
+                            "stimulusTs=${gateResult.timestampMs}"
+                    )
+                }
+            }
             return
         }
         val previousStimulusTs = workingMemoryStore.currentSnapshot().lastStimulusTs

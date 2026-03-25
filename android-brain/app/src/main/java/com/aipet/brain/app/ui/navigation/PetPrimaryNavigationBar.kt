@@ -2,14 +2,12 @@ package com.aipet.brain.app.ui.navigation
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.material3.Button
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.aipet.brain.app.ui.components.SelectableButton
 
 enum class PetPrimaryDestination {
     Home,
@@ -51,25 +49,17 @@ fun PetPrimaryNavigationBar(
 }
 
 @Composable
-private fun RowScope.NavigationButton(
+private fun NavigationButton(
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    if (selected) {
-        Button(
-            onClick = onClick,
-            modifier = modifier
-        ) {
-            Text(text = label)
-        }
-    } else {
-        OutlinedButton(
-            onClick = onClick,
-            modifier = modifier
-        ) {
-            Text(text = label)
-        }
+    SelectableButton(
+        selected = selected,
+        onClick = onClick,
+        modifier = modifier
+    ) {
+        Text(text = label)
     }
 }

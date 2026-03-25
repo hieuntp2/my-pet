@@ -17,9 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -240,13 +238,10 @@ fun EventViewerScreen(
                 Text(text = if (validating) "Validating..." else "Validate Export File")
             }
         }
-
-        OutlinedButton(
+        DebugBackButton(
             onClick = onNavigateBack,
             modifier = Modifier.padding(bottom = 12.dp)
-        ) {
-            Text(text = "Back to Debug")
-        }
+        )
 
         if (exportMessage != null) {
             Text(
@@ -317,29 +312,16 @@ private fun EventRow(
     event: EventEnvelope,
     formattedTimestamp: String
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text(
-                text = event.type.name,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.primary
-            )
-            Text(
-                text = formattedTimestamp,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = event.eventId,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = event.payloadJson.take(120).let {
-                    if (event.payloadJson.length > 120) "$itâ€¦" else it
-                },
-                style = MaterialTheme.typography.bodySmall
-            )
-        }
+    DebugRecordCard(
+        title = event.type.name,
+        subtitle = formattedTimestamp,
+        id = event.eventId
+    ) {
+        Text(
+            text = event.payloadJson.take(120).let {
+                if (event.payloadJson.length > 120) "$it…" else it
+            },
+            style = MaterialTheme.typography.bodySmall
+        )
     }
 }

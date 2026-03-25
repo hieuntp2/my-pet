@@ -572,12 +572,10 @@ internal fun FaceAutoEnrollDebugScreen(
                 Text(text = "Reset Session")
             }
 
-            OutlinedButton(
+            DebugBackButton(
                 onClick = onNavigateBack,
                 modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(text = "Back to Debug")
-            }
+            )
         }
     }
 }

@@ -43,11 +43,3 @@ object Sleepy : PixelPetVisualState {
 object Thinking : PixelPetVisualState {
     override val id: String = "thinking"
 }
-
-data class CustomPixelPetVisualState(
-    override val id: String
-) : PixelPetVisualState {
-    init {
-        require(id.isNotBlank()) { "Custom pixel pet visual state id must not be blank." }
-    }
-}

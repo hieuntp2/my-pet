@@ -73,26 +73,36 @@ internal class OwnerSeenReactionEngine(
     }
 
     private suspend fun emitOwnerSeenReaction(reaction: OwnerSeenReaction) {
-        eventBus.publish(
-            EventEnvelope.create(
-                type = EventType.OWNER_SEEN_DETECTED,
-                timestampMs = reaction.seenAtMs,
-                payloadJson = OwnerSeenEventPayload(
-                    personId = reaction.personId,
-                    seenAtMs = reaction.seenAtMs,
-                    seenCount = reaction.seenCount
-                ).toJson()
-            )
+        publishOwnerEvent(
+            type = EventType.OWNER_SEEN_DETECTED,
+            timestampMs = reaction.seenAtMs,
+            payloadJson = OwnerSeenEventPayload(
+                personId = reaction.personId,
+                seenAtMs = reaction.seenAtMs,
+                seenCount = reaction.seenCount
+            ).toJson()
         )
+        publishOwnerEvent(
+            type = EventType.ROBOT_GREETING_OWNER_TRIGGERED,
+            timestampMs = reaction.seenAtMs,
+            payloadJson = RobotGreetingOwnerEventPayload(
+                personId = reaction.personId,
+                seenAtMs = reaction.seenAtMs,
+                message = greetingMessage
+            ).toJson()
+        )
+    }
+
+    private suspend fun publishOwnerEvent(
+        type: EventType,
+        timestampMs: Long,
+        payloadJson: String
+    ) {
         eventBus.publish(
             EventEnvelope.create(
-                type = EventType.ROBOT_GREETING_OWNER_TRIGGERED,
-                timestampMs = reaction.seenAtMs,
-                payloadJson = RobotGreetingOwnerEventPayload(
-                    personId = reaction.personId,
-                    seenAtMs = reaction.seenAtMs,
-                    message = greetingMessage
-                ).toJson()
+                type = type,
+                timestampMs = timestampMs,
+                payloadJson = payloadJson
             )
         )
     }

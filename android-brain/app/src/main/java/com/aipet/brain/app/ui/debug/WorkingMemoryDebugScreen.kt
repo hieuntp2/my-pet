@@ -3,11 +3,8 @@ package com.aipet.brain.app.ui.debug
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -33,54 +30,24 @@ fun WorkingMemoryDebugScreen(
             style = MaterialTheme.typography.headlineSmall
         )
         Text(
-            text = "Live runtime context — updates with each event.",
+            text = "Live runtime context - updates with each event.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Text(
-                    text = "State",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(bottom = 4.dp)
-                )
-                WorkingMemoryRow(label = "Person", value = currentWorkingMemory.currentPersonId ?: "—")
-                WorkingMemoryRow(label = "Object", value = currentWorkingMemory.currentObjectId ?: "—")
-                WorkingMemoryRow(label = "Last stimulus", value = formatWorkingMemoryTimestamp(currentWorkingMemory.lastStimulusTs))
-            }
+        DebugSectionCard(title = "State", contentSpacing = 4.dp) {
+            DebugLabelValueRow(label = "Person", value = currentWorkingMemory.currentPersonId ?: "-")
+            DebugLabelValueRow(label = "Object", value = currentWorkingMemory.currentObjectId ?: "-")
+            DebugLabelValueRow(
+                label = "Last stimulus",
+                value = formatWorkingMemoryTimestamp(currentWorkingMemory.lastStimulusTs)
+            )
         }
         Text(
             text = "Unknown/non-taught object detections may show a fallback label in Object.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        OutlinedButton(onClick = onNavigateBack) {
-            Text(text = "Back to Debug")
-        }
-    }
-}
-
-@Composable
-private fun WorkingMemoryRow(label: String, value: String) {
-    androidx.compose.foundation.layout.Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        Text(
-            text = "$label:",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodySmall
-        )
+        DebugBackButton(onClick = onNavigateBack)
     }
 }
 

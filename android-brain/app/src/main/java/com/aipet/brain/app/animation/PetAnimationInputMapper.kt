@@ -153,27 +153,10 @@ class PetAnimationInputMapper(
     }
 
     private fun PetEmotion.toAnimationEmotion(): PetAnimationEmotion {
-        return when (this) {
-            PetEmotion.IDLE -> PetAnimationEmotion.CALM
-            PetEmotion.HAPPY -> PetAnimationEmotion.HAPPY
-            PetEmotion.CURIOUS -> PetAnimationEmotion.CURIOUS
-            PetEmotion.SLEEPY -> PetAnimationEmotion.SLEEPY
-            PetEmotion.SAD -> PetAnimationEmotion.SAD
-            PetEmotion.EXCITED -> PetAnimationEmotion.EXCITED
-            PetEmotion.HUNGRY -> PetAnimationEmotion.HUNGRY
-            PetEmotion.THINKING -> PetAnimationEmotion.CALM
-        }
+        return PetEmotionMappings.petToAnimationEmotion(this)
     }
 
     private fun AudioCategory.toAnimationEmotion(): PetAnimationEmotion {
-        return when (this) {
-            AudioCategory.ACKNOWLEDGMENT,
-            AudioCategory.GREETING,
-            AudioCategory.HAPPY -> PetAnimationEmotion.HAPPY
-            AudioCategory.CURIOUS -> PetAnimationEmotion.CURIOUS
-            AudioCategory.SLEEPY -> PetAnimationEmotion.SLEEPY
-            AudioCategory.SURPRISED -> PetAnimationEmotion.EXCITED
-            AudioCategory.WARNING_NO -> PetAnimationEmotion.SAD
-        }
+        return PetEmotionMappings.audioToAnimationEmotion(this)
     }
 }

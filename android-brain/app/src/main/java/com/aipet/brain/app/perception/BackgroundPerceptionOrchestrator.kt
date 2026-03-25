@@ -687,39 +687,35 @@ class BackgroundPerceptionOrchestrator(
             encounterId = snapshot.encounterId,
             activeCandidateCountOverride = activeCandidateCount
         )
-        eventBus.publish(
-            EventEnvelope.create(
-                type = EventType.PERSON_UNKNOWN_DETECTED,
-                timestampMs = now,
-                payloadJson = PersonUnknownEventPayload(
-                    seenAtMs = now,
-                    source = "background_unknown_face_candidate"
-                ).toJson()
-            )
+        publishEvent(
+            type = EventType.PERSON_UNKNOWN_DETECTED,
+            timestampMs = now,
+            payloadJson = PersonUnknownEventPayload(
+                seenAtMs = now,
+                source = "background_unknown_face_candidate"
+            ).toJson()
         )
-        eventBus.publish(
-            EventEnvelope.create(
-                type = EventType.CANDIDATE_PERSON_READY_FOR_TEACH,
-                timestampMs = now,
-                payloadJson = CandidatePersonReadyForTeachPayload(
-                    sessionId = snapshot.encounterId,
-                    sampleCount = decision.sampleCount,
-                    stableScore = decision.stableScore,
-                    centroidEmbedding = decision.centroid.toList(),
-                    previewImageBase64 = asked.previewImageBase64,
-                    readyAtMs = now,
-                    candidateId = asked.candidateId,
-                    decision = decision.decision.name,
-                    seenFrameCount = asked.seenFrameCount,
-                    seenEncounterCount = asked.seenEncounterCount,
-                    averageQualityScore = asked.averageQualityScore,
-                    lastPromptAtMs = asked.lastPromptAtMs,
-                    suppressedUntilMs = asked.suppressedUntilMs,
-                    closestKnownPersonId = asked.closestKnownPersonId,
-                    closestKnownSimilarity = asked.closestKnownSimilarity,
-                    activeCandidateCount = activeCandidateCount
-                ).toJson()
-            )
+        publishEvent(
+            type = EventType.CANDIDATE_PERSON_READY_FOR_TEACH,
+            timestampMs = now,
+            payloadJson = CandidatePersonReadyForTeachPayload(
+                sessionId = snapshot.encounterId,
+                sampleCount = decision.sampleCount,
+                stableScore = decision.stableScore,
+                centroidEmbedding = decision.centroid.toList(),
+                previewImageBase64 = asked.previewImageBase64,
+                readyAtMs = now,
+                candidateId = asked.candidateId,
+                decision = decision.decision.name,
+                seenFrameCount = asked.seenFrameCount,
+                seenEncounterCount = asked.seenEncounterCount,
+                averageQualityScore = asked.averageQualityScore,
+                lastPromptAtMs = asked.lastPromptAtMs,
+                suppressedUntilMs = asked.suppressedUntilMs,
+                closestKnownPersonId = asked.closestKnownPersonId,
+                closestKnownSimilarity = asked.closestKnownSimilarity,
+                activeCandidateCount = activeCandidateCount
+            ).toJson()
         )
         Log.i(
             TAG,
@@ -756,17 +752,15 @@ class BackgroundPerceptionOrchestrator(
                         seenAtMs = detectedAtMs
                     )
                 }.getOrNull()
-                eventBus.publish(
-                    EventEnvelope.create(
-                        type = EventType.OBJECT_DETECTED,
-                        timestampMs = detectedAtMs,
-                        payloadJson = com.aipet.brain.brain.events.ObjectDetectedEventPayload(
-                            objectId = seenUpdateResult?.objectRecord?.objectId,
-                            label = label,
-                            confidence = confidence,
-                            detectedAtMs = detectedAtMs
-                        ).toJson()
-                    )
+                publishEvent(
+                    type = EventType.OBJECT_DETECTED,
+                    timestampMs = detectedAtMs,
+                    payloadJson = com.aipet.brain.brain.events.ObjectDetectedEventPayload(
+                        objectId = seenUpdateResult?.objectRecord?.objectId,
+                        label = label,
+                        confidence = confidence,
+                        detectedAtMs = detectedAtMs
+                    ).toJson()
                 )
                 return@launch
             }
@@ -778,16 +772,14 @@ class BackgroundPerceptionOrchestrator(
             }
             unknownObjectCooldowns[label] = now + UNKNOWN_OBJECT_COOLDOWN_MS
 
-            eventBus.publish(
-                EventEnvelope.create(
-                    type = EventType.UNKNOWN_OBJECT_DETECTED,
-                    timestampMs = detectedAtMs,
-                    payloadJson = UnknownObjectDetectedPayload(
-                        canonicalLabel = label,
-                        confidence = confidence,
-                        detectedAtMs = detectedAtMs
-                    ).toJson()
-                )
+            publishEvent(
+                type = EventType.UNKNOWN_OBJECT_DETECTED,
+                timestampMs = detectedAtMs,
+                payloadJson = UnknownObjectDetectedPayload(
+                    canonicalLabel = label,
+                    confidence = confidence,
+                    detectedAtMs = detectedAtMs
+                ).toJson()
             )
             val thumbnail = runCatching {
                 controller.latestFrameSnapshot?.let { frame ->
@@ -832,23 +824,21 @@ class BackgroundPerceptionOrchestrator(
             }
         }
         coroutineScope.launch(Dispatchers.IO) {
-            eventBus.publish(
-                EventEnvelope.create(
-                    type = EventType.PERSON_TEACH_AUTO_CAPTURE_STARTED,
-                    timestampMs = now,
-                    payloadJson = PersonTeachAutoCapturePayload(
-                        candidateId = candidateId,
-                        personId = personId,
-                        profileId = profileId,
-                        windowStartAtMs = session.windowStartAtMs,
-                        windowEndAtMs = session.windowEndAtMs,
-                        targetSampleCount = session.targetSampleCount,
-                        capturedSampleCount = session.capturedSampleCount,
-                        status = "STARTED",
-                        completedAtMs = null,
-                        completionReason = null
-                    ).toJson()
-                )
+            publishEvent(
+                type = EventType.PERSON_TEACH_AUTO_CAPTURE_STARTED,
+                timestampMs = now,
+                payloadJson = PersonTeachAutoCapturePayload(
+                    candidateId = candidateId,
+                    personId = personId,
+                    profileId = profileId,
+                    windowStartAtMs = session.windowStartAtMs,
+                    windowEndAtMs = session.windowEndAtMs,
+                    targetSampleCount = session.targetSampleCount,
+                    capturedSampleCount = session.capturedSampleCount,
+                    status = "STARTED",
+                    completedAtMs = null,
+                    completionReason = null
+                ).toJson()
             )
             delay(AUTO_TEACH_WINDOW_MS + 250L)
             completeAutoTeachSession(
@@ -941,23 +931,21 @@ class BackgroundPerceptionOrchestrator(
             activeTeachSession = null
             active
         }
-        eventBus.publish(
-            EventEnvelope.create(
-                type = EventType.PERSON_TEACH_AUTO_CAPTURE_COMPLETED,
-                timestampMs = completedAtMs,
-                payloadJson = PersonTeachAutoCapturePayload(
-                    candidateId = session.candidateId,
-                    personId = session.personId,
-                    profileId = session.profileId,
-                    windowStartAtMs = session.windowStartAtMs,
-                    windowEndAtMs = session.windowEndAtMs,
-                    targetSampleCount = session.targetSampleCount,
-                    capturedSampleCount = session.capturedSampleCount,
-                    status = "COMPLETED",
-                    completedAtMs = completedAtMs,
-                    completionReason = reason
-                ).toJson()
-            )
+        publishEvent(
+            type = EventType.PERSON_TEACH_AUTO_CAPTURE_COMPLETED,
+            timestampMs = completedAtMs,
+            payloadJson = PersonTeachAutoCapturePayload(
+                candidateId = session.candidateId,
+                personId = session.personId,
+                profileId = session.profileId,
+                windowStartAtMs = session.windowStartAtMs,
+                windowEndAtMs = session.windowEndAtMs,
+                targetSampleCount = session.targetSampleCount,
+                capturedSampleCount = session.capturedSampleCount,
+                status = "COMPLETED",
+                completedAtMs = completedAtMs,
+                completionReason = reason
+            ).toJson()
         )
         Log.i(
             TAG,
@@ -988,26 +976,39 @@ class BackgroundPerceptionOrchestrator(
     ) {
         val activeCandidateCount = activeCandidateCountOverride
             ?: unknownFaceCandidateStore.countActive()
+        val emittedAtMs = System.currentTimeMillis()
+        publishEvent(
+            type = type,
+            timestampMs = emittedAtMs,
+            payloadJson = UnknownFaceCandidateLifecyclePayload(
+                candidateId = record.candidateId,
+                status = record.status.name,
+                decision = record.lastDecision.name,
+                seenFrameCount = record.seenFrameCount,
+                seenEncounterCount = record.seenEncounterCount,
+                averageQualityScore = record.averageQualityScore,
+                activeCandidateCount = activeCandidateCount,
+                eventAtMs = System.currentTimeMillis(),
+                lastPromptAtMs = record.lastPromptAtMs,
+                suppressedUntilMs = record.suppressedUntilMs,
+                closestKnownPersonId = record.closestKnownPersonId,
+                closestKnownSimilarity = record.closestKnownSimilarity,
+                encounterId = encounterId,
+                source = "background_unknown_face_candidate"
+            ).toJson()
+        )
+    }
+
+    private suspend fun publishEvent(
+        type: EventType,
+        payloadJson: String = "{}",
+        timestampMs: Long = System.currentTimeMillis()
+    ) {
         eventBus.publish(
             EventEnvelope.create(
                 type = type,
-                timestampMs = System.currentTimeMillis(),
-                payloadJson = UnknownFaceCandidateLifecyclePayload(
-                    candidateId = record.candidateId,
-                    status = record.status.name,
-                    decision = record.lastDecision.name,
-                    seenFrameCount = record.seenFrameCount,
-                    seenEncounterCount = record.seenEncounterCount,
-                    averageQualityScore = record.averageQualityScore,
-                    activeCandidateCount = activeCandidateCount,
-                    eventAtMs = System.currentTimeMillis(),
-                    lastPromptAtMs = record.lastPromptAtMs,
-                    suppressedUntilMs = record.suppressedUntilMs,
-                    closestKnownPersonId = record.closestKnownPersonId,
-                    closestKnownSimilarity = record.closestKnownSimilarity,
-                    encounterId = encounterId,
-                    source = "background_unknown_face_candidate"
-                ).toJson()
+                payloadJson = payloadJson,
+                timestampMs = timestampMs
             )
         )
     }

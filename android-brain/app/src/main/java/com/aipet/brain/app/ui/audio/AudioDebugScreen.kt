@@ -38,6 +38,7 @@ import com.aipet.brain.app.permissions.resolveMicrophonePermissionState
 import com.aipet.brain.app.audio.AudioRuntimeDebugState
 import com.aipet.brain.app.audio.AudioRuntimeDebugStateProvider
 import com.aipet.brain.app.settings.KeywordSpottingConfigStore
+import com.aipet.brain.app.ui.debug.DebugBackButton
 import com.aipet.brain.brain.events.EventBus
 import com.aipet.brain.brain.events.EventEnvelope
 import com.aipet.brain.brain.events.EventType
@@ -1046,71 +1047,46 @@ fun AudioDebugScreen(
             Text(text = "Release Audio")
         }
 
-        Text(
+        FullWidthLine(
             text = "Test Sounds",
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 8.dp)
+            modifier = Modifier.padding(top = 8.dp)
         )
-        Text(
-            text = "Playback readiness: ${formatPlaybackReadiness(playbackDebugState)}",
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
+        FullWidthLine(text = "Playback readiness: ${formatPlaybackReadiness(playbackDebugState)}")
+        FullWidthLine(
             text = "Preload clips: ${playbackDebugState.loadedClipCount}/" +
-                "${playbackDebugState.totalClipCount} (failed=${playbackDebugState.failedClipCount})",
-            modifier = Modifier.fillMaxWidth()
+                "${playbackDebugState.totalClipCount} (failed=${playbackDebugState.failedClipCount})"
         )
-        Text(
-            text = "Last played clip: ${formatLastPlayedClip(playbackDebugState)}",
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = "Last skipped reason: ${formatLastSkippedReason(playbackDebugState)}",
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = "Last manual playback request: $lastPlaybackRequestSummary",
-            modifier = Modifier.fillMaxWidth()
-        )
+        FullWidthLine(text = "Last played clip: ${formatLastPlayedClip(playbackDebugState)}")
+        FullWidthLine(text = "Last skipped reason: ${formatLastSkippedReason(playbackDebugState)}")
+        FullWidthLine(text = "Last manual playback request: $lastPlaybackRequestSummary")
 
         AudioCategory.entries.forEach { category ->
-            Button(
+            ActionButton(
+                label = "Play ${category.label}",
                 onClick = { playRandomClip(category) },
                 enabled = AudioAssetRegistry.hasClips(category),
                 modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(text = "Play ${category.label}")
-            }
+            )
         }
 
-        Button(
+        DebugBackButton(
             onClick = onNavigateBack,
+            outlined = false,
             modifier = Modifier
                 .padding(top = 8.dp, bottom = 8.dp)
                 .fillMaxWidth()
-        ) {
-            Text(text = "Back to Debug")
-        }
+        )
     }
 }
 
 @Composable
 private fun AudioAssetManifestSection(context: Context) {
-    Text(
+    FullWidthLine(
         text = "Audio Asset Manifest",
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 8.dp)
+        modifier = Modifier.padding(top = 8.dp)
     )
-    Text(
-        text = "Runtime source: flattened R.raw.* entries from AudioAssetRegistry.",
-        modifier = Modifier.fillMaxWidth()
-    )
-    Text(
-        text = "Nested duplicate folders under res/raw/<category>/ are ignored.",
-        modifier = Modifier.fillMaxWidth()
-    )
+    FullWidthLine(text = "Runtime source: flattened R.raw.* entries from AudioAssetRegistry.")
+    FullWidthLine(text = "Nested duplicate folders under res/raw/<category>/ are ignored.")
 
     AudioCategory.entries.forEach { category ->
         val clipMetadataList = AudioAssetRegistry.getClipMetadata(category)
@@ -1140,6 +1116,33 @@ private fun AudioAssetManifestSection(context: Context) {
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun FullWidthLine(
+    text: String,
+    modifier: Modifier = Modifier
+) {
+    Text(
+        text = text,
+        modifier = modifier.fillMaxWidth()
+    )
+}
+
+@Composable
+private fun ActionButton(
+    label: String,
+    onClick: () -> Unit,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier
+) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Text(text = label)
     }
 }
 

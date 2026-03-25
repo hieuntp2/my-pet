@@ -239,15 +239,7 @@ class FakePetAnimator(
     }
 
     private fun AudioCategory.toEmotion(): PetEmotion {
-        return when (this) {
-            AudioCategory.ACKNOWLEDGMENT,
-            AudioCategory.GREETING,
-            AudioCategory.HAPPY -> PetEmotion.HAPPY
-            AudioCategory.CURIOUS -> PetEmotion.CURIOUS
-            AudioCategory.SLEEPY -> PetEmotion.SLEEPY
-            AudioCategory.SURPRISED -> PetEmotion.EXCITED
-            AudioCategory.WARNING_NO -> PetEmotion.SAD
-        }
+        return PetEmotionMappings.audioToPetEmotion(this)
     }
 
     private fun ensureIdleMotionLoopsStarted() {
@@ -471,40 +463,15 @@ class FakePetAnimator(
     }
 
     private fun PetAnimationEmotion.toPetEmotion(): PetEmotion {
-        return when (this) {
-            PetAnimationEmotion.CALM -> PetEmotion.IDLE
-            PetAnimationEmotion.HAPPY -> PetEmotion.HAPPY
-            PetAnimationEmotion.CURIOUS -> PetEmotion.CURIOUS
-            PetAnimationEmotion.SLEEPY -> PetEmotion.SLEEPY
-            PetAnimationEmotion.SAD -> PetEmotion.SAD
-            PetAnimationEmotion.EXCITED -> PetEmotion.EXCITED
-            PetAnimationEmotion.HUNGRY -> PetEmotion.HUNGRY
-        }
+        return PetEmotionMappings.animationToPetEmotion(this)
     }
 
     private fun PetEmotion.toAnimationEmotion(): PetAnimationEmotion {
-        return when (this) {
-            PetEmotion.IDLE -> PetAnimationEmotion.CALM
-            PetEmotion.HAPPY -> PetAnimationEmotion.HAPPY
-            PetEmotion.CURIOUS -> PetAnimationEmotion.CURIOUS
-            PetEmotion.SLEEPY -> PetAnimationEmotion.SLEEPY
-            PetEmotion.SAD -> PetAnimationEmotion.SAD
-            PetEmotion.EXCITED -> PetAnimationEmotion.EXCITED
-            PetEmotion.HUNGRY -> PetAnimationEmotion.HUNGRY
-            PetEmotion.THINKING -> PetAnimationEmotion.CALM
-        }
+        return PetEmotionMappings.petToAnimationEmotion(this)
     }
 
     private fun PetAnimationEmotion.toAvatarEmotion(): AvatarEmotion {
-        return when (this) {
-            PetAnimationEmotion.CALM -> AvatarEmotion.NEUTRAL
-            PetAnimationEmotion.HAPPY -> AvatarEmotion.HAPPY
-            PetAnimationEmotion.CURIOUS -> AvatarEmotion.CURIOUS
-            PetAnimationEmotion.SLEEPY -> AvatarEmotion.SLEEPY
-            PetAnimationEmotion.SAD -> AvatarEmotion.SLEEPY
-            PetAnimationEmotion.EXCITED -> AvatarEmotion.SURPRISED
-            PetAnimationEmotion.HUNGRY -> AvatarEmotion.CURIOUS
-        }
+        return PetEmotionMappings.animationToAvatarEmotion(this)
     }
 
     private enum class IdleCueType {

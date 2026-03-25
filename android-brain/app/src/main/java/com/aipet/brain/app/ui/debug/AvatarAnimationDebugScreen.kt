@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -23,6 +22,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.aipet.brain.app.ui.components.SelectableButton
 import com.aipet.brain.ui.avatar.pixel.bridge.DefaultPixelPetStateMapper
 import com.aipet.brain.ui.avatar.pixel.bridge.PixelAnimationOrchestrator
 import com.aipet.brain.ui.avatar.pixel.bridge.PixelPetAvatarIntent
@@ -77,6 +77,8 @@ fun AvatarAnimationDebugScreen(
     val selectedAnimationSet = remember(registry, selectedVisualState) {
         registry.requireAnimationSet(selectedVisualState)
     }
+    val sectionHeaderStyle = MaterialTheme.typography.titleMedium
+    val sectionHeaderColor = MaterialTheme.colorScheme.onSurface
 
     LaunchedEffect(selectedVisualState.id) {
         manualVariantId = selectedAnimationSet.variants.first().id
@@ -156,7 +158,13 @@ fun AvatarAnimationDebugScreen(
             }
         }
 
-        DebugSectionCard(title = "Manual state selection") {
+        DebugSectionCard(
+            title = "Manual state selection",
+            headerStyle = sectionHeaderStyle,
+            headerColor = sectionHeaderColor,
+            contentSpacing = 10.dp,
+            contentPadding = 16.dp
+        ) {
             DebugButtonRows(
                 labels = availableStates.map { it.label() },
                 selectedLabel = selectedVisualState.label(),
@@ -166,23 +174,33 @@ fun AvatarAnimationDebugScreen(
             )
         }
 
-        DebugSectionCard(title = "Variant inspection") {
+        DebugSectionCard(
+            title = "Variant inspection",
+            headerStyle = sectionHeaderStyle,
+            headerColor = sectionHeaderColor,
+            contentSpacing = 10.dp,
+            contentPadding = 16.dp
+        ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                ToggleButton(
-                    label = "Auto",
+                SelectableButton(
                     selected = autoVariantEnabled,
                     onClick = { autoVariantEnabled = true },
                     modifier = Modifier.weight(1f)
                 )
-                ToggleButton(
-                    label = "Manual",
+                {
+                    Text(text = "Auto")
+                }
+                SelectableButton(
                     selected = !autoVariantEnabled,
                     onClick = { autoVariantEnabled = false },
                     modifier = Modifier.weight(1f)
                 )
+                {
+                    Text(text = "Manual")
+                }
             }
             DebugButtonRows(
                 labels = selectedAnimationSet.variants.map { it.id },
@@ -192,17 +210,25 @@ fun AvatarAnimationDebugScreen(
             )
         }
 
-        DebugSectionCard(title = "Playback controls") {
+        DebugSectionCard(
+            title = "Playback controls",
+            headerStyle = sectionHeaderStyle,
+            headerColor = sectionHeaderColor,
+            contentSpacing = 10.dp,
+            contentPadding = 16.dp
+        ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                ToggleButton(
-                    label = if (isPlaying) "Pause" else "Play",
+                SelectableButton(
                     selected = isPlaying,
                     onClick = { isPlaying = !isPlaying },
                     modifier = Modifier.weight(1f)
                 )
+                {
+                    Text(text = if (isPlaying) "Pause" else "Play")
+                }
                 OutlinedButton(
                     onClick = {
                         currentVariant?.let { variant ->
@@ -224,7 +250,13 @@ fun AvatarAnimationDebugScreen(
             )
         }
 
-        DebugSectionCard(title = "Inspection helpers") {
+        DebugSectionCard(
+            title = "Inspection helpers",
+            headerStyle = sectionHeaderStyle,
+            headerColor = sectionHeaderColor,
+            contentSpacing = 10.dp,
+            contentPadding = 16.dp
+        ) {
             Text(text = "Synchronizations: ${orchestratorDiagnostics.synchronizationCount}")
             Text(text = "State transitions: ${orchestratorDiagnostics.stateTransitionCount}")
             Text(text = "Clip activations: ${controllerDiagnostics.clipActivationCount}")
@@ -241,7 +273,13 @@ fun AvatarAnimationDebugScreen(
             )
         }
 
-        DebugSectionCard(title = "Runtime bridge context") {
+        DebugSectionCard(
+            title = "Runtime bridge context",
+            headerStyle = sectionHeaderStyle,
+            headerColor = sectionHeaderColor,
+            contentSpacing = 10.dp,
+            contentPadding = 16.dp
+        ) {
             Text(text = "Runtime visual state: ${runtimeVisualState.label()}")
             Text(text = "Runtime intent: ${runtimeBridgeState.intent.name.lowercase()}")
             Text(text = "Reason: ${runtimeBridgeState.debugMetadata?.priorityReason ?: "-"}")
@@ -249,40 +287,24 @@ fun AvatarAnimationDebugScreen(
             Text(text = "Policy: ${runtimeBridgeState.debugMetadata?.policySummary ?: "-"}")
         }
 
-        DebugSectionCard(title = "Tuning guidance") {
+        DebugSectionCard(
+            title = "Tuning guidance",
+            headerStyle = sectionHeaderStyle,
+            headerColor = sectionHeaderColor,
+            contentSpacing = 10.dp,
+            contentPadding = 16.dp
+        ) {
             Text(text = "Compare Neutral against Sleepy for slow-lid timing and energy drop.")
             Text(text = "Compare Curious against Thinking for hold length and micro-shifts.")
             Text(text = "Use 0.5x and 2x speeds to stress blink cadence and clip pacing.")
             Text(text = "Clip reuse skips and resync counts help confirm repeated-state stability.")
         }
 
-        Button(
+        DebugBackButton(
             onClick = onNavigateBack,
+            outlined = false,
             modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(text = "Back to Debug")
-        }
-    }
-}
-
-@Composable
-private fun DebugSectionCard(
-    title: String,
-    content: @Composable () -> Unit
-) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium
-            )
-            content()
-        }
+        )
     }
 }
 
@@ -299,44 +321,19 @@ private fun DebugButtonRows(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             rowLabels.forEach { label ->
-                ToggleButton(
-                    label = label,
+                SelectableButton(
                     selected = label == selectedLabel,
                     enabled = enabled,
                     onClick = { onLabelSelected(label) },
                     modifier = Modifier.weight(1f)
                 )
+                {
+                    Text(text = label)
+                }
             }
             if (rowLabels.size == 1) {
                 Spacer(modifier = Modifier.weight(1f))
             }
-        }
-    }
-}
-
-@Composable
-private fun ToggleButton(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true
-) {
-    if (selected) {
-        Button(
-            onClick = onClick,
-            enabled = enabled,
-            modifier = modifier
-        ) {
-            Text(text = label)
-        }
-    } else {
-        OutlinedButton(
-            onClick = onClick,
-            enabled = enabled,
-            modifier = modifier
-        ) {
-            Text(text = label)
         }
     }
 }

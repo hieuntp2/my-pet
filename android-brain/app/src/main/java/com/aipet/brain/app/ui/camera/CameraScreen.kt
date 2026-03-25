@@ -1,15 +1,9 @@
 package com.aipet.brain.app.ui.camera
 
 import android.Manifest
-import android.app.Activity
-import android.content.ActivityNotFoundException
 import android.content.Context
-import android.content.ContextWrapper
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
-import android.net.Uri
-import android.provider.Settings
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -53,6 +47,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.aipet.brain.app.settings.CameraSelection
 import com.aipet.brain.app.perception.UnknownObjectPromptSuppressionDebugState
+import com.aipet.brain.app.permissions.findActivity
+import com.aipet.brain.app.permissions.openAppSettings
 import com.aipet.brain.perception.camera.FrameAnalyzer
 import com.aipet.brain.perception.camera.FrameDiagnostics
 import com.aipet.brain.perception.vision.FaceDetectionPipeline
@@ -823,34 +819,6 @@ private fun isCameraPermissionGranted(context: Context): Boolean {
         context,
         Manifest.permission.CAMERA
     ) == PackageManager.PERMISSION_GRANTED
-}
-
-private fun openAppSettings(context: Context) {
-    val detailsIntent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-        data = Uri.fromParts("package", context.packageName, null)
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    }
-    val fallbackIntent = Intent(Settings.ACTION_SETTINGS).apply {
-        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-    }
-
-    try {
-        context.startActivity(detailsIntent)
-    } catch (_: ActivityNotFoundException) {
-        try {
-            context.startActivity(fallbackIntent)
-        } catch (_: ActivityNotFoundException) {
-            // No available settings handler on this device.
-        }
-    }
-}
-
-private tailrec fun Context.findActivity(): Activity? {
-    return when (this) {
-        is Activity -> this
-        is ContextWrapper -> baseContext.findActivity()
-        else -> null
-    }
 }
 
 private fun ExecutorService.shutdownSafely() {

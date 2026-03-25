@@ -101,12 +101,7 @@ class PixelPetAnimator(
     }
 
     override fun onSoundReaction(category: AudioCategory) {
-        val emotion = when (category) {
-            AudioCategory.HAPPY, AudioCategory.GREETING, AudioCategory.ACKNOWLEDGMENT -> PetEmotion.HAPPY
-            AudioCategory.CURIOUS -> PetEmotion.CURIOUS
-            AudioCategory.SLEEPY -> PetEmotion.SLEEPY
-            else -> currentBaseEmotion
-        }
+        val emotion = PetEmotionMappings.audioToPetEmotionOrNull(category) ?: currentBaseEmotion
         playTransient(emotion, PetAnimationSource.SOUND, 1_500L)
     }
 
@@ -149,13 +144,6 @@ class PixelPetAnimator(
         else -> PetAnimationSource.MOOD
     }
 
-    private fun PetAnimationEmotion.toPetEmotion(): PetEmotion = when (this) {
-        PetAnimationEmotion.CALM -> PetEmotion.IDLE
-        PetAnimationEmotion.HAPPY -> PetEmotion.HAPPY
-        PetAnimationEmotion.CURIOUS -> PetEmotion.CURIOUS
-        PetAnimationEmotion.SLEEPY -> PetEmotion.SLEEPY
-        PetAnimationEmotion.SAD -> PetEmotion.SAD
-        PetAnimationEmotion.EXCITED -> PetEmotion.EXCITED
-        PetAnimationEmotion.HUNGRY -> PetEmotion.HUNGRY
-    }
+    private fun PetAnimationEmotion.toPetEmotion(): PetEmotion =
+        PetEmotionMappings.animationToPetEmotion(this)
 }

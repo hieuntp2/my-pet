@@ -5,6 +5,8 @@ import com.aipet.brain.brain.events.EventEnvelope
 import com.aipet.brain.brain.events.EventType
 import com.aipet.brain.brain.logic.audio.AudioMeaningfulStimulusPolicy
 import com.aipet.brain.brain.logic.audio.AudioStimulusMapper
+import com.aipet.brain.brain.logic.audio.MeaningfulAudioStimulusGate
+import com.aipet.brain.brain.logic.audio.MeaningfulAudioStimulusRejectionReason
 import java.lang.reflect.Method
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -34,6 +36,10 @@ class BrainInteractionLoop(
     private val lock = Mutex()
     private var lastMeaningfulStimulusAtMs: Long = nowProvider()
     private val logger: BrainInteractionLogger = SafeBrainInteractionLogger
+    private val meaningfulAudioStimulusGate = MeaningfulAudioStimulusGate(
+        audioStimulusMapper = audioStimulusMapper,
+        audioMeaningfulStimulusPolicy = audioMeaningfulStimulusPolicy
+    )
 
     suspend fun observeEventsAndApplyTransitions() {
         eventBus.observe().collect { event ->
@@ -166,21 +172,27 @@ class BrainInteractionLoop(
     }
 
     private suspend fun handleAudioStimulusForInactivity(event: EventEnvelope) {
-        val stimulus = audioStimulusMapper.map(event) ?: run {
-            logger.w(
-                TAG,
-                "Ignored audio event for inactivity reset due to invalid payload. eventType=${event.type.name}, " +
-                    "eventId=${event.eventId}"
-            )
-            return
-        }
-        val meaningfulStimulus = audioMeaningfulStimulusPolicy.evaluate(stimulus)
+        val gateResult = meaningfulAudioStimulusGate.evaluate(event)
+        val meaningfulStimulus = gateResult.meaningfulStimulus
         if (meaningfulStimulus == null) {
-            logger.d(
-                TAG,
-                "Audio stimulus ignored for inactivity reset. source=${stimulus.sourceEventType.name}, " +
-                    "stimulusTs=${stimulus.timestampMs}"
-            )
+            when (gateResult.rejectionReason) {
+                MeaningfulAudioStimulusRejectionReason.INVALID_PAYLOAD -> {
+                    logger.w(
+                        TAG,
+                        "Ignored audio event for inactivity reset due to invalid payload. " +
+                            "eventType=${event.type.name}, eventId=${event.eventId}"
+                    )
+                }
+
+                MeaningfulAudioStimulusRejectionReason.POLICY_REJECTED,
+                null -> {
+                    logger.d(
+                        TAG,
+                        "Audio stimulus ignored for inactivity reset. source=${gateResult.sourceEventType.name}, " +
+                            "stimulusTs=${gateResult.timestampMs}"
+                    )
+                }
+            }
             return
         }
         recordMeaningfulStimulus(meaningfulStimulus.timestampMs)

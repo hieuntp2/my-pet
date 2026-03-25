@@ -485,6 +485,46 @@ fun PetBrainApp() {
     val petTraitEvolutionEngine = remember {
         PetTraitEvolutionEngine()
     }
+    val petInteractionApplyCoordinator = remember(
+        petProfileRepository,
+        petTraitRepository,
+        petStateRepository,
+        petInteractionStateReducer,
+        petTraitEvolutionEngine,
+        petConditionResolver,
+        petEmotionResolver,
+        petBehaviorWeightResolver
+    ) {
+        PetInteractionApplyCoordinator(
+            petProfileRepository = petProfileRepository,
+            petTraitRepository = petTraitRepository,
+            petStateRepository = petStateRepository,
+            petInteractionStateReducer = petInteractionStateReducer,
+            petTraitEvolutionEngine = petTraitEvolutionEngine,
+            petConditionResolver = petConditionResolver,
+            petEmotionResolver = petEmotionResolver,
+            petBehaviorWeightResolver = petBehaviorWeightResolver
+        )
+    }
+    val petActivityApplyCoordinator = remember(
+        petProfileRepository,
+        petTraitRepository,
+        petStateRepository,
+        petTraitEvolutionEngine,
+        petConditionResolver,
+        petEmotionResolver,
+        petBehaviorWeightResolver
+    ) {
+        PetActivityApplyCoordinator(
+            petProfileRepository = petProfileRepository,
+            petTraitRepository = petTraitRepository,
+            petStateRepository = petStateRepository,
+            petTraitEvolutionEngine = petTraitEvolutionEngine,
+            petConditionResolver = petConditionResolver,
+            petEmotionResolver = petEmotionResolver,
+            petBehaviorWeightResolver = petBehaviorWeightResolver
+        )
+    }
     val petPersonalitySummaryResolver = remember {
         PetPersonalitySummaryResolver()
     }
@@ -1007,6 +1047,26 @@ fun PetBrainApp() {
         )
     }
 
+    suspend fun publishEvent(
+        type: EventType,
+        payloadJson: String = "{}",
+        timestampMs: Long? = null
+    ) {
+        val envelope = if (timestampMs == null) {
+            EventEnvelope.create(
+                type = type,
+                payloadJson = payloadJson
+            )
+        } else {
+            EventEnvelope.create(
+                type = type,
+                payloadJson = payloadJson,
+                timestampMs = timestampMs
+            )
+        }
+        eventBus.publish(envelope)
+    }
+
     suspend fun handlePetInteraction(
         interactionType: PetInteractionType,
         source: String
@@ -1026,48 +1086,10 @@ fun PetBrainApp() {
             )
             return
         }
-        val resolvedInteraction = withContext(Dispatchers.IO) {
-            val profile = petProfileRepository.getOrCreateActiveProfile()
-            val traits = petTraitRepository.getOrCreateForPet(profile.id)
-            val currentState = petStateRepository.getOrCreateState()
-            val nextState = petInteractionStateReducer.apply(
-                currentState = currentState,
-                interactionType = interactionType,
-                interactedAtMs = interactedAtMs
-            )
-            val persistedState = petStateRepository.updateState(nextState)
-            val evolvedTraits = petTraitEvolutionEngine.applyInteraction(
-                current = traits,
-                interactionType = interactionType,
-                appliedAtMs = interactedAtMs
-            )
-            val persistedTraits = petTraitRepository.save(evolvedTraits)
-            val conditions = petConditionResolver.resolve(persistedState)
-            val emotion = petEmotionResolver.resolve(persistedState, conditions)
-            val decision = petBehaviorWeightResolver.resolveInteractionEmotion(
-                interactionType = interactionType,
-                context = PetBehaviorContext(
-                    state = persistedState,
-                    conditions = conditions,
-                    traits = persistedTraits
-                )
-            )
-            InteractionAppliedSnapshot(
-                previousState = currentState,
-                state = persistedState,
-                emotion = emotion,
-                traits = persistedTraits,
-                conditions = conditions,
-                decision = decision,
-                interactedAtMs = interactedAtMs,
-                feedback = PetGameplayFeedbackFormatter.forInteraction(
-                    petName = profile.name,
-                    interactionType = interactionType,
-                    previousState = currentState,
-                    updatedState = persistedState
-                )
-            )
-        }
+        val resolvedInteraction = petInteractionApplyCoordinator.apply(
+            interactionType = interactionType,
+            interactedAtMs = interactedAtMs
+        )
         petGameplayCooldownGate.recordSuccess(gameplayAction, interactedAtMs)
         currentPetState = resolvedInteraction.state
         currentPetEmotion = resolvedInteraction.emotion
@@ -1096,24 +1118,22 @@ fun PetBrainApp() {
             cooldownKey = "pet_${interactionType.name.lowercase()}"
         )
         appOpenGreeting = null
-        eventBus.publish(
-            EventEnvelope.create(
-                type = if (interactionType == PetInteractionType.LONG_PRESS) {
-                    EventType.PET_LONG_PRESSED
-                } else {
-                    EventType.USER_INTERACTED_PET
-                },
-                payloadJson = UserInteractedPetEventPayload(
-                    interactedAtMs = resolvedInteraction.interactedAtMs,
-                    source = source,
-                    interactionType = interactionType.name,
-                    resultingMood = resolvedInteraction.state.mood.name,
-                    socialDelta = resolvedInteraction.state.social - resolvedInteraction.previousState.social,
-                    bondDelta = resolvedInteraction.state.bond - resolvedInteraction.previousState.bond,
-                    feedbackText = resolvedInteraction.feedback.text
-                ).toJson(),
-                timestampMs = resolvedInteraction.interactedAtMs
-            )
+        publishEvent(
+            type = if (interactionType == PetInteractionType.LONG_PRESS) {
+                EventType.PET_LONG_PRESSED
+            } else {
+                EventType.USER_INTERACTED_PET
+            },
+            payloadJson = UserInteractedPetEventPayload(
+                interactedAtMs = resolvedInteraction.interactedAtMs,
+                source = source,
+                interactionType = interactionType.name,
+                resultingMood = resolvedInteraction.state.mood.name,
+                socialDelta = resolvedInteraction.state.social - resolvedInteraction.previousState.social,
+                bondDelta = resolvedInteraction.state.bond - resolvedInteraction.previousState.bond,
+                feedbackText = resolvedInteraction.feedback.text
+            ).toJson(),
+            timestampMs = resolvedInteraction.interactedAtMs
         )
     }
 
@@ -1143,43 +1163,10 @@ fun PetBrainApp() {
                 return
             }
         }
-        val resolvedActivity = withContext(Dispatchers.IO) {
-            val profile = petProfileRepository.getOrCreateActiveProfile()
-            val traits = petTraitRepository.getOrCreateForPet(profile.id)
-            val currentState = petStateRepository.getOrCreateState()
-            val activityResult = useCase.execute(
-                currentState = currentState,
-                actedAtMs = actedAtMs
-            )
-            val persistedState = petStateRepository.updateState(activityResult.updatedState)
-            val evolvedTraits = petTraitEvolutionEngine.applyActivity(
-                current = traits,
-                activityType = activityResult.activityType,
-                appliedAtMs = actedAtMs
-            )
-            val persistedTraits = petTraitRepository.save(evolvedTraits)
-            val conditions = petConditionResolver.resolve(persistedState)
-            val emotion = petEmotionResolver.resolve(persistedState, conditions)
-            val decision = petBehaviorWeightResolver.resolveActivityEmotion(
-                activityType = activityResult.activityType,
-                context = PetBehaviorContext(
-                    state = persistedState,
-                    conditions = conditions,
-                    traits = persistedTraits
-                )
-            )
-            ActivityAppliedSnapshot(
-                result = activityResult.copy(updatedState = persistedState),
-                emotion = emotion,
-                traits = persistedTraits,
-                conditions = conditions,
-                decision = decision,
-                feedback = PetGameplayFeedbackFormatter.forActivity(
-                    petName = profile.name,
-                    result = activityResult.copy(updatedState = persistedState)
-                )
-            )
-        }
+        val resolvedActivity = petActivityApplyCoordinator.apply(
+            useCase = useCase,
+            actedAtMs = actedAtMs
+        )
         gameplayAction?.let { petGameplayCooldownGate.recordSuccess(it, actedAtMs) }
         currentPetState = resolvedActivity.result.updatedState
         currentPetEmotion = resolvedActivity.emotion
@@ -1208,23 +1195,21 @@ fun PetBrainApp() {
             cooldownKey = "pet_${resolvedActivity.result.activityType.name.lowercase()}"
         )
         appOpenGreeting = null
-        eventBus.publish(
-            EventEnvelope.create(
-                type = resolvedActivity.result.activityType.toEventType(),
-                payloadJson = PetActivityAppliedEventPayload(
-                    activityType = resolvedActivity.result.activityType.name,
-                    actedAtMs = actedAtMs,
-                    reason = resolvedActivity.result.reason,
-                    resultingMood = resolvedActivity.result.updatedState.mood.name,
-                    energyDelta = resolvedActivity.result.delta.energyDelta,
-                    hungerDelta = resolvedActivity.result.delta.hungerDelta,
-                    sleepinessDelta = resolvedActivity.result.delta.sleepinessDelta,
-                    socialDelta = resolvedActivity.result.delta.socialDelta,
-                    bondDelta = resolvedActivity.result.delta.bondDelta,
-                    feedbackText = resolvedActivity.feedback.text
-                ).toJson(),
-                timestampMs = actedAtMs
-            )
+        publishEvent(
+            type = resolvedActivity.result.activityType.toEventType(),
+            payloadJson = PetActivityAppliedEventPayload(
+                activityType = resolvedActivity.result.activityType.name,
+                actedAtMs = actedAtMs,
+                reason = resolvedActivity.result.reason,
+                resultingMood = resolvedActivity.result.updatedState.mood.name,
+                energyDelta = resolvedActivity.result.delta.energyDelta,
+                hungerDelta = resolvedActivity.result.delta.hungerDelta,
+                sleepinessDelta = resolvedActivity.result.delta.sleepinessDelta,
+                socialDelta = resolvedActivity.result.delta.socialDelta,
+                bondDelta = resolvedActivity.result.delta.bondDelta,
+                feedbackText = resolvedActivity.feedback.text
+            ).toJson(),
+            timestampMs = actedAtMs
         )
     }
 
@@ -1391,11 +1376,9 @@ fun PetBrainApp() {
                     },
                     onEmitTestEvent = {
                         coroutineScope.launch {
-                            eventBus.publish(
-                                EventEnvelope.create(
-                                    type = EventType.TEST_EVENT,
-                                    payloadJson = "{\"source\":\"debug_screen\"}"
-                                )
+                            publishEvent(
+                                type = EventType.TEST_EVENT,
+                                payloadJson = "{\"source\":\"debug_screen\"}"
                             )
                         }
                     },
@@ -1553,11 +1536,9 @@ fun PetBrainApp() {
                     onPermissionRequestTracked = { hasRequestedCameraPermission = true },
                     onFrameDiagnostics = { diagnostics ->
                         coroutineScope.launch {
-                            eventBus.publish(
-                                EventEnvelope.create(
-                                    type = EventType.CAMERA_FRAME_RECEIVED,
-                                    payloadJson = diagnostics.toCameraFramePayloadJson()
-                                )
+                            publishEvent(
+                                type = EventType.CAMERA_FRAME_RECEIVED,
+                                payloadJson = diagnostics.toCameraFramePayloadJson()
                             )
                         }
                     },
@@ -1576,12 +1557,10 @@ fun PetBrainApp() {
                         }
                         lastPublishedFaceCount = currentFaceCount
                         coroutineScope.launch {
-                            eventBus.publish(
-                                EventEnvelope.create(
-                                    type = EventType.FACE_DETECTED,
-                                    timestampMs = detectionResult.timestampMs,
-                                    payloadJson = detectionResult.toFacesDetectedPayloadJson()
-                                )
+                            publishEvent(
+                                type = EventType.FACE_DETECTED,
+                                timestampMs = detectionResult.timestampMs,
+                                payloadJson = detectionResult.toFacesDetectedPayloadJson()
                             )
                         }
                     },
@@ -1621,17 +1600,15 @@ fun PetBrainApp() {
                                 }
                                 else -> Unit
                             }
-                            eventBus.publish(
-                                EventEnvelope.create(
-                                    type = EventType.OBJECT_DETECTED,
-                                    timestampMs = detectedAtMs,
-                                    payloadJson = ObjectDetectedEventPayload(
-                                        objectId = seenUpdateResult?.objectRecord?.objectId,
-                                        label = label,
-                                        confidence = confidence,
-                                        detectedAtMs = detectedAtMs
-                                    ).toJson()
-                                )
+                            publishEvent(
+                                type = EventType.OBJECT_DETECTED,
+                                timestampMs = detectedAtMs,
+                                payloadJson = ObjectDetectedEventPayload(
+                                    objectId = seenUpdateResult?.objectRecord?.objectId,
+                                    label = label,
+                                    confidence = confidence,
+                                    detectedAtMs = detectedAtMs
+                                ).toJson()
                             )
                             Log.i(
                                 DEBUG_OBJECT_EVENT_TAG,
@@ -1894,16 +1871,14 @@ fun PetBrainApp() {
                                                 metadata = "unknown_candidate_seed"
                                             )
                                         }
-                                        eventBus.publish(
-                                            EventEnvelope.create(
-                                                type = EventType.USER_TAUGHT_PERSON,
-                                                timestampMs = now,
-                                                payloadJson = UserTaughtPersonEventPayload(
-                                                    personId = personId,
-                                                    displayName = trimmedName,
-                                                    sampleCount = 1
-                                                ).toJson()
-                                            )
+                                        publishEvent(
+                                            type = EventType.USER_TAUGHT_PERSON,
+                                            timestampMs = now,
+                                            payloadJson = UserTaughtPersonEventPayload(
+                                                personId = personId,
+                                                displayName = trimmedName,
+                                                sampleCount = 1
+                                            ).toJson()
                                         )
                                         backgroundOrchestrator
                                             .resolveUnknownFaceCandidateAndStartAutoCapture(
@@ -2105,6 +2080,115 @@ private data class ActivityAppliedSnapshot(
     val decision: PetBehaviorDecision<PetEmotion>,
     val feedback: PetGameplayFeedback
 )
+
+private class PetInteractionApplyCoordinator(
+    private val petProfileRepository: PetProfileRepository,
+    private val petTraitRepository: PetTraitRepository,
+    private val petStateRepository: PetStateRepository,
+    private val petInteractionStateReducer: PetInteractionStateReducer,
+    private val petTraitEvolutionEngine: PetTraitEvolutionEngine,
+    private val petConditionResolver: PetConditionResolver,
+    private val petEmotionResolver: PetEmotionResolver,
+    private val petBehaviorWeightResolver: PetBehaviorWeightResolver
+) {
+    suspend fun apply(
+        interactionType: PetInteractionType,
+        interactedAtMs: Long
+    ): InteractionAppliedSnapshot = withContext(Dispatchers.IO) {
+        val profile = petProfileRepository.getOrCreateActiveProfile()
+        val traits = petTraitRepository.getOrCreateForPet(profile.id)
+        val currentState = petStateRepository.getOrCreateState()
+        val nextState = petInteractionStateReducer.apply(
+            currentState = currentState,
+            interactionType = interactionType,
+            interactedAtMs = interactedAtMs
+        )
+        val persistedState = petStateRepository.updateState(nextState)
+        val evolvedTraits = petTraitEvolutionEngine.applyInteraction(
+            current = traits,
+            interactionType = interactionType,
+            appliedAtMs = interactedAtMs
+        )
+        val persistedTraits = petTraitRepository.save(evolvedTraits)
+        val conditions = petConditionResolver.resolve(persistedState)
+        val emotion = petEmotionResolver.resolve(persistedState, conditions)
+        val decision = petBehaviorWeightResolver.resolveInteractionEmotion(
+            interactionType = interactionType,
+            context = PetBehaviorContext(
+                state = persistedState,
+                conditions = conditions,
+                traits = persistedTraits
+            )
+        )
+        InteractionAppliedSnapshot(
+            previousState = currentState,
+            state = persistedState,
+            emotion = emotion,
+            traits = persistedTraits,
+            conditions = conditions,
+            decision = decision,
+            interactedAtMs = interactedAtMs,
+            feedback = PetGameplayFeedbackFormatter.forInteraction(
+                petName = profile.name,
+                interactionType = interactionType,
+                previousState = currentState,
+                updatedState = persistedState
+            )
+        )
+    }
+}
+
+private class PetActivityApplyCoordinator(
+    private val petProfileRepository: PetProfileRepository,
+    private val petTraitRepository: PetTraitRepository,
+    private val petStateRepository: PetStateRepository,
+    private val petTraitEvolutionEngine: PetTraitEvolutionEngine,
+    private val petConditionResolver: PetConditionResolver,
+    private val petEmotionResolver: PetEmotionResolver,
+    private val petBehaviorWeightResolver: PetBehaviorWeightResolver
+) {
+    suspend fun apply(
+        useCase: PetActivityUseCase,
+        actedAtMs: Long
+    ): ActivityAppliedSnapshot = withContext(Dispatchers.IO) {
+        val profile = petProfileRepository.getOrCreateActiveProfile()
+        val traits = petTraitRepository.getOrCreateForPet(profile.id)
+        val currentState = petStateRepository.getOrCreateState()
+        val activityResult = useCase.execute(
+            currentState = currentState,
+            actedAtMs = actedAtMs
+        )
+        val persistedState = petStateRepository.updateState(activityResult.updatedState)
+        val evolvedTraits = petTraitEvolutionEngine.applyActivity(
+            current = traits,
+            activityType = activityResult.activityType,
+            appliedAtMs = actedAtMs
+        )
+        val persistedTraits = petTraitRepository.save(evolvedTraits)
+        val conditions = petConditionResolver.resolve(persistedState)
+        val emotion = petEmotionResolver.resolve(persistedState, conditions)
+        val decision = petBehaviorWeightResolver.resolveActivityEmotion(
+            activityType = activityResult.activityType,
+            context = PetBehaviorContext(
+                state = persistedState,
+                conditions = conditions,
+                traits = persistedTraits
+            )
+        )
+        val persistedActivityResult = activityResult.copy(updatedState = persistedState)
+        ActivityAppliedSnapshot(
+            result = persistedActivityResult,
+            emotion = emotion,
+            traits = persistedTraits,
+            conditions = conditions,
+            decision = decision,
+            feedback = PetGameplayFeedbackFormatter.forActivity(
+                petName = profile.name,
+                result = persistedActivityResult
+            )
+        )
+    }
+}
 
 private fun PetDayBoundaryType?.toDailySummaryLabel(): String? {
     return when (this) {

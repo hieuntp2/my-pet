@@ -9,9 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -90,12 +88,10 @@ fun ObservationViewerScreen(
             Text(text = if (recording) "Recording..." else "Record Debug Observation")
         }
 
-        OutlinedButton(
+        DebugBackButton(
             onClick = onNavigateBack,
             modifier = Modifier.padding(bottom = 12.dp)
-        ) {
-            Text(text = "Back to Debug")
-        }
+        )
 
         if (actionMessage != null) {
             Text(
@@ -112,33 +108,20 @@ fun ObservationViewerScreen(
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
                 items(items = observations, key = { record -> record.observationId }) { record ->
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(modifier = Modifier.padding(12.dp)) {
+                    DebugRecordCard(
+                        title = record.observationType,
+                        subtitle = formatter.format(Instant.ofEpochMilli(record.observedAtMs)),
+                        id = record.observationId
+                    ) {
+                        Text(
+                            text = "Source: ${record.source}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        if (record.note != null) {
                             Text(
-                                text = record.observationType,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                text = "Source: ${record.source}",
+                                text = record.note,
                                 style = MaterialTheme.typography.bodySmall
                             )
-                            Text(
-                                text = formatter.format(Instant.ofEpochMilli(record.observedAtMs)),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Text(
-                                text = record.observationId,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            if (record.note != null) {
-                                Text(
-                                    text = record.note,
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
                         }
                     }
                 }

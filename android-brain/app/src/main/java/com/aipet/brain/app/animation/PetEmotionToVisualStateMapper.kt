@@ -9,14 +9,5 @@ import com.aipet.brain.pixel.avatar.model.PetVisualState
  * This adapter keeps the pixel-avatar module free from brain-layer types.
  */
 object PetEmotionToVisualStateMapper {
-    fun map(emotion: PetEmotion): PetVisualState = when (emotion) {
-        PetEmotion.IDLE -> PetVisualState.NEUTRAL
-        PetEmotion.HAPPY -> PetVisualState.HAPPY
-        PetEmotion.CURIOUS -> PetVisualState.CURIOUS
-        PetEmotion.SLEEPY -> PetVisualState.SLEEPY
-        PetEmotion.THINKING -> PetVisualState.THINKING
-        PetEmotion.SAD -> PetVisualState.NEUTRAL
-        PetEmotion.EXCITED -> PetVisualState.HAPPY
-        PetEmotion.HUNGRY -> PetVisualState.NEUTRAL
-    }
+    fun map(emotion: PetEmotion): PetVisualState = PetEmotionMappings.petToVisualState(emotion)
 }
