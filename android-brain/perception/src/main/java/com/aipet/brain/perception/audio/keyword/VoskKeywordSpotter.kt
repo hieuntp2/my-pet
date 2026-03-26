@@ -28,7 +28,7 @@ class VoskKeywordSpotter(
                 }
 
                 override fun onFinalText(text: String) {
-                    Log.d(TAG, "Final command: $text")
+                    // VoskCommandRecognizer already logs raw text + normalized form; no extra log needed here.
                 }
 
                 override fun onError(message: String, cause: Throwable?) {

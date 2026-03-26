@@ -21,6 +21,9 @@ class VoskCommandRecognizer(
     private var state: OfflineCommandRecognizerState = OfflineCommandRecognizerState.IDLE
     private var listeningRequested: Boolean = false
     private var lastPartialText: String? = null
+    private var modelInitStartTimeMs: Long = 0L
+    // Reusable buffer to avoid per-frame ByteArray allocation; only accessed on processing thread.
+    private var pcmConversionBuffer: ByteArray = ByteArray(0)
 
     override fun initialize() {
         synchronized(lock) {
@@ -37,6 +40,7 @@ class VoskCommandRecognizer(
                 return
             }
             state = OfflineCommandRecognizerState.INITIALIZING
+            modelInitStartTimeMs = System.currentTimeMillis()
             Log.i(TAG, "Vosk model init started.")
         }
 
@@ -52,6 +56,10 @@ class VoskCommandRecognizer(
     override fun startListening() {
         synchronized(lock) {
             if (state == OfflineCommandRecognizerState.RELEASED) {
+                return
+            }
+            if (state == OfflineCommandRecognizerState.LISTENING && listeningRequested) {
+                Log.d(TAG, "Vosk already listening; ignoring duplicate startListening().")
                 return
             }
             listeningRequested = true
@@ -124,6 +132,7 @@ class VoskCommandRecognizer(
                     VoskCommandParsing.buildRestrictedGrammarJson()
                 )
                 recognizer = createdRecognizer
+                Log.i(TAG, "Vosk recognizer created. sampleRate=${frame.sampleRate}Hz")
                 createdRecognizer
             } catch (error: Throwable) {
                 onRecognizerRuntimeFailure(
@@ -135,7 +144,7 @@ class VoskCommandRecognizer(
         } ?: return null
 
         return runCatching {
-            val pcmBytes = frame.toLittleEndianPcmBytes()
+            val pcmBytes = frame.toPcmBytesReusing()
             val finalized = activeRecognizer.acceptWaveForm(pcmBytes, pcmBytes.size)
             if (finalized) {
                 val finalJson = activeRecognizer.result
@@ -193,6 +202,7 @@ class VoskCommandRecognizer(
     }
 
     private fun onModelLoaded(loadedModel: Model) {
+        val loadDurationMs = System.currentTimeMillis() - modelInitStartTimeMs
         synchronized(lock) {
             if (state == OfflineCommandRecognizerState.RELEASED) {
                 runCatching { loadedModel.close() }
@@ -206,7 +216,7 @@ class VoskCommandRecognizer(
             } else {
                 OfflineCommandRecognizerState.READY
             }
-            Log.i(TAG, "Vosk model init completed.")
+            Log.i(TAG, "Vosk model init completed in ${loadDurationMs}ms.")
         }
     }
 
@@ -228,21 +238,32 @@ class VoskCommandRecognizer(
         message: String,
         cause: Throwable
     ) {
-        synchronized(lock) {
+        val isTrueFailure = synchronized(lock) {
             if (state == OfflineCommandRecognizerState.RELEASED) {
                 return
             }
-            state = OfflineCommandRecognizerState.FAILED
-            listeningRequested = false
-            closeRecognizerLocked()
+            // If state is no longer LISTENING, a concurrent stopListening()/release() already
+            // cleaned up the recognizer. The exception is a benign race — do not escalate to FAILED.
+            if (state != OfflineCommandRecognizerState.LISTENING) {
+                Log.w(TAG, "Vosk frame exception after stop (benign race): ${cause.message}")
+                false
+            } else {
+                state = OfflineCommandRecognizerState.FAILED
+                listeningRequested = false
+                closeRecognizerLocked()
+                true
+            }
         }
-        Log.e(TAG, message, cause)
-        listener?.onError(message, cause)
+        if (isTrueFailure) {
+            Log.e(TAG, message, cause)
+            listener?.onError(message, cause)
+        }
     }
 
     private fun closeRecognizerLocked() {
         recognizer?.let { activeRecognizer ->
             runCatching { activeRecognizer.close() }
+                .onSuccess { Log.d(TAG, "Vosk recognizer closed.") }
                 .onFailure { error ->
                     Log.w(TAG, "Failed to close Vosk recognizer: ${error.message}")
                 }
@@ -253,6 +274,7 @@ class VoskCommandRecognizer(
     private fun closeModelLocked() {
         model?.let { activeModel ->
             runCatching { activeModel.close() }
+                .onSuccess { Log.i(TAG, "Vosk model closed.") }
                 .onFailure { error ->
                     Log.w(TAG, "Failed to close Vosk model: ${error.message}")
                 }
@@ -260,19 +282,26 @@ class VoskCommandRecognizer(
         model = null
     }
 
-    private fun AudioFrame.toLittleEndianPcmBytes(): ByteArray {
+    /**
+     * Converts [AudioFrame] PCM data to a little-endian byte array, reusing [pcmConversionBuffer]
+     * to avoid per-frame heap allocation. Safe to call only from the single processing thread.
+     */
+    private fun AudioFrame.toPcmBytesReusing(): ByteArray {
         val validSamples = sampleCount.coerceAtMost(pcmData.size)
-        val output = ByteArray(validSamples * SHORT_BYTES)
+        val requiredSize = validSamples * SHORT_BYTES
+        if (pcmConversionBuffer.size < requiredSize) {
+            pcmConversionBuffer = ByteArray(requiredSize)
+        }
         var sampleIndex = 0
         var outputIndex = 0
         while (sampleIndex < validSamples) {
             val sample = pcmData[sampleIndex].toInt()
-            output[outputIndex] = (sample and 0xFF).toByte()
-            output[outputIndex + 1] = ((sample shr 8) and 0xFF).toByte()
+            pcmConversionBuffer[outputIndex] = (sample and 0xFF).toByte()
+            pcmConversionBuffer[outputIndex + 1] = ((sample shr 8) and 0xFF).toByte()
             sampleIndex += 1
             outputIndex += SHORT_BYTES
         }
-        return output
+        return pcmConversionBuffer
     }
 
     companion object {

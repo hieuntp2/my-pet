@@ -46,6 +46,8 @@ internal class LocalAudioIntentCommandRule(
         localIntentEvent: LocalAudioIntentEvent,
         timestampMs: Long
     ) {
+        // normalizedText is re-derived here from rawText for trace logging purposes only;
+        // routing decisions are based on localIntentEvent.intent which is mapped upstream.
         val normalizedText = localAudioIntentMapper.normalize(localIntentEvent.rawText)
         val brainState = currentBrainState()
         if (brainState == BrainState.SLEEPY && localIntentEvent.intent != AudioIntent.WAKE_UP) {
@@ -200,7 +202,6 @@ internal class LocalAudioIntentCommandRule(
                 onLearnObject()
                 val audioPlayed = onAcceptedAudioFeedback(AudioIntent.LEARN_OBJECT)
                 val avatarPlayed = onAcceptedAvatarReaction(AudioIntent.LEARN_OBJECT)
-                Log.d(TAG, "LEARN_OBJECT routed to unknown-object teach flow")
                 logTrace(
                     VoiceInteractionTrace(
                         rawText = localIntentEvent.rawText,

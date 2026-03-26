@@ -201,6 +201,35 @@ class LocalAudioIntentCommandRuleTest {
         assertEquals(emptyList<AudioIntent>(), avatarReactionCalls)
     }
 
+    @Test
+    fun `unknown intent is silently ignored and does not trigger any action`() = runTest {
+        val eventBus = InMemoryEventBus(replay = 0)
+        val actionCalls = mutableListOf<String>()
+        val rule = buildRule(
+            eventBus = eventBus,
+            currentBrainState = { BrainState.CURIOUS },
+            onWakeUp = { actionCalls += "wake" },
+            onLearnPerson = { actionCalls += "learn_person" },
+            onLearnObject = { actionCalls += "learn_object" },
+            onPlayRandom = { actionCalls += "play_random" },
+            onAcceptedAudioFeedback = { intent ->
+                actionCalls += "audio_feedback_${intent.name}"
+                true
+            },
+            onAcceptedAvatarReaction = { intent ->
+                actionCalls += "avatar_reaction_${intent.name}"
+                true
+            }
+        )
+        val job = backgroundScope.launch { rule.observeEventsAndRoute() }
+
+        emitIntent(eventBus, AudioIntent.UNKNOWN, "[unk]")
+        advanceUntilIdle()
+
+        job.cancel()
+        assertEquals(emptyList<String>(), actionCalls)
+    }
+
     private fun buildRule(
         eventBus: InMemoryEventBus,
         currentBrainState: () -> BrainState,

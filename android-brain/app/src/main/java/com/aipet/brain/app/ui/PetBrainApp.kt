@@ -582,49 +582,6 @@ fun PetBrainApp() {
             brainStateStore = brainStateStore
         )
     }
-    val localAudioIntentCommandRule = remember(
-        eventBus,
-        brainInteractionLoop,
-        playWithPetUseCase,
-        currentScreen,
-        activeTeachTarget,
-        brainStateSnapshot.currentState
-    ) {
-        LocalAudioIntentCommandRule(
-            eventBus = eventBus,
-            currentBrainState = {
-                brainStateStore.currentSnapshot().currentState
-            },
-            isTeachPersonFlowActive = {
-                currentScreen == AppScreen.TeachPerson || activeTeachTarget is TeachUnknownTarget.UnknownFace
-            },
-            isTeachObjectFlowActive = {
-                activeTeachTarget is TeachUnknownTarget.UnknownObject
-            },
-            isExclusiveFlowActive = {
-                activeTeachTarget != null
-            },
-            isPlayRandomEntryAvailable = { true },
-            onWakeUp = { timestampMs ->
-                brainInteractionLoop.forceWake(timestampMs)
-            },
-            onLearnPerson = {
-                currentScreenName = AppScreen.TeachPerson.name
-            },
-            onLearnObject = {
-                currentScreenName = AppScreen.Camera.name
-            },
-            onPlayRandom = {
-                handlePetActivity(playWithPetUseCase)
-            },
-            onAcceptedAudioFeedback = { intent ->
-                publishVoiceCommandAudioFeedback(intent)
-            },
-            onAcceptedAvatarReaction = { intent ->
-                playVoiceCommandAvatarReaction(intent)
-            }
-        )
-    }
     val currentWorkingMemory by workingMemoryStore.observe().collectAsState(
         initial = workingMemoryStore.currentSnapshot()
     )
@@ -963,10 +920,6 @@ fun PetBrainApp() {
 
     LaunchedEffect(keywordIntentCommandRule) {
         keywordIntentCommandRule.observeStimuliAndReact()
-    }
-
-    LaunchedEffect(localAudioIntentCommandRule) {
-        localAudioIntentCommandRule.observeEventsAndRoute()
     }
 
     LaunchedEffect(eventBus, "app_started") {
@@ -1386,6 +1339,58 @@ fun PetBrainApp() {
             durationMs = 1_000L
         )
         currentScreenName = AppScreen.Home.name
+    }
+
+    // Placed here so onPlayRandom/onAcceptedAudioFeedback/onAcceptedAvatarReaction lambdas can
+    // reference the local suspend functions defined above (Kotlin local functions require
+    // declaration before use at the call site).
+    val localAudioIntentCommandRule = remember(
+        eventBus,
+        brainInteractionLoop,
+        playWithPetUseCase,
+        currentScreen,
+        activeTeachTarget
+        // brainStateSnapshot.currentState is intentionally excluded: currentBrainState reads
+        // live state at call time, so including it would recreate and restart the observer
+        // coroutine on every SLEEPY↔CURIOUS transition unnecessarily.
+    ) {
+        LocalAudioIntentCommandRule(
+            eventBus = eventBus,
+            currentBrainState = {
+                brainStateStore.currentSnapshot().currentState
+            },
+            isTeachPersonFlowActive = {
+                currentScreen == AppScreen.TeachPerson || activeTeachTarget is TeachUnknownTarget.UnknownFace
+            },
+            isTeachObjectFlowActive = {
+                activeTeachTarget is TeachUnknownTarget.UnknownObject
+            },
+            isExclusiveFlowActive = {
+                activeTeachTarget != null
+            },
+            isPlayRandomEntryAvailable = { true },
+            onWakeUp = { timestampMs ->
+                brainInteractionLoop.forceWake(timestampMs)
+            },
+            onLearnPerson = {
+                currentScreenName = AppScreen.TeachPerson.name
+            },
+            onLearnObject = {
+                currentScreenName = AppScreen.Camera.name
+            },
+            onPlayRandom = {
+                handlePetActivity(playWithPetUseCase)
+            },
+            onAcceptedAudioFeedback = { intent ->
+                publishVoiceCommandAudioFeedback(intent)
+            },
+            onAcceptedAvatarReaction = { intent ->
+                playVoiceCommandAvatarReaction(intent)
+            }
+        )
+    }
+    LaunchedEffect(localAudioIntentCommandRule) {
+        localAudioIntentCommandRule.observeEventsAndRoute()
     }
 
     MaterialTheme {

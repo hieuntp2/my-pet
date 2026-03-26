@@ -19,6 +19,9 @@ internal class LocalAudioIntentMapper {
             else -> collapsed
                 .replace(" wake up ", " wakeup ")
                 .replace("learn a person", "learn person")
+                // The three variants below are unreachable via the Vosk grammar
+                // (restricted to the canonical phrase list). Reserved for a future
+                // non-Vosk input source that may produce these alias forms.
                 .replace("learn an person", "learn person")
                 .replace("learn a object", "learn object")
                 .replace("learn an object", "learn object")

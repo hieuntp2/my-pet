@@ -85,6 +85,7 @@ class AudioRecordFrameSource(
         )
     }
 
+    @Synchronized
     override fun start() {
         if (isRunning.get()) {
             Log.d(TAG, "Audio frame source is already running.")
