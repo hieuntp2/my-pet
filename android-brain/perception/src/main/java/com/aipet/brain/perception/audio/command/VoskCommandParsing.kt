@@ -40,11 +40,22 @@ object VoskCommandParsing {
     }
 
     fun normalizeCommand(rawText: String): String? {
-        val normalized = rawText
+        val collapsed = rawText
             .lowercase(Locale.US)
             .trim()
             .replace(Regex("\\s+"), " ")
+        if (collapsed.isBlank()) {
+            return null
+        }
+
+        val normalized = when (collapsed) {
+            "wake up" -> "wakeup"
+            "learn a person" -> "learn person"
+            else -> collapsed
+                .replace(" wake up ", " wakeup ")
+                .replace("learn a person", "learn person")
+        }.trim()
+
         return normalized.takeIf { candidate -> candidate in supportedCommands }
     }
 }
-

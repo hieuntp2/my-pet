@@ -3,6 +3,8 @@ package com.aipet.brain.brain.state
 import com.aipet.brain.brain.events.EventBus
 import com.aipet.brain.brain.events.EventEnvelope
 import com.aipet.brain.brain.events.EventType
+import com.aipet.brain.brain.events.audio.AudioIntent
+import com.aipet.brain.brain.events.audio.LocalAudioIntentEvent
 import com.aipet.brain.brain.events.audio.SoundEnergyPayload
 import com.aipet.brain.brain.events.audio.VoiceActivityPayload
 import com.aipet.brain.brain.events.audio.VoiceActivityState
@@ -216,6 +218,35 @@ class BrainInteractionLoopTest {
                     smoothedEnergy = 0.3,
                     timestamp = 5_000L,
                     kind = "KNOCK"
+                ).toJson()
+            )
+        )
+        advanceUntilIdle()
+
+        assertEquals(BrainState.CURIOUS, store.currentSnapshot().currentState)
+        job.cancel()
+    }
+
+    @Test
+    fun localWakeUpIntentWhileSleepy_wakesToCurious() = runTest {
+        val eventBus = FakeEventBus()
+        val store = BrainStateStore(initialState = BrainState.SLEEPY, nowProvider = { 1_000L })
+        val loop = BrainInteractionLoop(
+            eventBus = eventBus,
+            brainStateStore = store,
+            nowProvider = { 1_000L }
+        )
+        val job = launch { loop.observeEventsAndApplyTransitions() }
+        advanceUntilIdle()
+
+        eventBus.publish(
+            EventEnvelope.create(
+                type = EventType.LOCAL_AUDIO_INTENT_DETECTED,
+                timestampMs = 5_500L,
+                payloadJson = LocalAudioIntentEvent(
+                    intent = AudioIntent.WAKE_UP,
+                    confidence = 0.35f,
+                    rawText = "wake up"
                 ).toJson()
             )
         )

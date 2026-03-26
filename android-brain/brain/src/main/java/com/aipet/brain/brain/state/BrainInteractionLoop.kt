@@ -3,6 +3,8 @@ package com.aipet.brain.brain.state
 import com.aipet.brain.brain.events.EventBus
 import com.aipet.brain.brain.events.EventEnvelope
 import com.aipet.brain.brain.events.EventType
+import com.aipet.brain.brain.events.audio.AudioIntent
+import com.aipet.brain.brain.events.audio.LocalAudioIntentEvent
 import com.aipet.brain.brain.logic.audio.AudioMeaningfulStimulusPolicy
 import com.aipet.brain.brain.logic.audio.AudioStimulusMapper
 import java.lang.reflect.Method
@@ -93,6 +95,10 @@ class BrainInteractionLoop(
                 EventType.WAKE_WORD_DETECTED,
                 EventType.KEYWORD_DETECTED -> {
                     handleAudioStimulusForInactivity(event)
+                }
+
+                EventType.LOCAL_AUDIO_INTENT_DETECTED -> {
+                    handleLocalAudioIntentForInactivity(event)
                 }
 
                 else -> Unit
@@ -193,6 +199,27 @@ class BrainInteractionLoop(
             timestampMs = meaningfulStimulus.timestampMs,
             reason = BrainTransitionReason.STIMULUS_WAKE
         )
+    }
+
+    private suspend fun handleLocalAudioIntentForInactivity(event: EventEnvelope) {
+        val payload = LocalAudioIntentEvent.fromJson(event.payloadJson) ?: run {
+            logger.w(
+                TAG,
+                "Ignored ${EventType.LOCAL_AUDIO_INTENT_DETECTED.name} due to invalid payload. eventId=${event.eventId}"
+            )
+            return
+        }
+        recordMeaningfulStimulus(event.timestampMs)
+        logger.d(
+            TAG,
+            "Local audio intent consumed by brain. intent=${payload.intent.name}, rawText=\"${payload.rawText}\""
+        )
+        if (payload.intent == AudioIntent.WAKE_UP) {
+            wakeIfSleeping(
+                timestampMs = event.timestampMs,
+                reason = BrainTransitionReason.STIMULUS_WAKE
+            )
+        }
     }
 
     private suspend fun transitionTo(

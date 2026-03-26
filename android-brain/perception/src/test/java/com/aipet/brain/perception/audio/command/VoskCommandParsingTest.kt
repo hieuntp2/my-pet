@@ -12,12 +12,13 @@ class VoskCommandParsingTest {
         assertEquals("learn person", VoskCommandParsing.normalizeCommand("learn   person"))
         assertEquals("learn object", VoskCommandParsing.normalizeCommand("LEARN OBJECT"))
         assertEquals("play random", VoskCommandParsing.normalizeCommand("play random"))
+        assertEquals("wakeup", VoskCommandParsing.normalizeCommand("wake up"))
+        assertEquals("learn person", VoskCommandParsing.normalizeCommand("learn a person"))
     }
 
     @Test
     fun `normalizeCommand rejects unsupported phrases`() {
         assertNull(VoskCommandParsing.normalizeCommand(""))
-        assertNull(VoskCommandParsing.normalizeCommand("wake up"))
         assertNull(VoskCommandParsing.normalizeCommand("play"))
         assertNull(VoskCommandParsing.normalizeCommand("learn"))
     }

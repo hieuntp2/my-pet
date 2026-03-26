@@ -6,6 +6,8 @@ import com.aipet.brain.brain.events.EventType
 import com.aipet.brain.brain.events.ObjectDetectedEventPayload
 import com.aipet.brain.brain.events.PersonRecognizedPayload
 import com.aipet.brain.brain.events.PersonSeenEventPayload
+import com.aipet.brain.brain.events.audio.AudioIntent
+import com.aipet.brain.brain.events.audio.LocalAudioIntentEvent
 import com.aipet.brain.brain.events.audio.SoundEnergyPayload
 import com.aipet.brain.brain.events.audio.VoiceActivityPayload
 import com.aipet.brain.brain.events.audio.VoiceActivityState
@@ -256,6 +258,38 @@ class WorkingMemoryUpdaterTest {
         advanceUntilIdle()
 
         assertEquals(2_000L, store.currentSnapshot().lastStimulusTs)
+        job.cancel()
+    }
+
+    @Test
+    fun localAudioIntentEvent_updatesLastStimulus() = runTest {
+        val eventBus = FakeEventBus()
+        val store = WorkingMemoryStore(
+            initialMemory = WorkingMemory(lastStimulusTs = 3_000L)
+        )
+        val updater = WorkingMemoryUpdater(
+            eventBus = eventBus,
+            workingMemoryStore = store
+        )
+        val job = launch {
+            updater.observeEventsAndUpdateMemory()
+        }
+        advanceUntilIdle()
+
+        eventBus.publish(
+            EventEnvelope.create(
+                type = EventType.LOCAL_AUDIO_INTENT_DETECTED,
+                timestampMs = 8_000L,
+                payloadJson = LocalAudioIntentEvent(
+                    intent = AudioIntent.LEARN_PERSON,
+                    confidence = 0.35f,
+                    rawText = "learn person"
+                ).toJson()
+            )
+        )
+        advanceUntilIdle()
+
+        assertEquals(8_000L, store.currentSnapshot().lastStimulusTs)
         job.cancel()
     }
 
