@@ -9,6 +9,7 @@ import com.aipet.brain.brain.events.audio.AudioCaptureEventPayload
 import com.aipet.brain.brain.events.audio.KeywordDetectionEventInput
 import com.aipet.brain.brain.events.audio.KeywordDetectionEventKind
 import com.aipet.brain.brain.events.audio.KeywordDetectionEventMapper
+import com.aipet.brain.brain.events.audio.LocalAudioIntentEvent
 import com.aipet.brain.brain.events.audio.SoundEnergyPayload
 import com.aipet.brain.brain.events.audio.VoiceActivityPayload
 import com.aipet.brain.brain.events.audio.VoiceActivityState
@@ -368,6 +369,8 @@ internal class AudioCaptureLifecycleEventPublisher(
                 "engine=${result.engineName} " +
                 "kind=${result.detectionType.name}"
         )
+        publishLocalAudioIntentEvent(result)
+
         val eventKind = when (result.detectionType) {
             KeywordDetectionType.WAKE_WORD -> KeywordDetectionEventKind.WAKE_WORD
             KeywordDetectionType.KEYWORD -> KeywordDetectionEventKind.KEYWORD
@@ -390,6 +393,49 @@ internal class AudioCaptureLifecycleEventPublisher(
             return
         }
         publishKeywordDetectionEvent(eventEnvelope, result)
+    }
+
+    private fun publishLocalAudioIntentEvent(result: KeywordDetectionResult) {
+        val rawText = result.keywordText?.trim().orEmpty()
+        if (rawText.isBlank()) {
+            Log.w(TAG, "Skipped ${EventType.LOCAL_AUDIO_INTENT_DETECTED.name}: raw text is blank.")
+            return
+        }
+        val normalizedText = localAudioIntentMapper.normalize(rawText)
+        val mappedIntent = localAudioIntentMapper.mapToIntent(normalizedText)
+        Log.d(
+            TAG,
+            "Local audio intent mapped. raw=\"$rawText\" normalized=\"$normalizedText\" intent=${mappedIntent.name}"
+        )
+        val payloadJson = LocalAudioIntentEvent(
+            intent = mappedIntent,
+            confidence = result.confidence,
+            rawText = rawText
+        ).toJson()
+        val eventEnvelope = EventEnvelope.create(
+            type = EventType.LOCAL_AUDIO_INTENT_DETECTED,
+            timestampMs = result.timestampMs,
+            payloadJson = payloadJson
+        )
+        coroutineScope.launch {
+            try {
+                eventBus.publish(eventEnvelope)
+                updateLastSoundEvent(
+                    eventType = eventEnvelope.type,
+                    timestampMs = eventEnvelope.timestampMs
+                )
+                Log.d(
+                    TAG,
+                    "Published ${eventEnvelope.type.name}. intent=${mappedIntent.name} rawText=\"$rawText\""
+                )
+            } catch (error: Throwable) {
+                Log.e(
+                    TAG,
+                    "Failed to publish ${eventEnvelope.type.name}. intent=${mappedIntent.name}",
+                    error
+                )
+            }
+        }
     }
 
     private fun publishKeywordDetectionEvent(
@@ -466,6 +512,7 @@ internal class AudioCaptureLifecycleEventPublisher(
     private val runtimeDebugState = MutableStateFlow(AudioRuntimeDebugState())
     private var soundEventSequence: Long = 0L
     private val keywordDetectionEventMapper = KeywordDetectionEventMapper()
+    private val localAudioIntentMapper = LocalAudioIntentMapper()
 
     override fun currentRuntimeDebugState(): AudioRuntimeDebugState = runtimeDebugState.value
 

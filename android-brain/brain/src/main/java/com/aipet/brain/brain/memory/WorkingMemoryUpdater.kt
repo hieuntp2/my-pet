@@ -7,6 +7,7 @@ import com.aipet.brain.brain.events.EventType
 import com.aipet.brain.brain.events.ObjectDetectedEventPayload
 import com.aipet.brain.brain.events.PersonRecognizedPayload
 import com.aipet.brain.brain.events.PersonSeenEventPayload
+import com.aipet.brain.brain.events.audio.LocalAudioIntentEvent
 import com.aipet.brain.brain.logic.audio.AudioMeaningfulStimulusPolicy
 import com.aipet.brain.brain.logic.audio.AudioStimulusMapper
 import kotlinx.coroutines.flow.collect
@@ -84,6 +85,10 @@ class WorkingMemoryUpdater(
                     handleAudioStimulusMemoryUpdate(event)
                 }
 
+                EventType.LOCAL_AUDIO_INTENT_DETECTED -> {
+                    handleLocalAudioIntentMemoryUpdate(event)
+                }
+
                 else -> Unit
             }
         }
@@ -121,6 +126,31 @@ class WorkingMemoryUpdater(
             TAG,
             "Meaningful audio stimulus updated working memory. source=${meaningfulStimulus.sourceEventType.name}, " +
                 "reason=${meaningfulStimulus.reason}, lastStimulusTs=$previousStimulusTs -> $updatedStimulusTs"
+        )
+    }
+
+    private fun handleLocalAudioIntentMemoryUpdate(event: EventEnvelope) {
+        val payload = LocalAudioIntentEvent.fromJson(event.payloadJson) ?: run {
+            Log.w(
+                TAG,
+                "Ignored ${EventType.LOCAL_AUDIO_INTENT_DETECTED.name} for working memory update due to invalid payload."
+            )
+            return
+        }
+        val previousStimulusTs = workingMemoryStore.currentSnapshot().lastStimulusTs
+        workingMemoryStore.update { current ->
+            val currentTimestamp = current.lastStimulusTs
+            if (currentTimestamp != null && event.timestampMs <= currentTimestamp) {
+                current
+            } else {
+                current.copy(lastStimulusTs = event.timestampMs)
+            }
+        }
+        val updatedStimulusTs = workingMemoryStore.currentSnapshot().lastStimulusTs
+        Log.d(
+            TAG,
+            "Local audio intent updated working memory. intent=${payload.intent.name}, " +
+                "lastStimulusTs=$previousStimulusTs -> $updatedStimulusTs"
         )
     }
 

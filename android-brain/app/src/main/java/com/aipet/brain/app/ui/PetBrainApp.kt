@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.room.Room
 import com.aipet.brain.app.audio.AudioCaptureLifecycleEventPublisher
 import com.aipet.brain.app.audio.AudioResponseDispatcher
+import com.aipet.brain.app.audio.LocalAudioIntentCommandRule
 import com.aipet.brain.app.animation.DefaultPetAnimatorFactory
 import com.aipet.brain.app.animation.PetAnimationInputMapper
 import com.aipet.brain.app.animation.PetAnimationSource
@@ -83,6 +84,7 @@ import com.aipet.brain.brain.events.PetGreetedEventPayload
 import com.aipet.brain.brain.events.UserInteractedPetEventPayload
 import com.aipet.brain.brain.events.UserTaughtPersonEventPayload
 import com.aipet.brain.brain.events.audio.AudioResponseRequestPayload
+import com.aipet.brain.brain.events.audio.AudioIntent
 import com.aipet.brain.brain.events.vision.FaceBoundingBoxPayload
 import com.aipet.brain.brain.events.vision.FacesDetectedEventPayload
 import com.aipet.brain.brain.interaction.PetInteractionStateReducer
@@ -1007,6 +1009,78 @@ fun PetBrainApp() {
         )
     }
 
+    suspend fun publishVoiceCommandAudioFeedback(intent: AudioIntent): Boolean {
+        val category = when (intent) {
+            AudioIntent.WAKE_UP -> AudioCategory.ACKNOWLEDGMENT
+            AudioIntent.LEARN_PERSON -> AudioCategory.ACKNOWLEDGMENT
+            AudioIntent.LEARN_OBJECT -> AudioCategory.ACKNOWLEDGMENT
+            AudioIntent.PLAY_RANDOM -> AudioCategory.HAPPY
+            AudioIntent.UNKNOWN -> null
+        } ?: return false
+
+        val timestampMs = System.currentTimeMillis()
+        return runCatching {
+            eventBus.publish(
+                EventEnvelope.create(
+                    type = EventType.AUDIO_RESPONSE_REQUESTED,
+                    timestampMs = timestampMs,
+                    payloadJson = AudioResponseRequestPayload(
+                        category = category.label,
+                        priority = 3,
+                        interruptPolicy = "INTERRUPT_NONE",
+                        cooldownKey = "voice_cmd_${intent.name.lowercase()}",
+                        timestamp = timestampMs
+                    ).toJson()
+                )
+            )
+        }.onSuccess {
+            Log.d(
+                VOICE_FEEDBACK_TAG,
+                "Voice feedback queued. intent=${intent.name}, category=${category.label}"
+            )
+        }.onFailure { error ->
+            Log.w(
+                VOICE_FEEDBACK_TAG,
+                "Voice feedback skipped. intent=${intent.name}, category=${category.label}, reason=${error.message}"
+            )
+        }.isSuccess
+    }
+
+    suspend fun playVoiceCommandAvatarReaction(intent: AudioIntent): Boolean {
+        if (activeTeachTarget != null && intent != AudioIntent.WAKE_UP) {
+            Log.d(
+                VOICE_AVATAR_TAG,
+                "Skipped voice avatar reaction due to active teach flow. intent=${intent.name}"
+            )
+            return false
+        }
+        val emotion = when (intent) {
+            AudioIntent.WAKE_UP -> PetEmotion.CURIOUS
+            AudioIntent.LEARN_PERSON -> PetEmotion.CURIOUS
+            AudioIntent.LEARN_OBJECT -> PetEmotion.CURIOUS
+            AudioIntent.PLAY_RANDOM -> PetEmotion.EXCITED
+            AudioIntent.UNKNOWN -> null
+        } ?: return false
+
+        val trigger = animationInputMapper.mapGenericReaction(
+            emotion = emotion,
+            source = PetAnimationSource.REACTION
+        )
+        return runCatching {
+            petAnimator.playTrigger(trigger, durationMs = 900L)
+        }.onSuccess {
+            Log.d(
+                VOICE_AVATAR_TAG,
+                "Voice avatar reaction played. intent=${intent.name}, emotion=${emotion.name}"
+            )
+        }.onFailure { error ->
+            Log.w(
+                VOICE_AVATAR_TAG,
+                "Voice avatar reaction skipped. intent=${intent.name}, reason=${error.message}"
+            )
+        }.isSuccess
+    }
+
     suspend fun handlePetInteraction(
         interactionType: PetInteractionType,
         source: String
@@ -1265,6 +1339,58 @@ fun PetBrainApp() {
             durationMs = 1_000L
         )
         currentScreenName = AppScreen.Home.name
+    }
+
+    // Placed here so onPlayRandom/onAcceptedAudioFeedback/onAcceptedAvatarReaction lambdas can
+    // reference the local suspend functions defined above (Kotlin local functions require
+    // declaration before use at the call site).
+    val localAudioIntentCommandRule = remember(
+        eventBus,
+        brainInteractionLoop,
+        playWithPetUseCase,
+        currentScreen,
+        activeTeachTarget
+        // brainStateSnapshot.currentState is intentionally excluded: currentBrainState reads
+        // live state at call time, so including it would recreate and restart the observer
+        // coroutine on every SLEEPY↔CURIOUS transition unnecessarily.
+    ) {
+        LocalAudioIntentCommandRule(
+            eventBus = eventBus,
+            currentBrainState = {
+                brainStateStore.currentSnapshot().currentState
+            },
+            isTeachPersonFlowActive = {
+                currentScreen == AppScreen.TeachPerson || activeTeachTarget is TeachUnknownTarget.UnknownFace
+            },
+            isTeachObjectFlowActive = {
+                activeTeachTarget is TeachUnknownTarget.UnknownObject
+            },
+            isExclusiveFlowActive = {
+                activeTeachTarget != null
+            },
+            isPlayRandomEntryAvailable = { true },
+            onWakeUp = { timestampMs ->
+                brainInteractionLoop.forceWake(timestampMs)
+            },
+            onLearnPerson = {
+                currentScreenName = AppScreen.TeachPerson.name
+            },
+            onLearnObject = {
+                currentScreenName = AppScreen.Camera.name
+            },
+            onPlayRandom = {
+                handlePetActivity(playWithPetUseCase)
+            },
+            onAcceptedAudioFeedback = { intent ->
+                publishVoiceCommandAudioFeedback(intent)
+            },
+            onAcceptedAvatarReaction = { intent ->
+                playVoiceCommandAvatarReaction(intent)
+            }
+        )
+    }
+    LaunchedEffect(localAudioIntentCommandRule) {
+        localAudioIntentCommandRule.observeEventsAndRoute()
     }
 
     MaterialTheme {
@@ -2022,6 +2148,8 @@ private const val DEBUG_OBJECT_CREATE_TAG = "ObjectCreateDebug"
 private const val DEBUG_OBJECT_STATS_TAG = "ObjectSeenStats"
 private const val DEBUG_OBJECT_ALIAS_TAG = "ObjectAliasResolver"
 private const val DEBUG_STARTUP_TAG = "PetBrainStartup"
+private const val VOICE_FEEDBACK_TAG = "VoiceCmdFeedback"
+private const val VOICE_AVATAR_TAG = "VoiceCmdAvatar"
 private const val MAX_PET_NAME_LENGTH = 24
 
 // Auto-learning: minimum recognition score (cosine similarity) before a live frame
