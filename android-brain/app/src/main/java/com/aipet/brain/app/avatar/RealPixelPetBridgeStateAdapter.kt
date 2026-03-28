@@ -40,22 +40,31 @@ class RealPixelPetBridgeStateAdapter(
             (signal.latestAudioStimulus is VoiceActivityStimulus &&
                 signal.latestAudioStimulus.state == VoiceActivityStimulusState.STARTED)
         val hasDirectEngagement = signal.brainState == BrainState.HAPPY ||
-            signal.petEmotion == PetEmotion.HAPPY ||
-            signal.petEmotion == PetEmotion.EXCITED
+            signal.petEmotion == PetEmotion.HAPPY
+        val hasExcitedEmotion = signal.petEmotion == PetEmotion.EXCITED
         val hasAttentiveInterest = signal.brainState == BrainState.CURIOUS ||
-            signal.petEmotion == PetEmotion.CURIOUS ||
-            signal.petEmotion == PetEmotion.HUNGRY
+            signal.petEmotion == PetEmotion.CURIOUS
         val hasLowEnergy = signal.conditions.contains(PetCondition.SLEEPY) ||
             signal.petEmotion == PetEmotion.SLEEPY ||
             signal.brainState == BrainState.SLEEPY
+        val hasSadEmotion = signal.petEmotion == PetEmotion.SAD ||
+            signal.conditions.contains(PetCondition.LONELY)
+        val hasHungryEmotion = signal.petEmotion == PetEmotion.HUNGRY ||
+            signal.conditions.contains(PetCondition.HUNGRY)
 
         val sourceSummary = buildList {
             if (hasAudioAttention) add("audio_attention")
             if (hasDirectEngagement) add("direct_engagement")
+            if (hasExcitedEmotion) add("excited")
             if (signal.isPerceptionLooking) add("perception_looking")
             if (signal.isPerceptionAsking) add("perception_asking")
+            if (hasHungryEmotion) add("hungry")
             if (hasAttentiveInterest) add("attentive_interest")
             if (hasLowEnergy) add("low_energy")
+            if (hasSadEmotion) add("sad")
+            if (signal.greetingBoostIntent != null) add("greeting_active")
+            if (signal.transientReactionIntent != null) add("tap_reaction")
+            if (signal.soundReactionIntent != null) add("sound_reaction")
             signal.latestAudioStimulus?.let { add(it.toDebugSummary()) }
         }.ifEmpty {
             listOf("neutral_fallback")
@@ -64,10 +73,16 @@ class RealPixelPetBridgeStateAdapter(
         return HomePixelPetAvatarBridgeInput(
             hasAudioAttention = hasAudioAttention,
             hasDirectEngagement = hasDirectEngagement,
+            hasExcitedEmotion = hasExcitedEmotion,
             hasAttentiveInterest = hasAttentiveInterest,
             hasLowEnergy = hasLowEnergy,
+            hasSadEmotion = hasSadEmotion,
+            hasHungryEmotion = hasHungryEmotion,
             hasPerceptionLooking = signal.isPerceptionLooking,
             hasPerceptionAsking = signal.isPerceptionAsking,
+            greetingBoostIntent = signal.greetingBoostIntent,
+            transientReactionIntent = signal.transientReactionIntent,
+            soundReactionIntent = signal.soundReactionIntent,
             sourceSummary = sourceSummary
         )
     }

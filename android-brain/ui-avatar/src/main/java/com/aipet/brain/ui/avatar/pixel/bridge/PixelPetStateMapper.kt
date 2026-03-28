@@ -2,10 +2,13 @@ package com.aipet.brain.ui.avatar.pixel.bridge
 
 import com.aipet.brain.ui.avatar.pixel.model.Asking
 import com.aipet.brain.ui.avatar.pixel.model.Curious
+import com.aipet.brain.ui.avatar.pixel.model.Excited
 import com.aipet.brain.ui.avatar.pixel.model.Happy
+import com.aipet.brain.ui.avatar.pixel.model.Hungry
 import com.aipet.brain.ui.avatar.pixel.model.Looking
 import com.aipet.brain.ui.avatar.pixel.model.Neutral
 import com.aipet.brain.ui.avatar.pixel.model.PixelPetVisualState
+import com.aipet.brain.ui.avatar.pixel.model.Sad
 import com.aipet.brain.ui.avatar.pixel.model.Sleepy
 import com.aipet.brain.ui.avatar.pixel.model.Thinking
 
@@ -16,11 +19,14 @@ fun interface PixelPetStateMapper<T> {
 enum class PixelPetAvatarIntent {
     NEUTRAL,
     ENGAGED,
+    EXCITED,
     ATTENTIVE,
     LOOKING,
     ASKING,
     PROCESSING,
-    LOW_ENERGY
+    LOW_ENERGY,
+    SAD,
+    HUNGRY
 }
 
 data class PixelPetBridgeDebugMetadata(
@@ -44,11 +50,14 @@ class DefaultPixelPetStateMapper : PixelPetStateMapper<PixelPetBridgeState> {
         return when (state.intent) {
             PixelPetAvatarIntent.NEUTRAL -> Neutral
             PixelPetAvatarIntent.ENGAGED -> Happy
+            PixelPetAvatarIntent.EXCITED -> Excited
             PixelPetAvatarIntent.ATTENTIVE -> Curious
             PixelPetAvatarIntent.LOOKING -> Looking
             PixelPetAvatarIntent.ASKING -> Asking
             PixelPetAvatarIntent.PROCESSING -> Thinking
             PixelPetAvatarIntent.LOW_ENERGY -> Sleepy
+            PixelPetAvatarIntent.SAD -> Sad
+            PixelPetAvatarIntent.HUNGRY -> Hungry
         }
     }
 }

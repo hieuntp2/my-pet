@@ -7,11 +7,14 @@ sealed interface PixelPetVisualState {
         val coreStates: List<PixelPetVisualState> = listOf(
             Neutral,
             Happy,
+            Excited,
             Curious,
             Looking,
             Asking,
             Sleepy,
-            Thinking
+            Thinking,
+            Sad,
+            Hungry
         )
     }
 }
@@ -22,6 +25,10 @@ object Neutral : PixelPetVisualState {
 
 object Happy : PixelPetVisualState {
     override val id: String = "happy"
+}
+
+object Excited : PixelPetVisualState {
+    override val id: String = "excited"
 }
 
 object Curious : PixelPetVisualState {
@@ -42,6 +49,14 @@ object Sleepy : PixelPetVisualState {
 
 object Thinking : PixelPetVisualState {
     override val id: String = "thinking"
+}
+
+object Sad : PixelPetVisualState {
+    override val id: String = "sad"
+}
+
+object Hungry : PixelPetVisualState {
+    override val id: String = "hungry"
 }
 
 data class CustomPixelPetVisualState(

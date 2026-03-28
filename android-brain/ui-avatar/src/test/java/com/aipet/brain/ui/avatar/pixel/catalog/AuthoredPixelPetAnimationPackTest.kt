@@ -2,13 +2,16 @@ package com.aipet.brain.ui.avatar.pixel.catalog
 
 import com.aipet.brain.ui.avatar.pixel.model.Asking
 import com.aipet.brain.ui.avatar.pixel.model.Curious
+import com.aipet.brain.ui.avatar.pixel.model.Excited
 import com.aipet.brain.ui.avatar.pixel.model.Happy
+import com.aipet.brain.ui.avatar.pixel.model.Hungry
 import com.aipet.brain.ui.avatar.pixel.model.Looking
 import com.aipet.brain.ui.avatar.pixel.model.Neutral
 import com.aipet.brain.ui.avatar.pixel.model.PixelAnimationVariant
 import com.aipet.brain.ui.avatar.pixel.model.PixelAnimationVariantTier
 import com.aipet.brain.ui.avatar.pixel.model.PixelFrame64
 import com.aipet.brain.ui.avatar.pixel.model.PixelPetDefaultPalette
+import com.aipet.brain.ui.avatar.pixel.model.Sad
 import com.aipet.brain.ui.avatar.pixel.model.Sleepy
 import com.aipet.brain.ui.avatar.pixel.model.Thinking
 import org.junit.Assert.assertEquals
@@ -30,6 +33,63 @@ class AuthoredPixelPetAnimationPackTest {
         assertNotNull(registry[Asking])
         assertNotNull(registry[Thinking])
         assertNotNull(registry[Sleepy])
+        assertNotNull(registry[Excited])
+        assertNotNull(registry[Sad])
+        assertNotNull(registry[Hungry])
+    }
+
+    @Test
+    fun `excited state registers visually distinct energetic variants`() {
+        val excitedVariants = AuthoredPixelPetAnimationPack.createRegistry()
+            .requireAnimationSet(Excited)
+            .variants
+
+        assertEquals(
+            listOf("Excited_A_BrightBounce", "Excited_B_WideLift", "Excited_C_WigglePop"),
+            excitedVariants.map { it.id }
+        )
+        assertEquals(PixelAnimationVariantTier.RARE, excitedVariants.last().tier)
+    }
+
+    @Test
+    fun `sad state registers visually distinct low-energy drooped variants`() {
+        val sadVariants = AuthoredPixelPetAnimationPack.createRegistry()
+            .requireAnimationSet(Sad)
+            .variants
+
+        assertEquals(
+            listOf("Sad_A_HoldDroop", "Sad_B_SlowBlink", "Sad_C_DownLook"),
+            sadVariants.map { it.id }
+        )
+        assertEquals(PixelAnimationVariantTier.RARE, sadVariants.last().tier)
+    }
+
+    @Test
+    fun `hungry state registers needy seeking-gaze variants`() {
+        val hungryVariants = AuthoredPixelPetAnimationPack.createRegistry()
+            .requireAnimationSet(Hungry)
+            .variants
+
+        assertEquals(
+            listOf("Hungry_A_NeedyHold", "Hungry_B_LookAsk", "Hungry_C_WistfulAsk"),
+            hungryVariants.map { it.id }
+        )
+        assertEquals(PixelAnimationVariantTier.RARE, hungryVariants.last().tier)
+    }
+
+    @Test
+    fun `sad and excited first frames are visually distinct from happy and neutral`() {
+        val registry = AuthoredPixelPetAnimationPack.createRegistry()
+        val neutralFrame = registry.requireAnimationSet(Neutral).variants.first().clip.frames.first().frame
+        val happyFrame = registry.requireAnimationSet(Happy).variants.first().clip.frames.first().frame
+        val excitedFrame = registry.requireAnimationSet(Excited).variants.first().clip.frames.first().frame
+        val sadFrame = registry.requireAnimationSet(Sad).variants.first().clip.frames.first().frame
+        val hungryFrame = registry.requireAnimationSet(Hungry).variants.first().clip.frames.first().frame
+
+        assertNotEquals(neutralFrame, sadFrame)
+        assertNotEquals(neutralFrame, excitedFrame)
+        assertNotEquals(happyFrame, excitedFrame)
+        assertNotEquals(happyFrame, hungryFrame)
     }
 
     @Test

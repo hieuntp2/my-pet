@@ -3,7 +3,9 @@ package com.aipet.brain.ui.avatar.pixel.catalog
 import com.aipet.brain.ui.avatar.pixel.bridge.PixelAnimationSetRegistry
 import com.aipet.brain.ui.avatar.pixel.model.Asking
 import com.aipet.brain.ui.avatar.pixel.model.Curious
+import com.aipet.brain.ui.avatar.pixel.model.Excited
 import com.aipet.brain.ui.avatar.pixel.model.Happy
+import com.aipet.brain.ui.avatar.pixel.model.Hungry
 import com.aipet.brain.ui.avatar.pixel.model.Looking
 import com.aipet.brain.ui.avatar.pixel.model.Neutral
 import com.aipet.brain.ui.avatar.pixel.model.PixelAnimationClip
@@ -14,6 +16,7 @@ import com.aipet.brain.ui.avatar.pixel.model.PixelAnimationVariantTier
 import com.aipet.brain.ui.avatar.pixel.model.PixelFrame64
 import com.aipet.brain.ui.avatar.pixel.model.PixelPetAnimationStateSet
 import com.aipet.brain.ui.avatar.pixel.model.PixelPetDefaultPalette
+import com.aipet.brain.ui.avatar.pixel.model.Sad
 import com.aipet.brain.ui.avatar.pixel.model.Sleepy
 import com.aipet.brain.ui.avatar.pixel.model.Thinking
 
@@ -48,6 +51,18 @@ object AuthoredPixelPetAnimationPack {
                 Sleepy to PixelPetAnimationStateSet(
                     state = Sleepy,
                     variants = createSleepyVariants()
+                ),
+                Excited to PixelPetAnimationStateSet(
+                    state = Excited,
+                    variants = createExcitedVariants()
+                ),
+                Sad to PixelPetAnimationStateSet(
+                    state = Sad,
+                    variants = createSadVariants()
+                ),
+                Hungry to PixelPetAnimationStateSet(
+                    state = Hungry,
+                    variants = createHungryVariants()
                 )
             )
         )
@@ -63,7 +78,7 @@ object AuthoredPixelPetAnimationPack {
                     frame(durationMillis = 120, frame = NeutralEyeTemplate.closedBlinkFrame()),
                     frame(durationMillis = 210, frame = NeutralEyeTemplate.softBlinkFrame())
                 ),
-                categories = setOf("neutral")
+                categories = setOf("neutral", "calm")
             ),
             expressiveVariant(
                 id = "Neutral_B_GlanceLeft",
@@ -73,7 +88,7 @@ object AuthoredPixelPetAnimationPack {
                     frame(durationMillis = 180, frame = NeutralEyeTemplate.glanceLeftHoldFrame()),
                     frame(durationMillis = 260, frame = NeutralEyeTemplate.openFrame())
                 ),
-                categories = setOf("neutral")
+                categories = setOf("neutral", "curious")
             ),
             expressiveVariant(
                 id = "Neutral_C_GlanceRight",
@@ -83,7 +98,7 @@ object AuthoredPixelPetAnimationPack {
                     frame(durationMillis = 210, frame = NeutralEyeTemplate.glanceRightHoldFrame()),
                     frame(durationMillis = 250, frame = NeutralEyeTemplate.openFrame())
                 ),
-                categories = setOf("neutral")
+                categories = setOf("neutral", "curious")
             ),
             expressiveVariant(
                 id = "Neutral_D_DoubleBlink",
@@ -97,7 +112,7 @@ object AuthoredPixelPetAnimationPack {
                     frame(durationMillis = 80, frame = NeutralEyeTemplate.closedBlinkFrame()),
                     frame(durationMillis = 260, frame = NeutralEyeTemplate.openFrame())
                 ),
-                categories = setOf("neutral")
+                categories = setOf("neutral", "playful")
             )
         )
     }
@@ -112,7 +127,7 @@ object AuthoredPixelPetAnimationPack {
                     frame(durationMillis = 180, frame = HappyEyeTemplate.warmSquintFrame()),
                     frame(durationMillis = 240, frame = HappyEyeTemplate.softSquintFrame())
                 ),
-                categories = setOf("happy")
+                categories = setOf("happy", "warm")
             ),
             expressiveVariant(
                 id = "Happy_B_OpenBounce",
@@ -122,7 +137,7 @@ object AuthoredPixelPetAnimationPack {
                     frame(durationMillis = 220, frame = HappyEyeTemplate.brightOpenFrame()),
                     frame(durationMillis = 260, frame = HappyEyeTemplate.softSquintFrame())
                 ),
-                categories = setOf("happy")
+                categories = setOf("happy", "playful")
             ),
             expressiveVariant(
                 id = "Happy_C_WinkAsymmetry",
@@ -343,6 +358,113 @@ object AuthoredPixelPetAnimationPack {
                     frame(durationMillis = 680, frame = ThinkingEyeTemplate.centerStillFrame())
                 ),
                 categories = setOf("thinking")
+            )
+        )
+    }
+
+    private fun createExcitedVariants(): List<PixelAnimationVariant> {
+        return listOf(
+            expressiveVariant(
+                id = "Excited_A_BrightBounce",
+                frameEntries = listOf(
+                    frame(durationMillis = 180, frame = ExcitedEyeTemplate.wideOpenFrame()),
+                    frame(durationMillis = 160, frame = ExcitedEyeTemplate.bouncePupilLeftFrame()),
+                    frame(durationMillis = 200, frame = ExcitedEyeTemplate.wideOpenFrame()),
+                    frame(durationMillis = 160, frame = ExcitedEyeTemplate.bouncePupilRightFrame()),
+                    frame(durationMillis = 200, frame = ExcitedEyeTemplate.wideOpenFrame())
+                ),
+                categories = setOf("excited")
+            ),
+            expressiveVariant(
+                id = "Excited_B_WideLift",
+                frameEntries = listOf(
+                    frame(durationMillis = 280, frame = ExcitedEyeTemplate.wideOpenFrame()),
+                    frame(durationMillis = 200, frame = ExcitedEyeTemplate.bouncePupilLeftFrame()),
+                    frame(durationMillis = 280, frame = ExcitedEyeTemplate.wideOpenFrame())
+                ),
+                categories = setOf("excited")
+            ),
+            expressiveVariant(
+                id = "Excited_C_WigglePop",
+                tier = PixelAnimationVariantTier.RARE,
+                frameEntries = listOf(
+                    frame(durationMillis = 200, frame = ExcitedEyeTemplate.wideOpenFrame()),
+                    frame(durationMillis = 140, frame = ExcitedEyeTemplate.bouncePupilLeftFrame()),
+                    frame(durationMillis = 200, frame = ExcitedEyeTemplate.wideOpenFrame()),
+                    frame(durationMillis = 140, frame = ExcitedEyeTemplate.bouncePupilRightFrame()),
+                    frame(durationMillis = 160, frame = ExcitedEyeTemplate.compressFrame()),
+                    frame(durationMillis = 200, frame = ExcitedEyeTemplate.wideOpenFrame())
+                ),
+                categories = setOf("excited")
+            )
+        )
+    }
+
+    private fun createSadVariants(): List<PixelAnimationVariant> {
+        return listOf(
+            expressiveVariant(
+                id = "Sad_A_HoldDroop",
+                frameEntries = listOf(
+                    frame(durationMillis = 600, frame = SadEyeTemplate.sadHoldFrame()),
+                    frame(durationMillis = 400, frame = SadEyeTemplate.heavierDroopFrame()),
+                    frame(durationMillis = 600, frame = SadEyeTemplate.sadHoldFrame())
+                ),
+                categories = setOf("sad")
+            ),
+            expressiveVariant(
+                id = "Sad_B_SlowBlink",
+                frameEntries = listOf(
+                    frame(durationMillis = 380, frame = SadEyeTemplate.sadHoldFrame()),
+                    frame(durationMillis = 280, frame = SadEyeTemplate.heavierDroopFrame()),
+                    frame(durationMillis = 580, frame = SadEyeTemplate.closedSadFrame()),
+                    frame(durationMillis = 420, frame = SadEyeTemplate.sadHoldFrame())
+                ),
+                categories = setOf("sad")
+            ),
+            expressiveVariant(
+                id = "Sad_C_DownLook",
+                tier = PixelAnimationVariantTier.RARE,
+                frameEntries = listOf(
+                    frame(durationMillis = 360, frame = SadEyeTemplate.sadHoldFrame()),
+                    frame(durationMillis = 440, frame = SadEyeTemplate.lookDownLeftFrame()),
+                    frame(durationMillis = 400, frame = SadEyeTemplate.sadHoldFrame())
+                ),
+                categories = setOf("sad")
+            )
+        )
+    }
+
+    private fun createHungryVariants(): List<PixelAnimationVariant> {
+        return listOf(
+            expressiveVariant(
+                id = "Hungry_A_NeedyHold",
+                frameEntries = listOf(
+                    frame(durationMillis = 400, frame = HungryEyeTemplate.needyHoldFrame()),
+                    frame(durationMillis = 280, frame = HungryEyeTemplate.heavierNeedyFrame()),
+                    frame(durationMillis = 400, frame = HungryEyeTemplate.needyHoldFrame())
+                ),
+                categories = setOf("hungry")
+            ),
+            expressiveVariant(
+                id = "Hungry_B_LookAsk",
+                frameEntries = listOf(
+                    frame(durationMillis = 300, frame = HungryEyeTemplate.needyHoldFrame()),
+                    frame(durationMillis = 320, frame = HungryEyeTemplate.lookRightFrame()),
+                    frame(durationMillis = 280, frame = HungryEyeTemplate.lookRightHoldFrame()),
+                    frame(durationMillis = 320, frame = HungryEyeTemplate.needyHoldFrame())
+                ),
+                categories = setOf("hungry")
+            ),
+            expressiveVariant(
+                id = "Hungry_C_WistfulAsk",
+                tier = PixelAnimationVariantTier.RARE,
+                frameEntries = listOf(
+                    frame(durationMillis = 340, frame = HungryEyeTemplate.needyHoldFrame()),
+                    frame(durationMillis = 360, frame = HungryEyeTemplate.lookLeftFrame()),
+                    frame(durationMillis = 280, frame = HungryEyeTemplate.lookLeftHoldFrame()),
+                    frame(durationMillis = 360, frame = HungryEyeTemplate.needyHoldFrame())
+                ),
+                categories = setOf("hungry")
             )
         )
     }
@@ -861,6 +983,151 @@ object AuthoredPixelPetAnimationPack {
             leftTopLidRows = 3,
             rightTopLidRows = 3,
             leftBottomLidRows = 1,
+            rightBottomLidRows = 1,
+            eyebrowLeftYOffset = 1,
+            eyebrowRightYOffset = 1
+        )
+    }
+
+    private object ExcitedEyeTemplate {
+        // Excited conveys high energy: raised brows, wide eyes, bright highlights, quick pupil shifts.
+        fun wideOpenFrame(): PixelFrame64 = CanonicalEyeRenderer.buildFrame(
+            eyebrowLeftYOffset = -2,
+            eyebrowRightYOffset = -2,
+            eyebrowLeftColor = CanonicalEyeRenderer.highlight,
+            eyebrowRightColor = CanonicalEyeRenderer.highlight,
+            extraHighlight = true
+        )
+
+        fun bouncePupilLeftFrame(): PixelFrame64 = CanonicalEyeRenderer.buildFrame(
+            leftPupilOffset = 1,
+            rightPupilOffset = -1,
+            eyebrowLeftYOffset = -2,
+            eyebrowRightYOffset = -2,
+            eyebrowLeftColor = CanonicalEyeRenderer.highlight,
+            eyebrowRightColor = CanonicalEyeRenderer.highlight,
+            extraHighlight = true
+        )
+
+        fun bouncePupilRightFrame(): PixelFrame64 = CanonicalEyeRenderer.buildFrame(
+            leftPupilOffset = -1,
+            rightPupilOffset = 1,
+            eyebrowLeftYOffset = -2,
+            eyebrowRightYOffset = -2,
+            eyebrowLeftColor = CanonicalEyeRenderer.highlight,
+            eyebrowRightColor = CanonicalEyeRenderer.highlight,
+            extraHighlight = true
+        )
+
+        fun compressFrame(): PixelFrame64 = CanonicalEyeRenderer.buildFrame(
+            leftBottomLidRows = 1,
+            rightBottomLidRows = 1,
+            eyebrowLeftYOffset = -1,
+            eyebrowRightYOffset = -1,
+            eyebrowLeftColor = CanonicalEyeRenderer.highlight,
+            eyebrowRightColor = CanonicalEyeRenderer.highlight,
+            extraHighlight = true
+        )
+    }
+
+    private object SadEyeTemplate {
+        // Sad conveys low mood: drooped lids, downward brows, minimal motion, no highlights.
+        fun sadHoldFrame(): PixelFrame64 = CanonicalEyeRenderer.buildFrame(
+            leftTopLidRows = 5,
+            rightTopLidRows = 5,
+            leftBottomLidRows = 3,
+            rightBottomLidRows = 3,
+            eyebrowLeftYOffset = 2,
+            eyebrowRightYOffset = 2
+        )
+
+        fun heavierDroopFrame(): PixelFrame64 = CanonicalEyeRenderer.buildFrame(
+            leftTopLidRows = 6,
+            rightTopLidRows = 6,
+            leftBottomLidRows = 3,
+            rightBottomLidRows = 3,
+            eyebrowLeftYOffset = 2,
+            eyebrowRightYOffset = 2
+        )
+
+        fun closedSadFrame(): PixelFrame64 = CanonicalEyeRenderer.buildFrame(
+            leftClosedSlit = true,
+            rightClosedSlit = true,
+            eyebrowLeftYOffset = 2,
+            eyebrowRightYOffset = 2
+        )
+
+        fun lookDownLeftFrame(): PixelFrame64 = CanonicalEyeRenderer.buildFrame(
+            leftPupilOffset = -1,
+            rightPupilOffset = -1,
+            leftTopLidRows = 5,
+            rightTopLidRows = 5,
+            leftBottomLidRows = 3,
+            rightBottomLidRows = 3,
+            eyebrowLeftYOffset = 2,
+            eyebrowRightYOffset = 2
+        )
+    }
+
+    private object HungryEyeTemplate {
+        // Hungry conveys neediness: slight lid pressure, seeking gaze, compressed brows.
+        fun needyHoldFrame(): PixelFrame64 = CanonicalEyeRenderer.buildFrame(
+            leftTopLidRows = 2,
+            rightTopLidRows = 2,
+            leftBottomLidRows = 1,
+            rightBottomLidRows = 1,
+            eyebrowLeftYOffset = 1,
+            eyebrowRightYOffset = 1
+        )
+
+        fun heavierNeedyFrame(): PixelFrame64 = CanonicalEyeRenderer.buildFrame(
+            leftTopLidRows = 3,
+            rightTopLidRows = 3,
+            leftBottomLidRows = 2,
+            rightBottomLidRows = 2,
+            eyebrowLeftYOffset = 2,
+            eyebrowRightYOffset = 2
+        )
+
+        fun lookRightFrame(): PixelFrame64 = CanonicalEyeRenderer.buildFrame(
+            leftPupilOffset = 1,
+            rightPupilOffset = 2,
+            leftTopLidRows = 2,
+            rightTopLidRows = 3,
+            leftBottomLidRows = 1,
+            rightBottomLidRows = 1,
+            eyebrowLeftYOffset = 1,
+            eyebrowRightYOffset = 0
+        )
+
+        fun lookRightHoldFrame(): PixelFrame64 = CanonicalEyeRenderer.buildFrame(
+            leftPupilOffset = 1,
+            rightPupilOffset = 2,
+            leftTopLidRows = 2,
+            rightTopLidRows = 3,
+            leftBottomLidRows = 1,
+            rightBottomLidRows = 2,
+            eyebrowLeftYOffset = 1,
+            eyebrowRightYOffset = 1
+        )
+
+        fun lookLeftFrame(): PixelFrame64 = CanonicalEyeRenderer.buildFrame(
+            leftPupilOffset = -2,
+            rightPupilOffset = -1,
+            leftTopLidRows = 3,
+            rightTopLidRows = 2,
+            leftBottomLidRows = 1,
+            rightBottomLidRows = 1,
+            eyebrowLeftYOffset = 0,
+            eyebrowRightYOffset = 1
+        )
+
+        fun lookLeftHoldFrame(): PixelFrame64 = CanonicalEyeRenderer.buildFrame(
+            leftPupilOffset = -2,
+            rightPupilOffset = -1,
+            leftTopLidRows = 3,
+            rightTopLidRows = 3,
+            leftBottomLidRows = 2,
             rightBottomLidRows = 1,
             eyebrowLeftYOffset = 1,
             eyebrowRightYOffset = 1

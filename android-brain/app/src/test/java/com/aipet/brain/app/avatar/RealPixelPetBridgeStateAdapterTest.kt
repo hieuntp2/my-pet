@@ -11,8 +11,11 @@ import com.aipet.brain.ui.avatar.pixel.bridge.PixelPetAvatarIntent
 import com.aipet.brain.ui.avatar.pixel.bridge.PixelPetBridgeState
 import com.aipet.brain.ui.avatar.pixel.model.Asking
 import com.aipet.brain.ui.avatar.pixel.model.Curious
+import com.aipet.brain.ui.avatar.pixel.model.Excited
 import com.aipet.brain.ui.avatar.pixel.model.Happy
+import com.aipet.brain.ui.avatar.pixel.model.Hungry
 import com.aipet.brain.ui.avatar.pixel.model.Looking
+import com.aipet.brain.ui.avatar.pixel.model.Sad
 import com.aipet.brain.ui.avatar.pixel.model.Thinking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -176,7 +179,7 @@ class RealPixelPetBridgeStateAdapterTest {
 
         assertNotNull(resolution)
         assertEquals(PixelPetAvatarIntent.ATTENTIVE, resolution?.intent)
-        assertTrue(resolution?.policySummary?.contains("processing>engaged>asking>looking") == true)
+        assertTrue(resolution?.policySummary?.contains("processing>engaged>excited>asking>looking") == true)
     }
 
     @Test
@@ -187,13 +190,92 @@ class RealPixelPetBridgeStateAdapterTest {
                 chosenIntent = "processing",
                 priorityReason = "audio_attention_detected",
                 sourceSummary = "audio_attention",
-                policySummary = "processing>engaged>asking>looking>low_energy>attentive>neutral"
+                policySummary = "processing>engaged>excited>asking>looking>hungry>low_energy>sad>attentive>neutral; keep_previous_over_neutral=true"
             )
         ).debugMetadata
 
         assertEquals(
-            "intent=processing reason=audio_attention_detected policy=processing>engaged>asking>looking>low_energy>attentive>neutral sources=audio_attention",
+            "intent=processing reason=audio_attention_detected policy=processing>engaged>excited>asking>looking>hungry>low_energy>sad>attentive>neutral; keep_previous_over_neutral=true sources=audio_attention",
             metadata?.toLogSummary()
         )
+    }
+
+    @Test
+    fun `sad emotion resolves sad intent and visual state`() {
+        val adapter = RealPixelPetBridgeStateAdapter()
+        val mapper = DefaultPixelPetStateMapper()
+
+        val sadState = adapter.map(
+            HomePixelPetAvatarSignal(
+                petEmotion = PetEmotion.SAD,
+                conditions = emptySet(),
+                brainState = BrainState.IDLE
+            )
+        )
+
+        assertEquals(PixelPetAvatarIntent.SAD, sadState.intent)
+        assertEquals(Sad, mapper.map(sadState))
+    }
+
+    @Test
+    fun `excited emotion resolves excited intent and visual state`() {
+        val adapter = RealPixelPetBridgeStateAdapter()
+        val mapper = DefaultPixelPetStateMapper()
+
+        val excitedState = adapter.map(
+            HomePixelPetAvatarSignal(
+                petEmotion = PetEmotion.EXCITED,
+                conditions = emptySet(),
+                brainState = BrainState.IDLE
+            )
+        )
+
+        assertEquals(PixelPetAvatarIntent.EXCITED, excitedState.intent)
+        assertEquals(Excited, mapper.map(excitedState))
+    }
+
+    @Test
+    fun `hungry emotion resolves hungry intent and visual state`() {
+        val adapter = RealPixelPetBridgeStateAdapter()
+        val mapper = DefaultPixelPetStateMapper()
+
+        val hungryState = adapter.map(
+            HomePixelPetAvatarSignal(
+                petEmotion = PetEmotion.HUNGRY,
+                conditions = emptySet(),
+                brainState = BrainState.IDLE
+            )
+        )
+
+        assertEquals(PixelPetAvatarIntent.HUNGRY, hungryState.intent)
+        assertEquals(Hungry, mapper.map(hungryState))
+    }
+
+    @Test
+    fun `greeting boost intent overrides all other signals including audio attention`() {
+        val adapter = RealPixelPetBridgeStateAdapter()
+
+        val greetingState = adapter.map(
+            HomePixelPetAvatarSignal(
+                petEmotion = PetEmotion.HAPPY,
+                conditions = emptySet(),
+                brainState = BrainState.IDLE,
+                latestAudioStimulus = KeywordStimulus(
+                    timestampMs = 10L,
+                    sourceEventType = EventType.AUDIO_RESPONSE_REQUESTED,
+                    kind = KeywordStimulusKind.WAKE_WORD,
+                    keywordId = "wake_word",
+                    keywordText = "hey pet",
+                    confidence = 0.9f,
+                    engine = "test"
+                ),
+                greetingBoostIntent = com.aipet.brain.ui.avatar.pixel.bridge.PixelPetAvatarIntent.ENGAGED
+            )
+        )
+
+        // Greeting boost wins over audio_attention (PROCESSING) because greeting is highest priority
+        assertEquals(PixelPetAvatarIntent.ENGAGED, greetingState.intent)
+        assertEquals("greeting_active_boost", greetingState.debugMetadata?.priorityReason)
+        assertTrue(greetingState.debugMetadata?.sourceSummary?.contains("greeting_active") == true)
     }
 }

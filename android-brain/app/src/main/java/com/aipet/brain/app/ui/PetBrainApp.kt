@@ -46,7 +46,12 @@ import com.aipet.brain.app.ui.diary.DiaryScreen
 import com.aipet.brain.app.ui.debug.EventViewerScreen
 import com.aipet.brain.app.ui.debug.ObservationViewerScreen
 import com.aipet.brain.app.ui.debug.WorkingMemoryDebugScreen
+import com.aipet.brain.app.ui.home.ActivityReactionPresentationMapper
+import com.aipet.brain.app.ui.home.GreetingPresentationMapper
+import com.aipet.brain.app.ui.home.SoundReactionPresentationMapper
 import com.aipet.brain.app.ui.home.HomeInteractionUiState
+import com.aipet.brain.app.ui.home.TapReactionPresentationMapper
+import com.aipet.brain.app.ui.home.TraitAnimationBiasMapper
 import com.aipet.brain.app.ui.home.HomeKnownEntityCount
 import com.aipet.brain.app.ui.home.HomeScreen
 import com.aipet.brain.app.ui.home.HomeTodaySummaryResolver
@@ -624,6 +629,10 @@ fun PetBrainApp() {
     var latestBehaviorDecisionSource by remember { mutableStateOf<String?>(null) }
     var latestBehaviorDecision by remember { mutableStateOf<PetBehaviorDecision<PetEmotion>?>(null) }
     var homeInteractionFeedback by remember { mutableStateOf<PetGameplayFeedback?>(null) }
+    var transientReactionIntent by remember { mutableStateOf<com.aipet.brain.ui.avatar.pixel.bridge.PixelPetAvatarIntent?>(null) }
+    val transientClearJobHolder = remember { arrayOfNulls<kotlinx.coroutines.Job>(1) }
+    var soundReactionIntent by remember { mutableStateOf<com.aipet.brain.ui.avatar.pixel.bridge.PixelPetAvatarIntent?>(null) }
+    var runtimeOrchestratorDiagnostics by remember { mutableStateOf<com.aipet.brain.ui.avatar.pixel.bridge.PixelAnimationOrchestratorDiagnostics?>(null) }
     val diaryDailySummaries = remember(
         diaryEvents,
         currentPetState,
@@ -683,7 +692,10 @@ fun PetBrainApp() {
         brainStateSnapshot.currentState,
         latestAudioStimulus,
         isPerceptionLooking,
-        isPerceptionAsking
+        isPerceptionAsking,
+        appOpenGreeting,
+        transientReactionIntent,
+        soundReactionIntent
     ) {
         com.aipet.brain.app.avatar.HomePixelPetAvatarSignal(
             petEmotion = currentPetEmotion,
@@ -691,7 +703,12 @@ fun PetBrainApp() {
             brainState = brainStateSnapshot.currentState,
             latestAudioStimulus = latestAudioStimulus,
             isPerceptionLooking = isPerceptionLooking,
-            isPerceptionAsking = isPerceptionAsking
+            isPerceptionAsking = isPerceptionAsking,
+            greetingBoostIntent = appOpenGreeting?.let {
+                GreetingPresentationMapper.mapToAvatarIntent(it.emotion)
+            },
+            transientReactionIntent = transientReactionIntent,
+            soundReactionIntent = soundReactionIntent
         )
     }
     val debugPixelPetBridgeAdapter = remember { RealPixelPetBridgeStateAdapter() }
@@ -700,6 +717,21 @@ fun PetBrainApp() {
     }
     val homePixelPetBridgeState = remember(homePixelPetDebugBridgeState) {
         homePixelPetDebugBridgeState.copy(debugMetadata = null)
+    }
+
+    // Sound reaction: when an audio stimulus fires, briefly show the appropriate visual reaction.
+    // VAD STARTED → ATTENTIVE for 1s; SoundStimulus → LOOKING for 0.7s; keywords → no-op (handled by PROCESSING).
+    LaunchedEffect(latestAudioStimulus) {
+        val stimulus = latestAudioStimulus ?: run {
+            soundReactionIntent = null
+            return@LaunchedEffect
+        }
+        val intent = SoundReactionPresentationMapper.mapToAvatarIntent(stimulus) ?: return@LaunchedEffect
+        val duration = SoundReactionPresentationMapper.durationMs(stimulus)
+        if (duration <= 0L) return@LaunchedEffect
+        soundReactionIntent = intent
+        kotlinx.coroutines.delay(duration)
+        soundReactionIntent = null
     }
 
     LaunchedEffect(
@@ -1150,6 +1182,10 @@ fun PetBrainApp() {
         homeInteractionFeedback = resolvedInteraction.feedback
         latestBehaviorDecisionSource = interactionType.name.lowercase()
         latestBehaviorDecision = resolvedInteraction.decision
+        transientReactionIntent = TapReactionPresentationMapper.mapToAvatarIntent(
+            resultingEmotion = resolvedInteraction.emotion,
+            interactionType = interactionType
+        )
         petAnimator.syncInputFrame(
             animationInputMapper.mapFrame(
                 state = resolvedInteraction.state,
@@ -1262,6 +1298,10 @@ fun PetBrainApp() {
         homeInteractionFeedback = resolvedActivity.feedback
         latestBehaviorDecisionSource = resolvedActivity.result.activityType.name.lowercase()
         latestBehaviorDecision = resolvedActivity.decision
+        transientReactionIntent = ActivityReactionPresentationMapper.mapToAvatarIntent(
+            activityType = resolvedActivity.result.activityType,
+            resultingEmotion = resolvedActivity.emotion
+        )
         petAnimator.syncInputFrame(
             animationInputMapper.mapFrame(
                 state = resolvedActivity.result.updatedState,
@@ -1393,6 +1433,10 @@ fun PetBrainApp() {
         localAudioIntentCommandRule.observeEventsAndRoute()
     }
 
+    val variantCategoryBias = remember(currentPetTraits) {
+        TraitAnimationBiasMapper.mapToCategories(currentPetTraits)
+    }
+
     MaterialTheme {
         Surface {
             when (resolvedScreen) {
@@ -1401,35 +1445,54 @@ fun PetBrainApp() {
                     homeInteractionUiState = homeInteractionUiState,
                     avatarBridgeState = homePixelPetBridgeState,
                     appOpenGreeting = appOpenGreeting,
+                    variantCategoryBias = variantCategoryBias,
+                    onOrchestratorDiagnosticsChanged = { diagnostics ->
+                        runtimeOrchestratorDiagnostics = diagnostics
+                    },
                     onPetTap = {
-                        coroutineScope.launch {
+                        transientClearJobHolder[0]?.cancel()
+                        transientClearJobHolder[0] = coroutineScope.launch {
                             handlePetInteraction(
                                 interactionType = PetInteractionType.TAP,
                                 source = "home_pet_tap"
                             )
+                            kotlinx.coroutines.delay(TapReactionPresentationMapper.REACTION_DURATION_MS)
+                            transientReactionIntent = null
                         }
                     },
                     onPetLongPress = {
-                        coroutineScope.launch {
+                        transientClearJobHolder[0]?.cancel()
+                        transientClearJobHolder[0] = coroutineScope.launch {
                             handlePetInteraction(
                                 interactionType = PetInteractionType.LONG_PRESS,
                                 source = "home_pet_avatar_long_press"
                             )
+                            kotlinx.coroutines.delay(TapReactionPresentationMapper.REACTION_DURATION_MS)
+                            transientReactionIntent = null
                         }
                     },
                     onFeedPet = {
-                        coroutineScope.launch {
+                        transientClearJobHolder[0]?.cancel()
+                        transientClearJobHolder[0] = coroutineScope.launch {
                             handlePetActivity(feedPetUseCase)
+                            kotlinx.coroutines.delay(TapReactionPresentationMapper.REACTION_DURATION_MS)
+                            transientReactionIntent = null
                         }
                     },
                     onPlayWithPet = {
-                        coroutineScope.launch {
+                        transientClearJobHolder[0]?.cancel()
+                        transientClearJobHolder[0] = coroutineScope.launch {
                             handlePetActivity(playWithPetUseCase)
+                            kotlinx.coroutines.delay(TapReactionPresentationMapper.REACTION_DURATION_MS)
+                            transientReactionIntent = null
                         }
                     },
                     onLetPetRest = {
-                        coroutineScope.launch {
+                        transientClearJobHolder[0]?.cancel()
+                        transientClearJobHolder[0] = coroutineScope.launch {
                             handlePetActivity(letPetRestUseCase)
+                            kotlinx.coroutines.delay(TapReactionPresentationMapper.REACTION_DURATION_MS)
+                            transientReactionIntent = null
                         }
                     },
                     onNavigateToHome = { currentScreenName = AppScreen.Home.name },
@@ -1599,6 +1662,7 @@ fun PetBrainApp() {
 
                 AppScreen.AvatarDebug -> AvatarAnimationDebugScreen(
                     runtimeBridgeState = homePixelPetDebugBridgeState,
+                    runtimeOrchestratorDiagnostics = runtimeOrchestratorDiagnostics,
                     onNavigateBack = { currentScreenName = AppScreen.Debug.name }
                 )
 

@@ -23,6 +23,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.aipet.brain.ui.avatar.pixel.bridge.PixelAnimationOrchestratorDiagnostics
 import com.aipet.brain.ui.avatar.pixel.bridge.DefaultPixelPetStateMapper
 import com.aipet.brain.ui.avatar.pixel.bridge.PixelAnimationOrchestrator
 import com.aipet.brain.ui.avatar.pixel.bridge.PixelPetAvatarIntent
@@ -46,6 +47,7 @@ import com.aipet.brain.ui.avatar.pixel.ui.debugSummary
 @Composable
 fun AvatarAnimationDebugScreen(
     runtimeBridgeState: PixelPetBridgeState,
+    runtimeOrchestratorDiagnostics: PixelAnimationOrchestratorDiagnostics? = null,
     onNavigateBack: () -> Unit
 ) {
     val registry = remember { AuthoredPixelPetAnimationPack.createRegistry() }
@@ -249,6 +251,27 @@ fun AvatarAnimationDebugScreen(
             Text(text = "Policy: ${runtimeBridgeState.debugMetadata?.policySummary ?: "-"}")
         }
 
+        DebugSectionCard(title = "Runtime animation variant") {
+            val rtDiag = runtimeOrchestratorDiagnostics
+            if (rtDiag == null) {
+                Text(text = "No runtime data yet — navigate to Home first.")
+            } else {
+                Text(text = "Current variant: ${rtDiag.currentVariantId ?: "-"}")
+                Text(text = "Current clip: ${rtDiag.currentClipId ?: "-"}")
+                Text(text = "Synchronizations: ${rtDiag.synchronizationCount}")
+                val rtTransitionSummary = rtDiag.recentTransitions
+                    .asReversed()
+                    .joinToString(separator = "\n") { t ->
+                        "${t.visualStateId}/${t.variantId} (${t.reason})"
+                    }
+                    .ifBlank { "No transitions yet." }
+                Text(
+                    text = "Recent history:\n$rtTransitionSummary",
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+        }
+
         DebugSectionCard(title = "Tuning guidance") {
             Text(text = "Compare Neutral against Sleepy for slow-lid timing and energy drop.")
             Text(text = "Compare Curious against Thinking for hold length and micro-shifts.")
@@ -353,6 +376,9 @@ private fun PixelPetVisualState.toBridgeState(): PixelPetBridgeState {
             Curious -> PixelPetAvatarIntent.ATTENTIVE
             Thinking -> PixelPetAvatarIntent.PROCESSING
             Sleepy -> PixelPetAvatarIntent.LOW_ENERGY
+            com.aipet.brain.ui.avatar.pixel.model.Excited -> PixelPetAvatarIntent.EXCITED
+            com.aipet.brain.ui.avatar.pixel.model.Sad -> PixelPetAvatarIntent.SAD
+            com.aipet.brain.ui.avatar.pixel.model.Hungry -> PixelPetAvatarIntent.HUNGRY
             else -> PixelPetAvatarIntent.NEUTRAL
         }
     )

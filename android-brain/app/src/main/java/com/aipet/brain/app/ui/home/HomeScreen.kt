@@ -16,6 +16,9 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
@@ -23,6 +26,8 @@ import androidx.compose.ui.unit.dp
 import com.aipet.brain.app.ui.navigation.PetPrimaryDestination
 import com.aipet.brain.app.ui.navigation.PetPrimaryNavigationBar
 import com.aipet.brain.brain.pet.PetGreetingReaction
+import com.aipet.brain.ui.avatar.model.PetBubblePayload
+import com.aipet.brain.ui.avatar.pixel.bridge.PixelAnimationOrchestratorDiagnostics
 import com.aipet.brain.ui.avatar.pixel.bridge.PixelPetBridgeState
 
 @Composable
@@ -31,6 +36,8 @@ fun HomeScreen(
     homeInteractionUiState: HomeInteractionUiState,
     avatarBridgeState: PixelPetBridgeState,
     appOpenGreeting: PetGreetingReaction?,
+    variantCategoryBias: Map<String, Float> = emptyMap(),
+    onOrchestratorDiagnosticsChanged: ((PixelAnimationOrchestratorDiagnostics) -> Unit)? = null,
     onPetTap: () -> Unit,
     onPetLongPress: () -> Unit,
     onFeedPet: () -> Unit,
@@ -40,6 +47,17 @@ fun HomeScreen(
     onNavigateToDebug: () -> Unit,
     onNavigateToDiary: () -> Unit
 ) {
+    val bubblePolicy = rememberTalkingBubblePolicy()
+    val bubblePayload by bubblePolicy.currentBubble.collectAsState()
+
+    // Greeting uses showForce so a hot-reload or fast navigation back to Home never silently
+    // drops the greeting bubble due to an active cooldown window.
+    LaunchedEffect(appOpenGreeting) {
+        if (appOpenGreeting != null) {
+            bubblePolicy.showForce(PetBubblePayload(text = appOpenGreeting.message))
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -54,89 +72,25 @@ fun HomeScreen(
             onNavigateDiary = onNavigateToDiary,
             onNavigateDebug = onNavigateToDebug
         )
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Text(
-                text = homeUiModel.petName,
-                style = MaterialTheme.typography.headlineMedium
-            )
-            Text(
-                text = homeUiModel.identityLine,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            MoodPill(moodLabel = homeUiModel.moodLabel)
-            homeUiModel.personalityLabel?.let { personalityLabel ->
-                PersonalityPill(personalityLabel = personalityLabel)
-            }
-        }
 
-        if (appOpenGreeting != null) {
-            StatusCard(
-                title = "Greeting",
-                body = appOpenGreeting.message
-            )
-        }
-
-        Card(
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                PetAvatarSurface(
-                    avatarBridgeState = avatarBridgeState,
-                    onTap = { if (homeInteractionUiState.canTapPet) onPetTap() },
-                    onLongPress = { if (homeInteractionUiState.canLongPressPet) onPetLongPress() }
-                )
-                Text(
-                    text = homeInteractionUiState.interactionHint,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 16.dp)
-                )
-            }
-        }
-
-        StatusCard(
-            title = "How ${homeUiModel.petName} is doing",
-            body = homeUiModel.statusLine
+        // --- Pet Stage (dominant focal point) ---
+        PetStage(
+            petName = homeUiModel.petName,
+            moodLabel = homeUiModel.moodLabel,
+            statusLine = homeUiModel.statusLine,
+            avatarBridgeState = avatarBridgeState,
+            variantCategoryBias = variantCategoryBias,
+            onOrchestratorDiagnosticsChanged = onOrchestratorDiagnosticsChanged,
+            bubblePayload = bubblePayload,
+            canTap = homeInteractionUiState.canTapPet,
+            canLongPress = homeInteractionUiState.canLongPressPet,
+            feedbackMessage = homeInteractionUiState.feedbackMessage,
+            feedbackIsBlocked = homeInteractionUiState.feedbackIsBlocked,
+            onPetTap = onPetTap,
+            onPetLongPress = onPetLongPress
         )
 
-        homeUiModel.todaySummary?.let { todaySummary ->
-            StatusCard(
-                title = todaySummary.title,
-                body = todaySummary.body
-            )
-        }
-
-        KnownEntityCountsSection(
-            knownPersons = homeUiModel.knownPersons,
-            knownObjects = homeUiModel.knownObjects
-        )
-
-        if (homeInteractionUiState.feedbackMessage != null) {
-            StatusCard(
-                title = if (homeInteractionUiState.feedbackIsBlocked) {
-                    "Give it a moment"
-                } else {
-                    "Just now"
-                },
-                body = homeInteractionUiState.feedbackMessage
-            )
-        }
-
-        PetStateIndicatorsSection(
-            indicators = homeUiModel.indicators
-        )
-
+        // --- Quick actions ---
         ActivitiesSection(
             onFeedPet = onFeedPet,
             onPlayWithPet = onPlayWithPet,
@@ -145,23 +99,84 @@ fun HomeScreen(
             cooldownHint = homeInteractionUiState.cooldownHint,
             modifier = Modifier
         )
+
+        // --- Lightweight state indicators ---
+        PetStateIndicatorsSection(
+            indicators = homeUiModel.indicators
+        )
+
         Spacer(modifier = Modifier.height(12.dp))
     }
 }
 
 @Composable
-private fun StatusCard(
-    title: String,
-    body: String
+private fun PetStage(
+    petName: String,
+    moodLabel: String,
+    statusLine: String,
+    avatarBridgeState: PixelPetBridgeState,
+    variantCategoryBias: Map<String, Float> = emptyMap(),
+    onOrchestratorDiagnosticsChanged: ((PixelAnimationOrchestratorDiagnostics) -> Unit)? = null,
+    bubblePayload: PetBubblePayload?,
+    canTap: Boolean,
+    canLongPress: Boolean,
+    feedbackMessage: String?,
+    feedbackIsBlocked: Boolean,
+    onPetTap: () -> Unit,
+    onPetLongPress: () -> Unit
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text(text = title)
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        // Pet name and mood — lightweight header
+        Text(
+            text = petName,
+            style = MaterialTheme.typography.headlineSmall,
+            textAlign = TextAlign.Center
+        )
+        MoodPill(moodLabel = moodLabel)
+
+        // Avatar — primary focal point
+        HomePixelPetAvatar(
+            bridgeState = avatarBridgeState,
+            modifier = Modifier.size(280.dp),
+            variantCategoryBias = variantCategoryBias,
+            onOrchestratorDiagnosticsChanged = onOrchestratorDiagnosticsChanged,
+            onTap = { if (canTap) onPetTap() },
+            onLongPress = { if (canLongPress) onPetLongPress() }
+        )
+
+        // Talking bubble — auto-dismissing pet speech anchored below the avatar
+        PetTalkingBubble(
+            payload = bubblePayload,
+            modifier = Modifier.padding(horizontal = 16.dp)
+        )
+
+        // Feedback result — shown only when present
+        if (feedbackMessage != null) {
             Text(
-                text = body,
-                modifier = Modifier.padding(top = 8.dp)
+                text = feedbackMessage,
+                style = MaterialTheme.typography.bodySmall,
+                color = if (feedbackIsBlocked) {
+                    MaterialTheme.colorScheme.outline
+                } else {
+                    MaterialTheme.colorScheme.secondary
+                },
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(horizontal = 24.dp)
             )
         }
+
+        // Status line — single line of wellbeing text
+        Text(
+            text = statusLine,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 24.dp)
+        )
     }
 }
 
@@ -172,105 +187,9 @@ private fun MoodPill(
     Card {
         Text(
             text = moodLabel,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
             style = MaterialTheme.typography.labelLarge
         )
-    }
-}
-
-@Composable
-private fun PersonalityPill(
-    personalityLabel: String
-) {
-    Card {
-        Text(
-            text = "Personality: $personalityLabel",
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-@Composable
-private fun PetAvatarSurface(
-    avatarBridgeState: PixelPetBridgeState,
-    onTap: () -> Unit,
-    onLongPress: () -> Unit
-) {
-    HomePixelPetAvatar(
-        bridgeState = avatarBridgeState,
-        modifier = Modifier.size(220.dp),
-        onTap = onTap,
-        onLongPress = onLongPress
-    )
-}
-
-@Composable
-private fun KnownEntityCountsSection(
-    knownPersons: List<HomeKnownEntityCount>,
-    knownObjects: List<HomeKnownEntityCount>
-) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        KnownEntityCountCard(
-            title = "Known people",
-            items = knownPersons,
-            emptyMessage = "No known people yet."
-        )
-        KnownEntityCountCard(
-            title = "Known objects",
-            items = knownObjects,
-            emptyMessage = "No known objects yet."
-        )
-    }
-}
-
-@Composable
-private fun KnownEntityCountCard(
-    title: String,
-    items: List<HomeKnownEntityCount>,
-    emptyMessage: String
-) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium
-            )
-            if (items.isEmpty()) {
-                Text(
-                    text = emptyMessage,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            } else {
-                items.forEach { item ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = item.name,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Text(
-                            text = "Seen ${item.seenCount}",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -280,25 +199,18 @@ private fun PetStateIndicatorsSection(
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text(
-            text = "At a glance",
-            style = MaterialTheme.typography.titleMedium
-        )
-        indicators.chunked(2).forEach { rowIndicators ->
+        indicators.chunked(3).forEach { rowIndicators ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 rowIndicators.forEach { indicator ->
                     StateIndicatorCard(
                         indicator = indicator,
                         modifier = Modifier.weight(1f)
                     )
-                }
-                if (rowIndicators.size == 1) {
-                    Spacer(modifier = Modifier.weight(1f))
                 }
             }
         }
@@ -312,24 +224,24 @@ private fun StateIndicatorCard(
 ) {
     Card(modifier = modifier) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            modifier = Modifier.padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Text(
                 text = indicator.label,
-                style = MaterialTheme.typography.labelMedium,
+                style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = indicator.value,
-                style = MaterialTheme.typography.titleSmall
             )
             LinearProgressIndicator(
                 progress = indicator.progress,
                 modifier = Modifier.fillMaxWidth()
             )
+            Text(
+                text = indicator.value,
+                style = MaterialTheme.typography.bodySmall
+            )
         }
     }
 }
+
+

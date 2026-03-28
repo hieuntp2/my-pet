@@ -13,6 +13,10 @@
         "Test-Path": true,
         ".\\gradlew": true,
         "ForEach-Object": true,
-        "Get-Command": true
+        "Get-Command": true,
+        "/^Get-ChildItem \"C:\\\\Program Files\\\\Android\\\\Android Studio\\\\jbr\\\\\" -ErrorAction SilentlyContinue \\| Select-Object -First 3 ; & \"C:\\\\Program Files\\\\Android\\\\Android Studio\\\\jbr\\\\bin\\\\java\\.exe\" -version 2>&1$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
     }
 }
