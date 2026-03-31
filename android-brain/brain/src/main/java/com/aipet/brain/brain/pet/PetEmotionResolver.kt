@@ -14,8 +14,23 @@ class PetEmotionResolver {
                 PetEmotion.HUNGRY
             }
 
-            state.energy >= 80 && state.social >= 40 -> {
+            // Distant / withdrawn from neglect or low trust
+            conditions.contains(PetCondition.DISTANT) && state.trustScore <= 25 -> {
+                PetEmotion.DISTANT
+            }
+
+            // Overstimulated — mild withdrawal
+            conditions.contains(PetCondition.OVERSTIMULATED) -> {
+                PetEmotion.WITHDRAWN
+            }
+
+            state.energy >= 80 && state.social >= 40 && !conditions.contains(PetCondition.DISTANT) -> {
                 PetEmotion.EXCITED
+            }
+
+            // Needy — craving social comfort quietly
+            conditions.contains(PetCondition.NEEDY) -> {
+                PetEmotion.NEEDY
             }
 
             conditions.contains(PetCondition.LONELY) || state.mood == PetMood.SAD -> {

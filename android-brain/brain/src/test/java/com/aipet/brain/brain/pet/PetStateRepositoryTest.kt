@@ -22,6 +22,10 @@ class PetStateRepositoryTest {
         assertEquals(50, state.social)
         assertEquals(0, state.bond)
         assertEquals(20, state.sleepiness)
+        assertEquals(70, state.comfort)
+        assertEquals(30, state.stimulation)
+        assertEquals(0, state.trustScore)
+        assertEquals(0, state.neglectStreak)
         assertEquals(5_000L, state.lastUpdatedAt)
         assertEquals(state, store.currentState)
     }
@@ -34,8 +38,18 @@ class PetStateRepositoryTest {
             hunger = 20,
             sleepiness = 25,
             social = 55,
+            comfort = 70,
+            stimulation = 30,
+            moodValence = 10,
+            moodArousal = 40,
             bond = 10,
-            lastUpdatedAt = 2_000L
+            trustScore = 0,
+            attachmentScore = 0,
+            neglectStreak = 0,
+            careStreak = 0,
+            lastUpdatedAt = 2_000L,
+            lastOpenAt = 0L,
+            lastMeaningfulInteractionAt = 0L
         )
         val store = FakePetStateStore(existing)
         val repository = PetStateRepository(store = store)
@@ -60,8 +74,18 @@ class PetStateRepositoryTest {
                 hunger = 0,
                 sleepiness = 40,
                 social = 80,
+                comfort = 70,
+                stimulation = 30,
+                moodValence = 20,
+                moodArousal = 60,
                 bond = 20,
-                lastUpdatedAt = 8_500L
+                trustScore = 0,
+                attachmentScore = 0,
+                neglectStreak = 0,
+                careStreak = 0,
+                lastUpdatedAt = 8_500L,
+                lastOpenAt = 0L,
+                lastMeaningfulInteractionAt = 0L
             )
         )
 

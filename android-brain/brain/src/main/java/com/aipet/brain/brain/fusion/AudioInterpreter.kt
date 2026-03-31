@@ -26,6 +26,7 @@ class AudioInterpreter(
     suspend fun setSelfPlaybackActive(active: Boolean, nowMs: Long = nowProvider()) {
         mutex.withLock {
             selfPlaybackActive = active
+            loudSoundStartMs = if (active) nowMs else loudSoundStartMs
         }
     }
 

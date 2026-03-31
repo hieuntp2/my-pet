@@ -42,8 +42,18 @@ class PetConditionResolverTest {
             hunger = hunger,
             sleepiness = sleepiness,
             social = social,
+            comfort = 70,
+            stimulation = 30,
+            moodValence = 0,
+            moodArousal = 50,
             bond = 10,
-            lastUpdatedAt = 1_000L
+            trustScore = 50,
+            attachmentScore = 0,
+            neglectStreak = 0,
+            careStreak = 0,
+            lastUpdatedAt = 1_000L,
+            lastOpenAt = 0L,
+            lastMeaningfulInteractionAt = 0L
         )
     }
 }

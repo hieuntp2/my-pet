@@ -79,7 +79,6 @@ import com.aipet.brain.app.ui.home.GreetingPresentationMapper
 import com.aipet.brain.app.ui.home.SoundReactionPresentationMapper
 import com.aipet.brain.app.ui.home.HomeInteractionUiState
 import com.aipet.brain.app.ui.home.TapReactionPresentationMapper
-import com.aipet.brain.app.ui.home.TraitAnimationBiasMapper
 import com.aipet.brain.app.ui.home.HomeKnownEntityCount
 import com.aipet.brain.app.ui.home.HomeScreen
 import com.aipet.brain.app.ui.home.HomeTodaySummaryResolver
@@ -223,7 +222,8 @@ private enum class AppScreen {
     PersonEditor,
     PersonDetail,
     FaceAutoEnroll,
-    BehaviorIntelligenceDebug
+    BehaviorIntelligenceDebug,
+    EmotionalSystemsDebug
 }
 
 @Composable
@@ -275,7 +275,9 @@ fun PetBrainApp() {
                 AppDatabase.MIGRATION_16_17,
                 AppDatabase.MIGRATION_17_18,
                 AppDatabase.MIGRATION_18_19,
-                AppDatabase.MIGRATION_19_20
+                AppDatabase.MIGRATION_19_20,
+                AppDatabase.MIGRATION_20_21,
+                AppDatabase.MIGRATION_21_22
             )
             .fallbackToDestructiveMigrationOnDowngrade()
             .build()
@@ -622,7 +624,6 @@ fun PetBrainApp() {
     val latestAudioStimulus by audioStimulusObserver.observeLatestStimulus().collectAsState(
         initial = audioStimulusObserver.currentLatestStimulus()
     )
-    val recentInteractions by eventStore.observeLatest(limit = 24).collectAsState(initial = emptyList())
     val currentTraits by traitsEngine.observeTraits().collectAsState(initial = null)
     val coroutineScope = rememberCoroutineScope()
     val audioCaptureLifecycleEventPublisher = remember(eventBus, coroutineScope) {
@@ -643,7 +644,6 @@ fun PetBrainApp() {
     val audioRuntimeDebugState by audioCaptureLifecycleEventPublisher.observeRuntimeDebugState().collectAsState(
         initial = audioCaptureLifecycleEventPublisher.currentRuntimeDebugState()
     )
-    val petAnimationState by petAnimator.state.collectAsState()
 
     // ── Behavior Intelligence v2 ─────────────────────────────────────────────
     val perceptionFusionRepo = remember { InMemoryPerceptionFusionRepository() }
@@ -710,6 +710,16 @@ fun PetBrainApp() {
     var currentPetConditions by remember { mutableStateOf(emptySet<PetCondition>()) }
     var latestBehaviorDecisionSource by remember { mutableStateOf<String?>(null) }
     var latestBehaviorDecision by remember { mutableStateOf<PetBehaviorDecision<PetEmotion>?>(null) }
+    // NX emotional systems state
+    var currentAbsenceBucket by remember { mutableStateOf<com.aipet.brain.brain.pet.AbsenceBucket?>(null) }
+    var currentGreetingStyle by remember { mutableStateOf<com.aipet.brain.brain.pet.PetGreetingStyle?>(null) }
+    var currentRelationshipStage by remember { mutableStateOf<com.aipet.brain.brain.pet.RelationshipStage?>(null) }
+    var lastBehaviorScoringResult by remember { mutableStateOf<com.aipet.brain.brain.pet.PetBehaviorScoringEngine.ScoringResult?>(null) }
+    val sessionInteractionTracker = remember { com.aipet.brain.brain.pet.SessionInteractionTracker() }
+    val absenceClassifier = remember { com.aipet.brain.brain.pet.AbsenceClassifier() }
+    val neglectTracker = remember { com.aipet.brain.brain.pet.NeglectTracker() }
+    val relationshipStageResolver = remember { com.aipet.brain.brain.pet.RelationshipStageResolver() }
+    val careActionProcessor = remember { com.aipet.brain.brain.pet.CareActionProcessor() }
     var homeInteractionFeedback by remember { mutableStateOf<PetGameplayFeedback?>(null) }
     var transientReactionIntent by remember { mutableStateOf<com.aipet.brain.ui.avatar.pixel.bridge.PixelPetAvatarIntent?>(null) }
     val transientClearJobHolder = remember { arrayOfNulls<kotlinx.coroutines.Job>(1) }
@@ -845,19 +855,29 @@ fun PetBrainApp() {
                 currentState = currentState,
                 now = startupNow
             )
-            val persistedState = if (decayedState != currentState) {
-                petStateRepository.updateState(decayedState)
-            } else {
-                currentState
-            }
+            // NX2: Classify absence and apply neglect if warranted
+            val absenceBucket = absenceClassifier.classify(decayedState, startupNow)
+            val stateAfterNeglect = neglectTracker.applyIfNeeded(
+                state = decayedState,
+                absenceBucket = absenceBucket
+            )
+            // Update lastOpenAt so future absences can be classified correctly
+            val stateWithOpenTimestamp = stateAfterNeglect.copy(lastOpenAt = startupNow)
+            val persistedState = petStateRepository.updateState(stateWithOpenTimestamp)
+
             val conditions = petConditionResolver.resolve(persistedState)
             val emotion = petEmotionResolver.resolve(persistedState, conditions)
-            val greetingResolution = petGreetingResolver.resolveDetailed(
+            val greetingContext = com.aipet.brain.brain.pet.PetGreetingContext(
+                absenceBucket = absenceBucket,
                 state = persistedState,
-                emotion = emotion,
                 conditions = conditions,
                 traits = traits
             )
+            val greetingResolution = petGreetingResolver.resolveWithContext(
+                context = greetingContext,
+                emotion = emotion
+            )
+            val relationshipStage = relationshipStageResolver.resolve(persistedState)
             StartupPetSnapshot(
                 profile = profile,
                 state = persistedState,
@@ -868,7 +888,9 @@ fun PetBrainApp() {
                 greetingDecision = greetingResolution.decision,
                 greetedAtMs = startupNow,
                 dayBoundaryType = dayBoundary.type,
-                summaryDate = dayBoundary.currentDate
+                summaryDate = dayBoundary.currentDate,
+                absenceBucket = absenceBucket,
+                relationshipStage = relationshipStage
             )
         }
         val shouldShowNamingOnboarding = withContext(Dispatchers.IO) {
@@ -886,6 +908,11 @@ fun PetBrainApp() {
         homeInteractionFeedback = null
         latestBehaviorDecisionSource = "greeting"
         latestBehaviorDecision = resolvedState.greetingDecision
+        // NX: update emotional systems state
+        currentAbsenceBucket = resolvedState.absenceBucket
+        currentGreetingStyle = resolvedState.greeting.greetingStyle
+        currentRelationshipStage = resolvedState.relationshipStage
+        sessionInteractionTracker.resetForNewSession()
         petAnimator.syncInputFrame(
             animationInputMapper.mapFrame(
                 state = resolvedState.state,
@@ -901,6 +928,24 @@ fun PetBrainApp() {
                 decision = resolvedState.greetingDecision
             ),
             durationMs = PetAnimator.DEFAULT_GREETING_DURATION_MS
+        )
+        eventBus.publish(
+            EventEnvelope.create(
+                type = EventType.PET_STATE_DECAY_APPLIED,
+                payloadJson = com.aipet.brain.brain.events.PetStateDecayAppliedPayload(
+                    appliedAtMs = resolvedState.greetedAtMs,
+                    absenceBucket = resolvedState.absenceBucket.name,
+                    elapsedMinutes = 0L,
+                    energyDelta = 0,
+                    hungerDelta = 0,
+                    sleepinessDelta = 0,
+                    socialDelta = 0,
+                    comfortDelta = 0,
+                    stimulationDelta = 0,
+                    trustDelta = 0
+                ).toJson(),
+                timestampMs = resolvedState.greetedAtMs
+            )
         )
         eventBus.publish(
             EventEnvelope.create(
@@ -1284,7 +1329,25 @@ fun PetBrainApp() {
                 interactionType = interactionType,
                 interactedAtMs = interactedAtMs
             )
-            val persistedState = petStateRepository.updateState(nextState)
+            // NX3: apply care action effects on top of the old reducer for NX state fields
+            val careActionType = if (interactionType == PetInteractionType.LONG_PRESS) {
+                com.aipet.brain.brain.pet.CareActionType.LONG_PRESS
+            } else {
+                com.aipet.brain.brain.pet.CareActionType.TAP
+            }
+            val careResult = careActionProcessor.process(careActionType, currentState, traits, interactedAtMs)
+            val mergedState = nextState.copy(
+                comfort = careResult.stateAfter.comfort,
+                stimulation = careResult.stateAfter.stimulation,
+                moodValence = careResult.stateAfter.moodValence,
+                moodArousal = careResult.stateAfter.moodArousal,
+                trustScore = careResult.stateAfter.trustScore,
+                attachmentScore = careResult.stateAfter.attachmentScore,
+                neglectStreak = careResult.stateAfter.neglectStreak,
+                careStreak = careResult.stateAfter.careStreak,
+                lastMeaningfulInteractionAt = careResult.stateAfter.lastMeaningfulInteractionAt
+            )
+            val persistedState = petStateRepository.updateState(mergedState)
             val evolvedTraits = petTraitEvolutionEngine.applyInteraction(
                 current = traits,
                 interactionType = interactionType,
@@ -1349,6 +1412,7 @@ fun PetBrainApp() {
             cooldownKey = "pet_${interactionType.name.lowercase()}"
         )
         appOpenGreeting = null
+        sessionInteractionTracker.recordInteraction()
         eventBus.publish(
             EventEnvelope.create(
                 type = if (interactionType == PetInteractionType.LONG_PRESS) {
@@ -1412,7 +1476,27 @@ fun PetBrainApp() {
                 currentState = currentState,
                 actedAtMs = actedAtMs
             )
-            val persistedState = petStateRepository.updateState(activityResult.updatedState)
+            // NX3: augment activity state with care action processor NX fields
+            val careActionType = when (activityResult.activityType) {
+                PetActivityType.FEED -> com.aipet.brain.brain.pet.CareActionType.FEED
+                PetActivityType.PLAY -> com.aipet.brain.brain.pet.CareActionType.PLAY
+                PetActivityType.REST -> com.aipet.brain.brain.pet.CareActionType.LINGER
+            }
+            val careEnrichedState = run {
+                val careResult = careActionProcessor.process(careActionType, currentState, traits, actedAtMs)
+                activityResult.updatedState.copy(
+                    comfort = careResult.stateAfter.comfort,
+                    stimulation = careResult.stateAfter.stimulation,
+                    moodValence = careResult.stateAfter.moodValence,
+                    moodArousal = careResult.stateAfter.moodArousal,
+                    trustScore = careResult.stateAfter.trustScore,
+                    attachmentScore = careResult.stateAfter.attachmentScore,
+                    neglectStreak = careResult.stateAfter.neglectStreak,
+                    careStreak = careResult.stateAfter.careStreak,
+                    lastMeaningfulInteractionAt = careResult.stateAfter.lastMeaningfulInteractionAt
+                )
+            }
+            val persistedState = petStateRepository.updateState(careEnrichedState)
             val evolvedTraits = petTraitEvolutionEngine.applyActivity(
                 current = traits,
                 activityType = activityResult.activityType,
@@ -1449,6 +1533,7 @@ fun PetBrainApp() {
         homeInteractionFeedback = resolvedActivity.feedback
         latestBehaviorDecisionSource = resolvedActivity.result.activityType.name.lowercase()
         latestBehaviorDecision = resolvedActivity.decision
+        sessionInteractionTracker.recordInteraction()
         transientReactionIntent = ActivityReactionPresentationMapper.mapToAvatarIntent(
             activityType = resolvedActivity.result.activityType,
             resultingEmotion = resolvedActivity.emotion
@@ -1582,10 +1667,6 @@ fun PetBrainApp() {
     }
     LaunchedEffect(localAudioIntentCommandRule) {
         localAudioIntentCommandRule.observeEventsAndRoute()
-    }
-
-    val variantCategoryBias = remember(currentPetTraits) {
-        TraitAnimationBiasMapper.mapToCategories(currentPetTraits)
     }
 
     MaterialTheme {
@@ -1809,6 +1890,9 @@ fun PetBrainApp() {
                     },
                     onNavigateToBehaviorIntelligence = {
                         currentScreenName = AppScreen.BehaviorIntelligenceDebug.name
+                    },
+                    onNavigateToEmotionalSystems = {
+                        currentScreenName = AppScreen.EmotionalSystemsDebug.name
                     }
                 )
 
@@ -2208,6 +2292,90 @@ fun PetBrainApp() {
                     onNavigateToDiary = { currentScreenName = AppScreen.Diary.name },
                     onNavigateToDebug = { currentScreenName = AppScreen.Debug.name }
                 )
+
+                AppScreen.EmotionalSystemsDebug -> com.aipet.brain.app.ui.debug.EmotionalSystemsDebugScreen(
+                    petState = currentPetState,
+                    petTraits = currentPetTraits,
+                    petConditions = currentPetConditions,
+                    currentAbsenceBucket = currentAbsenceBucket,
+                    currentGreetingStyle = currentGreetingStyle,
+                    currentRelationshipStage = currentRelationshipStage,
+                    sessionState = sessionInteractionTracker.state,
+                    lastBehaviorScoringResult = lastBehaviorScoringResult,
+                    onNavigateBack = { currentScreenName = AppScreen.Debug.name },
+                    onInjectTiredPet = {
+                        coroutineScope.launch {
+                            val state = currentPetState ?: return@launch
+                            val injected = state.copy(
+                                sleepiness = 85,
+                                energy = 15,
+                                lastUpdatedAt = System.currentTimeMillis()
+                            ).withClampedValues()
+                            withContext(Dispatchers.IO) { petStateRepository.updateState(injected) }
+                            currentPetState = injected
+                            currentPetConditions = petConditionResolver.resolve(injected)
+                        }
+                    },
+                    onInjectHungryPet = {
+                        coroutineScope.launch {
+                            val state = currentPetState ?: return@launch
+                            val injected = state.copy(
+                                hunger = 90,
+                                lastUpdatedAt = System.currentTimeMillis()
+                            ).withClampedValues()
+                            withContext(Dispatchers.IO) { petStateRepository.updateState(injected) }
+                            currentPetState = injected
+                            currentPetConditions = petConditionResolver.resolve(injected)
+                        }
+                    },
+                    onInjectNeglectedPet = {
+                        coroutineScope.launch {
+                            val state = currentPetState ?: return@launch
+                            val injected = state.copy(
+                                neglectStreak = 4,
+                                trustScore = 15,
+                                careStreak = 0,
+                                moodValence = -30,
+                                lastUpdatedAt = System.currentTimeMillis()
+                            ).withClampedValues()
+                            withContext(Dispatchers.IO) { petStateRepository.updateState(injected) }
+                            currentPetState = injected
+                            currentPetConditions = petConditionResolver.resolve(injected)
+                            currentRelationshipStage = relationshipStageResolver.resolve(injected)
+                        }
+                    },
+                    onInjectBondedPet = {
+                        coroutineScope.launch {
+                            val state = currentPetState ?: return@launch
+                            val injected = state.copy(
+                                bond = 70,
+                                trustScore = 65,
+                                attachmentScore = 55,
+                                careStreak = 5,
+                                neglectStreak = 0,
+                                moodValence = 40,
+                                lastUpdatedAt = System.currentTimeMillis()
+                            ).withClampedValues()
+                            withContext(Dispatchers.IO) { petStateRepository.updateState(injected) }
+                            currentPetState = injected
+                            currentPetConditions = petConditionResolver.resolve(injected)
+                            currentRelationshipStage = relationshipStageResolver.resolve(injected)
+                        }
+                    },
+                    onInjectOverstimulatedPet = {
+                        coroutineScope.launch {
+                            val state = currentPetState ?: return@launch
+                            val injected = state.copy(
+                                stimulation = 90,
+                                comfort = 35,
+                                lastUpdatedAt = System.currentTimeMillis()
+                            ).withClampedValues()
+                            withContext(Dispatchers.IO) { petStateRepository.updateState(injected) }
+                            currentPetState = injected
+                            currentPetConditions = petConditionResolver.resolve(injected)
+                        }
+                    }
+                )
             }
 
             // ── Unknown entity teach dialog — floats over all screens ──────────
@@ -2443,7 +2611,9 @@ private data class StartupPetSnapshot(
     val greetingDecision: PetBehaviorDecision<PetEmotion>,
     val greetedAtMs: Long,
     val dayBoundaryType: PetDayBoundaryType,
-    val summaryDate: java.time.LocalDate
+    val summaryDate: java.time.LocalDate,
+    val absenceBucket: com.aipet.brain.brain.pet.AbsenceBucket = com.aipet.brain.brain.pet.AbsenceBucket.SHORT_RETURN,
+    val relationshipStage: com.aipet.brain.brain.pet.RelationshipStage = com.aipet.brain.brain.pet.RelationshipStage.STRANGER
 )
 
 private data class InteractionAppliedSnapshot(

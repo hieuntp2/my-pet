@@ -34,7 +34,7 @@ class CooldownTracker(
     }
 
     /** Record a tap/long-press touch event. */
-    suspend fun recordTouch(isLongPress: Boolean, nowMs: Long, recentTapCount: Int = 0) {
+    suspend fun recordTouch(isLongPress: Boolean, nowMs: Long) {
         mutex.withLock {
             state = if (isLongPress) {
                 state.copy(

@@ -114,6 +114,12 @@ class FakePetAnimator(
                     PetEmotion.HAPPY -> PetAnimationGreetingType.WARM
                     PetEmotion.IDLE -> PetAnimationGreetingType.CALM
                     PetEmotion.THINKING -> PetAnimationGreetingType.CALM
+                    PetEmotion.RELIEVED -> PetAnimationGreetingType.WARM
+                    PetEmotion.NEEDY -> PetAnimationGreetingType.LONELY
+                    PetEmotion.DISTANT -> PetAnimationGreetingType.CALM
+                    PetEmotion.WITHDRAWN -> PetAnimationGreetingType.CALM
+                    PetEmotion.STARTLED -> PetAnimationGreetingType.CALM
+                    PetEmotion.SHY -> PetAnimationGreetingType.CALM
                 }
             ),
             durationMs = durationMs
@@ -492,6 +498,12 @@ class FakePetAnimator(
             PetEmotion.EXCITED -> PetAnimationEmotion.EXCITED
             PetEmotion.HUNGRY -> PetAnimationEmotion.HUNGRY
             PetEmotion.THINKING -> PetAnimationEmotion.CALM
+            PetEmotion.RELIEVED -> PetAnimationEmotion.CALM
+            PetEmotion.NEEDY -> PetAnimationEmotion.SAD
+            PetEmotion.DISTANT -> PetAnimationEmotion.CALM
+            PetEmotion.WITHDRAWN -> PetAnimationEmotion.SAD
+            PetEmotion.STARTLED -> PetAnimationEmotion.EXCITED
+            PetEmotion.SHY -> PetAnimationEmotion.CALM
         }
     }
 

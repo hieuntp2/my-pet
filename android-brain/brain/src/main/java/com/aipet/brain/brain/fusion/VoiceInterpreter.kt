@@ -32,6 +32,7 @@ class VoiceInterpreter(
     suspend fun processVoiceActivityEnded(nowMs: Long = nowProvider()) {
         mutex.withLock {
             voiceActive = false
+            recentSpeechMs = nowMs
         }
     }
 

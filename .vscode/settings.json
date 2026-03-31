@@ -16,6 +16,7 @@
         "Get-Command": true,
         "java": true,
         "Out-File": true,
-        "git stash": true
+        "git stash": true,
+        "&": true
     }
 }

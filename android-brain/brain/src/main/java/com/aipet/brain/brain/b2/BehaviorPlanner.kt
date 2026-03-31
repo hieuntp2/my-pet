@@ -17,6 +17,7 @@ import java.util.UUID
  * Considers the current [WorkingContext] when selecting animation family,
  * duration, bubble policy, and after-effects.
  */
+@Suppress("UNUSED_PARAMETER")
 class BehaviorPlanner {
 
     fun plan(intention: PetIntention, ctx: WorkingContext): BehaviorPlan {

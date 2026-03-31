@@ -28,8 +28,18 @@ class PetStateRepository(
             hunger = 30,
             sleepiness = 20,
             social = 50,
+            comfort = 70,
+            stimulation = 30,
+            moodValence = 10,
+            moodArousal = 40,
             bond = 0,
-            lastUpdatedAt = createdAt
+            trustScore = 0,
+            attachmentScore = 0,
+            neglectStreak = 0,
+            careStreak = 0,
+            lastUpdatedAt = createdAt,
+            lastOpenAt = 0L,
+            lastMeaningfulInteractionAt = 0L
         )
     }
 }

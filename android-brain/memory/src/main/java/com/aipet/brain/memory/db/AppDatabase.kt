@@ -27,7 +27,7 @@ import com.aipet.brain.memory.pet.PetStateEntity
         PetProfileEntity::class,
         PetTraitEntity::class
     ],
-    version = 20,
+    version = 22,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -454,6 +454,28 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL(
                     "CREATE INDEX IF NOT EXISTS `index_unknown_face_candidates_updated_at_ms` ON `unknown_face_candidates` (`updated_at_ms`)"
                 )
+            }
+        }
+        val MIGRATION_20_21: Migration = object : Migration(20, 21) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE pet_state ADD COLUMN comfort INTEGER NOT NULL DEFAULT 70")
+                db.execSQL("ALTER TABLE pet_state ADD COLUMN stimulation INTEGER NOT NULL DEFAULT 30")
+                db.execSQL("ALTER TABLE pet_state ADD COLUMN mood_valence INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE pet_state ADD COLUMN mood_arousal INTEGER NOT NULL DEFAULT 50")
+                db.execSQL("ALTER TABLE pet_state ADD COLUMN trust_score INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE pet_state ADD COLUMN attachment_score INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE pet_state ADD COLUMN neglect_streak INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE pet_state ADD COLUMN care_streak INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE pet_state ADD COLUMN last_open_at INTEGER NOT NULL DEFAULT 0")
+                db.execSQL("ALTER TABLE pet_state ADD COLUMN last_meaningful_interaction_at INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        val MIGRATION_21_22: Migration = object : Migration(21, 22) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE pet_traits ADD COLUMN patience REAL NOT NULL DEFAULT 0.5")
+                db.execSQL("ALTER TABLE pet_traits ADD COLUMN attachment REAL NOT NULL DEFAULT 0.3")
+                db.execSQL("ALTER TABLE pet_traits ADD COLUMN energy_profile REAL NOT NULL DEFAULT 0.5")
             }
         }
     }

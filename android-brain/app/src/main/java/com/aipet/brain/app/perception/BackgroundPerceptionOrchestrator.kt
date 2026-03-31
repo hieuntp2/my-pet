@@ -793,7 +793,7 @@ class BackgroundPerceptionOrchestrator(
             )
             val thumbnail = runCatching {
                 controller.latestFrameSnapshot?.let { frame ->
-                    frame.copy(frame.config ?: Bitmap.Config.ARGB_8888, false)
+                    frame.copy(frame.config, false)
                 }
             }.getOrNull()
             withContext(Dispatchers.Main) {
@@ -1341,7 +1341,7 @@ private fun Bitmap.toPreviewBase64(qualityScore: Float): String? {
         val targetHeight = (height / scale).toInt().coerceAtLeast(1)
         Bitmap.createScaledBitmap(this, targetWidth, targetHeight, true)
     } else {
-        copy(config ?: Bitmap.Config.ARGB_8888, false)
+        copy(config, false)
     }
     return runCatching {
         val output = ByteArrayOutputStream()

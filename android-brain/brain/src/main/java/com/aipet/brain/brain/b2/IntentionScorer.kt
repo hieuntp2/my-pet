@@ -360,7 +360,6 @@ class IntentionScorer {
         val intention = candidate.intention
         val conditions = ctx.conditions
         val p = ctx.perception
-        val cd = ctx.cooldowns
 
         return when {
             // INVITE_PLAY blocked if sleepy

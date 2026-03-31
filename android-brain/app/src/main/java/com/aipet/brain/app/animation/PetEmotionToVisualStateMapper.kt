@@ -18,5 +18,11 @@ object PetEmotionToVisualStateMapper {
         PetEmotion.SAD -> PetVisualState.NEUTRAL
         PetEmotion.EXCITED -> PetVisualState.HAPPY
         PetEmotion.HUNGRY -> PetVisualState.NEUTRAL
+        PetEmotion.RELIEVED -> PetVisualState.NEUTRAL
+        PetEmotion.NEEDY -> PetVisualState.NEUTRAL
+        PetEmotion.DISTANT -> PetVisualState.NEUTRAL
+        PetEmotion.WITHDRAWN -> PetVisualState.NEUTRAL
+        PetEmotion.STARTLED -> PetVisualState.HAPPY
+        PetEmotion.SHY -> PetVisualState.NEUTRAL
     }
 }

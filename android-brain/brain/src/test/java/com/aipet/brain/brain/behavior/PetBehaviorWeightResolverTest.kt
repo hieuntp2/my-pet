@@ -76,8 +76,18 @@ class PetBehaviorWeightResolverTest {
             hunger = 20,
             sleepiness = 25,
             social = 55,
+            comfort = 70,
+            stimulation = 30,
+            moodValence = 0,
+            moodArousal = 50,
             bond = 45,
-            lastUpdatedAt = 1_000L
+            trustScore = 0,
+            attachmentScore = 0,
+            neglectStreak = 0,
+            careStreak = 0,
+            lastUpdatedAt = 1_000L,
+            lastOpenAt = 0L,
+            lastMeaningfulInteractionAt = 0L
         ),
         conditions: Set<PetCondition> = emptySet(),
         traits: PetTrait? = null

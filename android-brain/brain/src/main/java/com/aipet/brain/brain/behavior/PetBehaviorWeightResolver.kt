@@ -175,6 +175,12 @@ open class PetBehaviorWeightResolver {
                     }
                     PetEmotion.HUNGRY -> Unit
                     PetEmotion.THINKING -> Unit
+                    PetEmotion.RELIEVED -> Unit
+                    PetEmotion.NEEDY -> Unit
+                    PetEmotion.DISTANT -> Unit
+                    PetEmotion.WITHDRAWN -> Unit
+                    PetEmotion.STARTLED -> Unit
+                    PetEmotion.SHY -> Unit
                 }
             }
             if (context.conditions.contains(PetCondition.PLAYFUL) && candidate.behavior == PetEmotion.EXCITED) {

@@ -114,7 +114,7 @@ class FrameAnalyzer(
             val frameSnapshotCallback = onFrameSnapshotCaptured
             if (frameSnapshotCallback != null) {
                 runCatching {
-                    val snapshot = frameBitmap.copy(frameBitmap.config ?: Bitmap.Config.ARGB_8888, false)
+                    val snapshot = frameBitmap.copy(frameBitmap.config, false)
                     if (snapshot != null) frameSnapshotCallback(snapshot)
                 }.onFailure { Log.w(TAG, "Frame snapshot copy failed.") }
             }

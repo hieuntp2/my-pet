@@ -53,8 +53,18 @@ class EventDrivenDailySummaryGeneratorTest {
             hunger = 25,
             sleepiness = 18,
             social = 60,
+            comfort = 70,
+            stimulation = 30,
+            moodValence = 0,
+            moodArousal = 50,
             bond = 20,
-            lastUpdatedAt = 1_800_000L
+            trustScore = 0,
+            attachmentScore = 0,
+            neglectStreak = 0,
+            careStreak = 0,
+            lastUpdatedAt = 1_800_000L,
+            lastOpenAt = 0L,
+            lastMeaningfulInteractionAt = 0L
         )
         val summary = generator.generateForDate(
             targetDate = targetDate,

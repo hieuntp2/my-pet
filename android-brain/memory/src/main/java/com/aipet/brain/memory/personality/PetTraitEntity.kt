@@ -23,7 +23,14 @@ data class PetTraitEntity(
     @ColumnInfo(name = "social")
     val social: Float,
     @ColumnInfo(name = "updated_at")
-    val updatedAt: Long
+    val updatedAt: Long,
+    // v2 trait fields added in migration 21→22
+    @ColumnInfo(name = "patience")
+    val patience: Float = 0.5f,
+    @ColumnInfo(name = "attachment")
+    val attachment: Float = 0.3f,
+    @ColumnInfo(name = "energy_profile")
+    val energyProfile: Float = 0.5f
 ) {
     fun toDomain(): PetTrait {
         return PetTrait(
@@ -32,7 +39,10 @@ data class PetTraitEntity(
             lazy = lazy,
             curious = curious,
             social = social,
-            updatedAt = updatedAt
+            updatedAt = updatedAt,
+            patience = patience,
+            attachment = attachment,
+            energyProfile = energyProfile
         )
     }
 
@@ -44,7 +54,10 @@ data class PetTraitEntity(
                 lazy = trait.lazy,
                 curious = trait.curious,
                 social = trait.social,
-                updatedAt = trait.updatedAt
+                updatedAt = trait.updatedAt,
+                patience = trait.patience,
+                attachment = trait.attachment,
+                energyProfile = trait.energyProfile
             )
         }
     }

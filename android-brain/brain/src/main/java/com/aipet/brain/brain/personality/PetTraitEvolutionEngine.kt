@@ -2,6 +2,7 @@ package com.aipet.brain.brain.personality
 
 import com.aipet.brain.brain.activity.PetActivityType
 import com.aipet.brain.brain.interaction.PetInteractionType
+import com.aipet.brain.brain.pet.CareActionType
 import kotlin.math.abs
 
 class PetTraitEvolutionEngine {
@@ -18,7 +19,45 @@ class PetTraitEvolutionEngine {
 
             PetInteractionType.LONG_PRESS -> TraitDelta(
                 lazy = 0.006f,
-                social = 0.016f
+                social = 0.016f,
+                attachment = 0.008f
+            )
+        }
+        return evolve(current = current, delta = delta, appliedAtMs = appliedAtMs)
+    }
+
+    fun applyCareAction(
+        current: PetTrait,
+        careActionType: CareActionType,
+        appliedAtMs: Long
+    ): PetTrait {
+        val delta = when (careActionType) {
+            CareActionType.SOOTHE -> TraitDelta(
+                attachment = 0.015f,
+                patience = 0.005f
+            )
+            CareActionType.PLAY -> TraitDelta(
+                playful = 0.018f,
+                lazy = -0.006f,
+                curious = 0.010f,
+                energyProfile = 0.004f
+            )
+            CareActionType.FEED -> TraitDelta(
+                lazy = 0.004f,
+                social = 0.008f
+            )
+            CareActionType.LONG_PRESS -> TraitDelta(
+                lazy = 0.006f,
+                social = 0.016f,
+                attachment = 0.012f
+            )
+            CareActionType.TAP -> TraitDelta(
+                playful = 0.010f,
+                social = 0.010f
+            )
+            CareActionType.LINGER -> TraitDelta(
+                lazy = 0.003f,
+                patience = 0.004f
             )
         }
         return evolve(current = current, delta = delta, appliedAtMs = appliedAtMs)
@@ -59,6 +98,9 @@ class PetTraitEvolutionEngine {
             lazy = current.lazy.applyDirectedStep(delta.lazy),
             curious = current.curious.applyDirectedStep(delta.curious),
             social = current.social.applyDirectedStep(delta.social),
+            patience = current.patience.applyDirectedStep(delta.patience),
+            attachment = current.attachment.applyDirectedStep(delta.attachment),
+            energyProfile = current.energyProfile.applyDirectedStep(delta.energyProfile),
             updatedAt = appliedAtMs
         )
     }
@@ -82,7 +124,10 @@ class PetTraitEvolutionEngine {
         val playful: Float = 0f,
         val lazy: Float = 0f,
         val curious: Float = 0f,
-        val social: Float = 0f
+        val social: Float = 0f,
+        val patience: Float = 0f,
+        val attachment: Float = 0f,
+        val energyProfile: Float = 0f
     )
 
     private companion object {

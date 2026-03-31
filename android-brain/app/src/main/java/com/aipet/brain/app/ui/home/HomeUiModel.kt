@@ -131,6 +131,12 @@ object HomeUiModelBuilder {
             PetEmotion.EXCITED -> "Playful"
             PetEmotion.HUNGRY -> "Hungry"
             PetEmotion.THINKING -> "Thinking"
+            PetEmotion.RELIEVED -> "Relieved"
+            PetEmotion.NEEDY -> "Needs you"
+            PetEmotion.DISTANT -> "Distant"
+            PetEmotion.WITHDRAWN -> "Withdrawn"
+            PetEmotion.STARTLED -> "Startled"
+            PetEmotion.SHY -> "Shy"
         }
     }
 

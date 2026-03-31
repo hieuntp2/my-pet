@@ -95,6 +95,7 @@ class PresenceInterpreter(
         mutex.withLock {
             lastRecognizedPersonId = personId
             lastFamiliarPresent = true
+            lastFaceSeenMs = nowMs
         }
     }
 
