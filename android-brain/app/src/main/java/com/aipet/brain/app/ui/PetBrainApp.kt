@@ -669,6 +669,7 @@ fun PetBrainApp() {
     val homeInteractionUiState = remember(homeInteractionFeedback) {
         HomeInteractionUiState(
             feedbackMessage = homeInteractionFeedback?.text,
+            feedbackToken = if (homeInteractionFeedback != null) System.currentTimeMillis() else 0L,
             feedbackIsBlocked = homeInteractionFeedback?.isBlocked ?: false,
             careHint = "Feed, play, or rest with one tap from here.",
             interactionHint = "Tap for a quick hello or hold for a longer cuddle.",
@@ -803,6 +804,23 @@ fun PetBrainApp() {
             currentScreenName = AppScreen.Onboarding.name
         }
         hasAppliedAppOpenLifecycle = true
+    }
+
+    // Auto-expire perception flags so the avatar doesn't stay stuck in LOOKING/ASKING
+    // when no recomposition occurs after the hold window ends.
+    LaunchedEffect(perceptionLookingUntilMs) {
+        val deadline = perceptionLookingUntilMs
+        if (deadline <= 0L) return@LaunchedEffect
+        val remaining = deadline - System.currentTimeMillis()
+        if (remaining > 0) kotlinx.coroutines.delay(remaining)
+        if (perceptionLookingUntilMs == deadline) perceptionLookingUntilMs = 0L
+    }
+    LaunchedEffect(perceptionAskingUntilMs) {
+        val deadline = perceptionAskingUntilMs
+        if (deadline <= 0L) return@LaunchedEffect
+        val remaining = deadline - System.currentTimeMillis()
+        if (remaining > 0) kotlinx.coroutines.delay(remaining)
+        if (perceptionAskingUntilMs == deadline) perceptionAskingUntilMs = 0L
     }
 
     LaunchedEffect(activePetProfile?.id, petTraitRepository) {
@@ -1401,6 +1419,8 @@ fun PetBrainApp() {
                     homeInteractionUiState = homeInteractionUiState,
                     avatarBridgeState = homePixelPetBridgeState,
                     appOpenGreeting = appOpenGreeting,
+                    latestAudioStimulus = latestAudioStimulus,
+                    brainState = brainStateSnapshot.currentState,
                     onPetTap = {
                         coroutineScope.launch {
                             handlePetInteraction(
@@ -1432,7 +1452,6 @@ fun PetBrainApp() {
                             handlePetActivity(letPetRestUseCase)
                         }
                     },
-                    onNavigateToHome = { currentScreenName = AppScreen.Home.name },
                     onNavigateToDebug = { currentScreenName = AppScreen.Debug.name },
                     onNavigateToDiary = { currentScreenName = AppScreen.Diary.name }
                 )

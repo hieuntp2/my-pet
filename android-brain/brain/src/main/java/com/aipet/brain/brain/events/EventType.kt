@@ -22,6 +22,8 @@ enum class EventType {
     PET_PLAYED,
     PET_RESTED,
     PET_GREETED,
+    /** Brain-side autonomous invitation to play — consumed by the UI layer to begin invite sequence. */
+    PET_WANTS_TO_PLAY,
     BRAIN_STATE_CHANGED,
     RELATIONSHIP_UPDATED,
     TRAITS_UPDATED,

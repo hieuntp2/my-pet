@@ -1,335 +1,309 @@
 package com.aipet.brain.app.ui.home
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Card
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Surface
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
-import com.aipet.brain.app.ui.navigation.PetPrimaryDestination
-import com.aipet.brain.app.ui.navigation.PetPrimaryNavigationBar
+import com.aipet.brain.app.gameplay.GameInvitationPolicy
+import com.aipet.brain.brain.logic.audio.AudioStimulus
+import com.aipet.brain.brain.logic.audio.KeywordStimulus
+import com.aipet.brain.brain.logic.audio.SoundStimulus
+import com.aipet.brain.brain.pet.PetCondition
+import com.aipet.brain.brain.pet.PetEmotion
 import com.aipet.brain.brain.pet.PetGreetingReaction
+import com.aipet.brain.brain.state.BrainState
 import com.aipet.brain.ui.avatar.pixel.bridge.PixelPetBridgeState
+import kotlinx.coroutines.delay
 
+/**
+ * Full-screen pet stage � the redesigned Looi-like Home experience.
+ *
+ * Architecture:
+ * - [PetReactionController] injects transient one-shot reactions (tap, greeting, sound)
+ *   on top of the bridge-driven visual state. Each reaction auto-clears when its clip finishes.
+ * - [HomeAmbientGlow] reacts to emotion/conditions for scene atmosphere.
+ * - [HomeTalkBubbleOrchestrator] selects the contextual speech bubble with priority + dedupe.
+ * - [HomeFxOverlay] shows particle FX tied to interaction outcomes.
+ * - [SparkMiniGame] is the integrated Catch-the-Spark game, launched from the menu.
+ *
+ * Layout:
+ * - Black near-black fullscreen stage (#080810)
+ * - Pixel pet face centered at 300dp, -24dp vertical offset
+ * - Talk bubble 180dp below center
+ * - Single MoreVert menu button top-right
+ * - No navigation tabs, no dashboard cards
+ */
 @Composable
 fun HomeScreen(
     homeUiModel: HomeUiModel,
     homeInteractionUiState: HomeInteractionUiState,
     avatarBridgeState: PixelPetBridgeState,
     appOpenGreeting: PetGreetingReaction?,
+    latestAudioStimulus: AudioStimulus?,
+    brainState: BrainState = BrainState.IDLE,
     onPetTap: () -> Unit,
     onPetLongPress: () -> Unit,
     onFeedPet: () -> Unit,
     onPlayWithPet: () -> Unit,
     onLetPetRest: () -> Unit,
-    onNavigateToHome: () -> Unit,
     onNavigateToDebug: () -> Unit,
     onNavigateToDiary: () -> Unit
 ) {
-    Column(
+    // -- Reaction controller (H4-04/05, H5, H6, H7) ---------------------------
+    val reactionController = remember { PetReactionController() }
+    // -- Scene FX (H10) — declared early so all LaunchedEffects can reference it --
+    var activeFx by remember { mutableStateOf<HomeFxType?>(null) }
+    // H5: Greeting reaction � injected once when app-open greeting arrives
+    LaunchedEffect(appOpenGreeting?.message) {
+        val greeting = appOpenGreeting ?: return@LaunchedEffect
+        val isExcited = greeting.emotion == PetEmotion.EXCITED ||
+                greeting.emotion == PetEmotion.HAPPY
+        reactionController.triggerGreeting(excited = isExcited)
+    }
+
+    // H6: Tap / long-press reactions � immediate visual feedback before brain responds
+    // (actual tap/longPress callbacks also call onPetTap/onPetLongPress below)
+
+    // H7: Audio stimulus reactions + self-trigger guard + keyword FX (merged to avoid duplicate key)
+    LaunchedEffect(latestAudioStimulus?.timestampMs) {
+        val stimulus = latestAudioStimulus ?: return@LaunchedEffect
+        when (stimulus) {
+            is KeywordStimulus -> {
+                reactionController.triggerKeyword()
+                if (activeFx == null) activeFx = HomeFxType.EXCLAMATION
+            }
+            is SoundStimulus -> if (stimulus.smoothedEnergy > LOUD_SOUND_ENERGY_THRESHOLD) {
+                reactionController.triggerLoudSound()
+            }
+            else -> { /* VoiceActivityStimulus � no startle needed */ }
+        }
+    }
+
+    // -- Talk bubble orchestrator ----------------------------------------------
+    val activeBubble = rememberHomeTalkBubbleOrchestrator(
+        appOpenGreeting = appOpenGreeting,
+        feedbackMessage = homeInteractionUiState.feedbackMessage,
+        feedbackToken = homeInteractionUiState.feedbackToken,
+        conditions = homeUiModel.currentConditions
+    )
+
+
+    // FX from interaction feedback � keyed on feedbackToken so repeated same-message taps fire
+    LaunchedEffect(homeInteractionUiState.feedbackToken) {
+        if (homeInteractionUiState.feedbackMessage == null) return@LaunchedEffect
+        activeFx = when {
+            homeInteractionUiState.feedbackIsBlocked -> HomeFxType.EXCLAMATION
+            homeUiModel.currentEmotion == PetEmotion.HAPPY ||
+                    homeUiModel.currentEmotion == PetEmotion.EXCITED -> HomeFxType.HEARTS
+            else -> HomeFxType.SPARKS
+        }
+    }
+
+    // ZZZ FX on sleepy onset
+    LaunchedEffect(homeUiModel.currentConditions) {
+        if (PetCondition.SLEEPY in homeUiModel.currentConditions && activeFx == null) {
+            activeFx = HomeFxType.ZZZ
+        }
+    }
+
+    // Excited greeting FX (SPARKS/HEARTS burst on app open)
+    LaunchedEffect(appOpenGreeting?.emotion) {
+        val emotion = appOpenGreeting?.emotion ?: return@LaunchedEffect
+        if (emotion == PetEmotion.EXCITED || emotion == PetEmotion.HAPPY) {
+            activeFx = HomeFxType.SPARKS
+        }
+    }
+
+    // -- Mini-game (H12) -------------------------------------------------------
+    val invitationPolicy = remember { GameInvitationPolicy() }
+    val sparkController = rememberSparkGameController(
+        onWin = {
+            activeFx = HomeFxType.HEARTS
+            invitationPolicy.recordGameCompleted(System.currentTimeMillis())
+            onPlayWithPet()
+        },
+        onFail = {
+            invitationPolicy.recordGameCompleted(System.currentTimeMillis())
+        },
+        onInviteIgnored = {
+            invitationPolicy.recordInviteIgnored()
+        }
+    )
+
+    // Autonomous invitation loop — checks eligibility every 30s
+    val latestConditions by rememberUpdatedState(homeUiModel.currentConditions)
+    val latestBrainState by rememberUpdatedState(brainState)
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(INVITATION_CHECK_INTERVAL_MS)
+            val nowMs = System.currentTimeMillis()
+            if (invitationPolicy.isEligible(
+                    nowMs = nowMs,
+                    gamePhase = sparkController.state.phase,
+                    petConditions = latestConditions,
+                    brainState = latestBrainState
+                )
+            ) {
+                invitationPolicy.recordInvitationSent(nowMs)
+                sparkController.startInvite()
+            }
+        }
+    }
+
+    // Invitation bubble: show a contextual line when the pet is inviting
+    LaunchedEffect(sparkController.state.phase) {
+        if (sparkController.state.phase == SparkGamePhase.INVITE) {
+            activeFx = HomeFxType.SPARKS
+        }
+    }
+
+    // -- Menu sheet ------------------------------------------------------------
+    var showMenuSheet by remember { mutableStateOf(false) }
+
+    // -- Stage -----------------------------------------------------------------
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 20.dp, vertical = 16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+            .background(HomeColors.stageDark)
     ) {
-        PetPrimaryNavigationBar(
-            selectedDestination = PetPrimaryDestination.Home,
-            onNavigateHome = onNavigateToHome,
-            onNavigateDiary = onNavigateToDiary,
-            onNavigateDebug = onNavigateToDebug
-        )
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Text(
-                text = homeUiModel.petName,
-                style = MaterialTheme.typography.headlineMedium
-            )
-            Text(
-                text = homeUiModel.identityLine,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            MoodPill(moodLabel = homeUiModel.moodLabel)
-            homeUiModel.personalityLabel?.let { personalityLabel ->
-                PersonalityPill(personalityLabel = personalityLabel)
-            }
-        }
-
-        if (appOpenGreeting != null) {
-            StatusCard(
-                title = "Greeting",
-                body = appOpenGreeting.message
-            )
-        }
-
-        Card(
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                PetAvatarSurface(
-                    avatarBridgeState = avatarBridgeState,
-                    onTap = { if (homeInteractionUiState.canTapPet) onPetTap() },
-                    onLongPress = { if (homeInteractionUiState.canLongPressPet) onPetLongPress() }
-                )
-                Text(
-                    text = homeInteractionUiState.interactionHint,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 16.dp)
-                )
-            }
-        }
-
-        StatusCard(
-            title = "How ${homeUiModel.petName} is doing",
-            body = homeUiModel.statusLine
+        // H9: Ambient glow driven by emotion and need conditions
+        HomeAmbientGlow(
+            emotion = homeUiModel.currentEmotion,
+            conditions = homeUiModel.currentConditions,
+            modifier = Modifier.fillMaxSize()
         )
 
-        homeUiModel.todaySummary?.let { todaySummary ->
-            StatusCard(
-                title = todaySummary.title,
-                body = todaySummary.body
-            )
-        }
-
-        KnownEntityCountsSection(
-            knownPersons = homeUiModel.knownPersons,
-            knownObjects = homeUiModel.knownObjects
-        )
-
-        if (homeInteractionUiState.feedbackMessage != null) {
-            StatusCard(
-                title = if (homeInteractionUiState.feedbackIsBlocked) {
-                    "Give it a moment"
+        // H2/H4: Face � centered, 300dp, floating idle bob via graphicsLayer in HomePixelPetAvatar
+        HomePixelPetAvatar(
+            bridgeState = avatarBridgeState,
+            reactionController = reactionController,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .offset(y = (-24).dp),
+            displaySize = 300.dp,
+            onTap = {
+                if (sparkController.state.phase == SparkGamePhase.INVITE) {
+                    // User accepted the pet's invitation — start game immediately
+                    invitationPolicy.resetIgnoreStreak()
+                    sparkController.acceptInvite()
+                } else if (homeInteractionUiState.canTapPet) {
+                    // H6-01: immediate visual reaction before brain processes
+                    reactionController.triggerTap(isBlocked = false)
+                    onPetTap()
                 } else {
-                    "Just now"
-                },
-                body = homeInteractionUiState.feedbackMessage
+                    // H6-03: blocked tap anti-spam reaction
+                    reactionController.triggerTap(isBlocked = true)
+                }
+            },
+            onLongPress = {
+                if (homeInteractionUiState.canLongPressPet) {
+                    // H6-02: cuddle long-press reaction
+                    reactionController.triggerLongPress()
+                    onPetLongPress()
+                }
+            }
+        )
+
+        // H8: Talk bubble � positioned just below the face center
+        HomeTalkBubble(
+            bubble = activeBubble,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .offset(y = 180.dp)
+                .padding(horizontal = 32.dp)
+        )
+
+        // H10: Scene FX overlay (hearts, sparks, zzz, exclamation)
+        if (activeFx != null) {
+            HomeFxOverlay(
+                fxType = activeFx!!,
+                modifier = Modifier.fillMaxSize(),
+                onDone = { activeFx = null }
             )
         }
 
-        PetStateIndicatorsSection(
-            indicators = homeUiModel.indicators
-        )
-
-        ActivitiesSection(
-            onFeedPet = onFeedPet,
-            onPlayWithPet = onPlayWithPet,
-            onLetPetRest = onLetPetRest,
-            careHint = homeInteractionUiState.careHint,
-            cooldownHint = homeInteractionUiState.cooldownHint,
-            modifier = Modifier
-        )
-        Spacer(modifier = Modifier.height(12.dp))
-    }
-}
-
-@Composable
-private fun StatusCard(
-    title: String,
-    body: String
-) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text(text = title)
-            Text(
-                text = body,
-                modifier = Modifier.padding(top = 8.dp)
-            )
-        }
-    }
-}
-
-@Composable
-private fun MoodPill(
-    moodLabel: String
-) {
-    Card {
-        Text(
-            text = moodLabel,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-            style = MaterialTheme.typography.labelLarge
-        )
-    }
-}
-
-@Composable
-private fun PersonalityPill(
-    personalityLabel: String
-) {
-    Card {
-        Text(
-            text = "Personality: $personalityLabel",
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-@Composable
-private fun PetAvatarSurface(
-    avatarBridgeState: PixelPetBridgeState,
-    onTap: () -> Unit,
-    onLongPress: () -> Unit
-) {
-    HomePixelPetAvatar(
-        bridgeState = avatarBridgeState,
-        modifier = Modifier.size(220.dp),
-        onTap = onTap,
-        onLongPress = onLongPress
-    )
-}
-
-@Composable
-private fun KnownEntityCountsSection(
-    knownPersons: List<HomeKnownEntityCount>,
-    knownObjects: List<HomeKnownEntityCount>
-) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        KnownEntityCountCard(
-            title = "Known people",
-            items = knownPersons,
-            emptyMessage = "No known people yet."
-        )
-        KnownEntityCountCard(
-            title = "Known objects",
-            items = knownObjects,
-            emptyMessage = "No known objects yet."
-        )
-    }
-}
-
-@Composable
-private fun KnownEntityCountCard(
-    title: String,
-    items: List<HomeKnownEntityCount>,
-    emptyMessage: String
-) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+        // H12: Spark mini-game overlay (shown when INVITE, ACTIVE, WIN, or LOSE phase)
+        if (sparkController.state.phase == SparkGamePhase.INVITE ||
+            sparkController.state.isActive ||
+            sparkController.state.phase == SparkGamePhase.WIN ||
+            sparkController.state.phase == SparkGamePhase.LOSE
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium
+            SparkGameOverlay(
+                controller = sparkController,
+                modifier = Modifier.fillMaxSize()
             )
-            if (items.isEmpty()) {
-                Text(
-                    text = emptyMessage,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+        }
+
+        // H11: Single visible control � compact menu button (top-right)
+        Surface(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 14.dp, end = 14.dp)
+                .clip(RoundedCornerShape(10.dp)),
+            color = HomeColors.sheetDark.copy(alpha = 0.6f),
+            tonalElevation = 0.dp
+        ) {
+            IconButton(onClick = { showMenuSheet = true }) {
+                Icon(
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = "Menu",
+                    tint = HomeColors.iconTint
                 )
-            } else {
-                items.forEach { item ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = item.name,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Text(
-                            text = "Seen ${item.seenCount}",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
             }
+        }
+    }
+
+    // H11: Menu sheet � rendered outside stage Box to cover full screen
+    if (showMenuSheet) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            HomeMenuSheet(
+                onDismiss = { showMenuSheet = false },
+                onDebug = {
+                    showMenuSheet = false
+                    onNavigateToDebug()
+                },
+                onDiary = {
+                    showMenuSheet = false
+                    onNavigateToDiary()
+                },
+                onFeedPet = {
+                    showMenuSheet = false
+                    onFeedPet()
+                },
+                onPlayWithPet = {
+                    showMenuSheet = false
+                    invitationPolicy.recordManualGameStarted(System.currentTimeMillis())
+                    sparkController.startGame()
+                },
+                onLetPetRest = {
+                    showMenuSheet = false
+                    onLetPetRest()
+                }
+            )
         }
     }
 }
 
-@Composable
-private fun PetStateIndicatorsSection(
-    indicators: List<HomeStateIndicator>
-) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Text(
-            text = "At a glance",
-            style = MaterialTheme.typography.titleMedium
-        )
-        indicators.chunked(2).forEach { rowIndicators ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                rowIndicators.forEach { indicator ->
-                    StateIndicatorCard(
-                        indicator = indicator,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                if (rowIndicators.size == 1) {
-                    Spacer(modifier = Modifier.weight(1f))
-                }
-            }
-        }
-    }
-}
+// Energy threshold for loud-sound surprise reaction (empirically tuned for typical env noise)
+private const val LOUD_SOUND_ENERGY_THRESHOLD = 0.55
+// How often the autonomous invitation eligibility is checked
+private const val INVITATION_CHECK_INTERVAL_MS = 30_000L
 
-@Composable
-private fun StateIndicatorCard(
-    indicator: HomeStateIndicator,
-    modifier: Modifier = Modifier
-) {
-    Card(modifier = modifier) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Text(
-                text = indicator.label,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = indicator.value,
-                style = MaterialTheme.typography.titleSmall
-            )
-            LinearProgressIndicator(
-                progress = indicator.progress,
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-    }
-}

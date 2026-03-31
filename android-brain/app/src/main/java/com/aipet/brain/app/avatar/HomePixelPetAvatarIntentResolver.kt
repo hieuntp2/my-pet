@@ -42,6 +42,22 @@ class HomePixelPetAvatarIntentResolver(
                     )
                 )
             }
+            if (bridgeInput.hasHungerNeed) {
+                add(
+                    HomePixelPetAvatarIntentCandidate(
+                        intent = PixelPetAvatarIntent.HUNGRY_NEED,
+                        reason = "hunger_need_signal"
+                    )
+                )
+            }
+            if (bridgeInput.hasLonelyNeed) {
+                add(
+                    HomePixelPetAvatarIntentCandidate(
+                        intent = PixelPetAvatarIntent.LONELY_NEED,
+                        reason = "lonely_need_signal"
+                    )
+                )
+            }
             if (bridgeInput.hasLowEnergy) {
                 add(
                     HomePixelPetAvatarIntentCandidate(
@@ -109,12 +125,14 @@ class HomePixelPetAvatarIntentPriorityPolicy {
         PixelPetAvatarIntent.ASKING to 300,
         PixelPetAvatarIntent.LOOKING to 250,
         PixelPetAvatarIntent.LOW_ENERGY to 200,
+        PixelPetAvatarIntent.HUNGRY_NEED to 150,
+        PixelPetAvatarIntent.LONELY_NEED to 125,
         PixelPetAvatarIntent.ATTENTIVE to 100,
         PixelPetAvatarIntent.NEUTRAL to 0
     )
 
     val policySummary: String =
-        "processing>engaged>asking>looking>low_energy>attentive>neutral; keep_previous_over_neutral=true"
+        "processing>engaged>asking>looking>low_energy>hungry_need>lonely_need>attentive>neutral; keep_previous_over_neutral=true"
 
     fun selectCandidate(candidates: List<HomePixelPetAvatarIntentCandidate>): HomePixelPetAvatarIntentCandidate {
         return candidates.maxWithOrNull(

@@ -17,7 +17,7 @@ import org.junit.Test
 class LocalAudioIntentCommandRuleTest {
     @Test
     fun `routes wake up and play random when safe`() = runTest {
-        val eventBus = InMemoryEventBus(replay = 0)
+        val eventBus = InMemoryEventBus()
         val calls = mutableListOf<String>()
         val rule = buildRule(
             eventBus = eventBus,
@@ -49,7 +49,7 @@ class LocalAudioIntentCommandRuleTest {
 
     @Test
     fun `rejects non wake commands while sleepy`() = runTest {
-        val eventBus = InMemoryEventBus(replay = 0)
+        val eventBus = InMemoryEventBus()
         val calls = mutableListOf<String>()
         val rule = buildRule(
             eventBus = eventBus,
@@ -71,7 +71,7 @@ class LocalAudioIntentCommandRuleTest {
 
     @Test
     fun `rejects conflicting teach flows and play during exclusive flow`() = runTest {
-        val eventBus = InMemoryEventBus(replay = 0)
+        val eventBus = InMemoryEventBus()
         val calls = mutableListOf<String>()
         val rule = buildRule(
             eventBus = eventBus,
@@ -96,7 +96,7 @@ class LocalAudioIntentCommandRuleTest {
 
     @Test
     fun `wake up while already awake is soft no op`() = runTest {
-        val eventBus = InMemoryEventBus(replay = 0)
+        val eventBus = InMemoryEventBus()
         val calls = mutableListOf<String>()
         val rule = buildRule(
             eventBus = eventBus,
@@ -114,7 +114,7 @@ class LocalAudioIntentCommandRuleTest {
 
     @Test
     fun `audio feedback triggers only for accepted intents`() = runTest {
-        val eventBus = InMemoryEventBus(replay = 0)
+        val eventBus = InMemoryEventBus()
         val audioFeedbackCalls = mutableListOf<AudioIntent>()
         val rule = buildRule(
             eventBus = eventBus,
@@ -138,7 +138,7 @@ class LocalAudioIntentCommandRuleTest {
 
     @Test
     fun `accepted play random triggers audio feedback`() = runTest {
-        val eventBus = InMemoryEventBus(replay = 0)
+        val eventBus = InMemoryEventBus()
         val audioFeedbackCalls = mutableListOf<AudioIntent>()
         val rule = buildRule(
             eventBus = eventBus,
@@ -160,7 +160,7 @@ class LocalAudioIntentCommandRuleTest {
 
     @Test
     fun `accepted learn person triggers avatar reaction`() = runTest {
-        val eventBus = InMemoryEventBus(replay = 0)
+        val eventBus = InMemoryEventBus()
         val avatarReactionCalls = mutableListOf<AudioIntent>()
         val rule = buildRule(
             eventBus = eventBus,
@@ -182,7 +182,7 @@ class LocalAudioIntentCommandRuleTest {
 
     @Test
     fun `rejected commands do not trigger avatar reaction`() = runTest {
-        val eventBus = InMemoryEventBus(replay = 0)
+        val eventBus = InMemoryEventBus()
         val avatarReactionCalls = mutableListOf<AudioIntent>()
         val rule = buildRule(
             eventBus = eventBus,
@@ -203,7 +203,7 @@ class LocalAudioIntentCommandRuleTest {
 
     @Test
     fun `unknown intent is silently ignored and does not trigger any action`() = runTest {
-        val eventBus = InMemoryEventBus(replay = 0)
+        val eventBus = InMemoryEventBus()
         val actionCalls = mutableListOf<String>()
         val rule = buildRule(
             eventBus = eventBus,

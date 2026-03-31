@@ -1,5 +1,6 @@
 package com.aipet.brain.app.avatar
 
+import com.aipet.brain.app.BuildConfig
 import com.aipet.brain.brain.logic.audio.KeywordStimulus
 import com.aipet.brain.brain.logic.audio.VoiceActivityStimulus
 import com.aipet.brain.brain.logic.audio.VoiceActivityStimulusState
@@ -24,12 +25,12 @@ class RealPixelPetBridgeStateAdapter(
         previousIntentResolution = resolution
         return PixelPetBridgeState(
             intent = resolution.intent,
-            debugMetadata = PixelPetBridgeDebugMetadata(
+            debugMetadata = if (BuildConfig.DEBUG) PixelPetBridgeDebugMetadata(
                 chosenIntent = resolution.intent.name.lowercase(),
                 priorityReason = resolution.decisionReason,
                 sourceSummary = resolution.sourceSummary,
                 policySummary = resolution.policySummary
-            )
+            ) else null
         )
     }
 
@@ -43,11 +44,14 @@ class RealPixelPetBridgeStateAdapter(
             signal.petEmotion == PetEmotion.HAPPY ||
             signal.petEmotion == PetEmotion.EXCITED
         val hasAttentiveInterest = signal.brainState == BrainState.CURIOUS ||
-            signal.petEmotion == PetEmotion.CURIOUS ||
+            signal.petEmotion == PetEmotion.CURIOUS
+        val hasHungerNeed = signal.conditions.contains(PetCondition.HUNGRY) ||
             signal.petEmotion == PetEmotion.HUNGRY
         val hasLowEnergy = signal.conditions.contains(PetCondition.SLEEPY) ||
             signal.petEmotion == PetEmotion.SLEEPY ||
             signal.brainState == BrainState.SLEEPY
+        val hasLonelyNeed = signal.conditions.contains(PetCondition.LONELY) &&
+            !hasLowEnergy  // lonely is suppressed by sleepy — sleepy takes precedence
 
         val sourceSummary = buildList {
             if (hasAudioAttention) add("audio_attention")
@@ -55,7 +59,9 @@ class RealPixelPetBridgeStateAdapter(
             if (signal.isPerceptionLooking) add("perception_looking")
             if (signal.isPerceptionAsking) add("perception_asking")
             if (hasAttentiveInterest) add("attentive_interest")
+            if (hasHungerNeed) add("hunger_need")
             if (hasLowEnergy) add("low_energy")
+            if (hasLonelyNeed) add("lonely_need")
             signal.latestAudioStimulus?.let { add(it.toDebugSummary()) }
         }.ifEmpty {
             listOf("neutral_fallback")
@@ -65,7 +71,9 @@ class RealPixelPetBridgeStateAdapter(
             hasAudioAttention = hasAudioAttention,
             hasDirectEngagement = hasDirectEngagement,
             hasAttentiveInterest = hasAttentiveInterest,
+            hasHungerNeed = hasHungerNeed,
             hasLowEnergy = hasLowEnergy,
+            hasLonelyNeed = hasLonelyNeed,
             hasPerceptionLooking = signal.isPerceptionLooking,
             hasPerceptionAsking = signal.isPerceptionAsking,
             sourceSummary = sourceSummary

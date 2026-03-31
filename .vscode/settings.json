@@ -13,6 +13,8 @@
         "Test-Path": true,
         ".\\gradlew": true,
         "ForEach-Object": true,
-        "Get-Command": true
+        "Get-Command": true,
+        "java": true,
+        "Out-File": true
     }
 }

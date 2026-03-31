@@ -2,6 +2,7 @@ package com.aipet.brain.app.ui.home
 
 data class HomeInteractionUiState(
     val feedbackMessage: String? = null,
+    val feedbackToken: Long = 0L,
     val feedbackIsBlocked: Boolean = false,
     val canTapPet: Boolean = true,
     val canLongPressPet: Boolean = true,

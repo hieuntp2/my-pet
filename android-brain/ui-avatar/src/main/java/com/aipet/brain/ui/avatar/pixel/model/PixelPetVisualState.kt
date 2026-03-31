@@ -11,7 +11,11 @@ sealed interface PixelPetVisualState {
             Looking,
             Asking,
             Sleepy,
-            Thinking
+            Thinking,
+            Excited,
+            Surprised,
+            Hungry,
+            Lonely
         )
     }
 }
@@ -42,6 +46,26 @@ object Sleepy : PixelPetVisualState {
 
 object Thinking : PixelPetVisualState {
     override val id: String = "thinking"
+}
+
+/** Short one-shot reaction: wide bright eyes + bounce — used for greeting/win/happy reaction. */
+object Excited : PixelPetVisualState {
+    override val id: String = "excited"
+}
+
+/** Short one-shot reaction: snap-wide + freeze + recover — used for loud sound / spam tap. */
+object Surprised : PixelPetVisualState {
+    override val id: String = "surprised"
+}
+
+/** Ambient loop: drooped-attentive eyes with side-scan — shown when pet is hungry. */
+object Hungry : PixelPetVisualState {
+    override val id: String = "hungry"
+}
+
+/** Ambient loop: expectant soft center gaze with glance-away cycles — shown when pet is lonely. */
+object Lonely : PixelPetVisualState {
+    override val id: String = "lonely"
 }
 
 data class CustomPixelPetVisualState(

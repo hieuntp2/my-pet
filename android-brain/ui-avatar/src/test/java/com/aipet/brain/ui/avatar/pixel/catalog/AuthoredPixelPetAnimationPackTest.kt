@@ -3,6 +3,8 @@ package com.aipet.brain.ui.avatar.pixel.catalog
 import com.aipet.brain.ui.avatar.pixel.model.Asking
 import com.aipet.brain.ui.avatar.pixel.model.Curious
 import com.aipet.brain.ui.avatar.pixel.model.Happy
+import com.aipet.brain.ui.avatar.pixel.model.Hungry
+import com.aipet.brain.ui.avatar.pixel.model.Lonely
 import com.aipet.brain.ui.avatar.pixel.model.Looking
 import com.aipet.brain.ui.avatar.pixel.model.Neutral
 import com.aipet.brain.ui.avatar.pixel.model.PixelAnimationVariant
@@ -30,6 +32,8 @@ class AuthoredPixelPetAnimationPackTest {
         assertNotNull(registry[Asking])
         assertNotNull(registry[Thinking])
         assertNotNull(registry[Sleepy])
+        assertNotNull(registry[Hungry])
+        assertNotNull(registry[Lonely])
     }
 
     @Test
@@ -97,7 +101,9 @@ class AuthoredPixelPetAnimationPackTest {
                 "Sleepy_A_HalfLidLoop",
                 "Sleepy_B_LongBlink",
                 "Sleepy_C_DroopDrift",
-                "Sleepy_D_StaggerClose"
+                "Sleepy_D_StaggerClose",
+                "Sleepy_E_NearDoze",
+                "Sleepy_F_WakeCorrection"
             ),
             sleepyVariants.map { it.id }
         )

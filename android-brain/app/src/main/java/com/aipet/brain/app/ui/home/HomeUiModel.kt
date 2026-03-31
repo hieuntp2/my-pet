@@ -15,7 +15,11 @@ data class HomeUiModel(
     val todaySummary: HomeTodaySummary?,
     val indicators: List<HomeStateIndicator>,
     val knownPersons: List<HomeKnownEntityCount>,
-    val knownObjects: List<HomeKnownEntityCount>
+    val knownObjects: List<HomeKnownEntityCount>,
+    /** Live emotion forwarded to the Home stage for glow and FX decisions. */
+    val currentEmotion: PetEmotion = PetEmotion.IDLE,
+    /** Live conditions forwarded to the Home stage for ambient expression and glow. */
+    val currentConditions: Set<PetCondition> = emptySet()
 )
 
 data class HomeStateIndicator(
@@ -60,7 +64,9 @@ object HomeUiModelBuilder {
                     HomeStateIndicator(label = "Company", value = "Unknown", progress = 0.5f)
                 ),
                 knownPersons = knownPersons,
-                knownObjects = knownObjects
+                knownObjects = knownObjects,
+                currentEmotion = emotion,
+                currentConditions = conditions
             )
         }
         return HomeUiModel(
@@ -92,7 +98,9 @@ object HomeUiModelBuilder {
                 )
             ),
             knownPersons = knownPersons,
-            knownObjects = knownObjects
+            knownObjects = knownObjects,
+            currentEmotion = emotion,
+            currentConditions = conditions
         )
     }
 
