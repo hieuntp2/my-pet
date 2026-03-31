@@ -9,6 +9,7 @@ import com.aipet.brain.ui.avatar.pixel.model.Lonely
 import com.aipet.brain.ui.avatar.pixel.model.Looking
 import com.aipet.brain.ui.avatar.pixel.model.Neutral
 import com.aipet.brain.ui.avatar.pixel.model.PixelPetVisualState
+import com.aipet.brain.ui.avatar.pixel.model.Sad
 import com.aipet.brain.ui.avatar.pixel.model.Sleepy
 import com.aipet.brain.ui.avatar.pixel.model.Surprised
 import com.aipet.brain.ui.avatar.pixel.model.Thinking
@@ -20,14 +21,15 @@ fun interface PixelPetStateMapper<T> {
 enum class PixelPetAvatarIntent {
     NEUTRAL,
     ENGAGED,
+    EXCITED,
     ATTENTIVE,
     LOOKING,
     ASKING,
     PROCESSING,
     LOW_ENERGY,
+    /** Sad emotion — ambient state for sadness. */
+    SAD,
     /** Excited greeting / win reaction — one-shot. */
-    EXCITED,
-    /** Surprised / overstimulated / loud sound — one-shot. */
     SURPRISED,
     /** Pet is hungry — ambient state showing food-seeking. */
     HUNGRY_NEED,
@@ -64,12 +66,13 @@ class DefaultPixelPetStateMapper : PixelPetStateMapper<PixelPetBridgeState> {
         return when (state.intent) {
             PixelPetAvatarIntent.NEUTRAL -> Neutral
             PixelPetAvatarIntent.ENGAGED -> Happy
+            PixelPetAvatarIntent.EXCITED -> Excited
             PixelPetAvatarIntent.ATTENTIVE -> Curious
             PixelPetAvatarIntent.LOOKING -> Looking
             PixelPetAvatarIntent.ASKING -> Asking
             PixelPetAvatarIntent.PROCESSING -> Thinking
             PixelPetAvatarIntent.LOW_ENERGY -> Sleepy
-            PixelPetAvatarIntent.EXCITED -> Excited
+            PixelPetAvatarIntent.SAD -> Sad
             PixelPetAvatarIntent.SURPRISED -> Surprised
             PixelPetAvatarIntent.HUNGRY_NEED -> Hungry
             PixelPetAvatarIntent.LONELY_NEED -> Lonely

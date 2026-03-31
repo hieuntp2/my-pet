@@ -71,6 +71,7 @@ fun DebugScreen(
     onNavigateToFaceAutoEnroll: () -> Unit,
     showAvatarDebugAction: Boolean,
     onNavigateToAvatarDebug: () -> Unit,
+    onNavigateToBehaviorIntelligence: () -> Unit,
     onForceSleep: () -> Unit,
     onForceWake: () -> Unit,
     onEmitAudioResponseRequestFromStimulus: () -> Unit,
@@ -273,6 +274,7 @@ fun DebugScreen(
         DebugNavButton(label = "Persons", onClick = onNavigateToPersons)
         DebugNavButton(label = "Traits", onClick = onNavigateToTraits)
         DebugNavButton(label = "Working Memory", onClick = onNavigateToWorkingMemoryDebug)
+        DebugNavButton(label = "Behavior Intelligence", onClick = onNavigateToBehaviorIntelligence)
 
         DebugNavButton(
             label = "Back to Home",

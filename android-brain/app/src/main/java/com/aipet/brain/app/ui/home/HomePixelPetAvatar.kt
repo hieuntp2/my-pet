@@ -124,4 +124,3 @@ private fun PixelPetAvatarIntent.toFaceReactionType(): FaceReactionType? = when 
 
 private const val FLOAT_AMPLITUDE_DP = 3f
 private const val FLOAT_CYCLE_MS = 3200
-

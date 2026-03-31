@@ -7,13 +7,14 @@ sealed interface PixelPetVisualState {
         val coreStates: List<PixelPetVisualState> = listOf(
             Neutral,
             Happy,
+            Excited,
             Curious,
             Looking,
             Asking,
             Sleepy,
             Thinking,
-            Excited,
             Surprised,
+            Sad,
             Hungry,
             Lonely
         )
@@ -58,7 +59,10 @@ object Surprised : PixelPetVisualState {
     override val id: String = "surprised"
 }
 
-/** Ambient loop: drooped-attentive eyes with side-scan — shown when pet is hungry. */
+object Sad : PixelPetVisualState {
+    override val id: String = "sad"
+}
+
 object Hungry : PixelPetVisualState {
     override val id: String = "hungry"
 }
@@ -67,7 +71,6 @@ object Hungry : PixelPetVisualState {
 object Lonely : PixelPetVisualState {
     override val id: String = "lonely"
 }
-
 data class CustomPixelPetVisualState(
     override val id: String
 ) : PixelPetVisualState {

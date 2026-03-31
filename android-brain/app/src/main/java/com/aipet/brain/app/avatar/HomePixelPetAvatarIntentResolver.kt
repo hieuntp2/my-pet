@@ -9,6 +9,39 @@ class HomePixelPetAvatarIntentResolver(
         bridgeInput: HomePixelPetAvatarBridgeInput,
         previousResolution: HomePixelPetAvatarIntentResolution? = null
     ): HomePixelPetAvatarIntentResolution {
+        // Greeting takes absolute priority — pet immediately reacts to app-open greeting
+        // and its reaction overrides any perception or audio signal that happens to be active.
+        if (bridgeInput.greetingBoostIntent != null) {
+            return HomePixelPetAvatarIntentResolution(
+                intent = bridgeInput.greetingBoostIntent,
+                decisionReason = "greeting_active_boost",
+                sourceSummary = bridgeInput.sourceSummary,
+                policySummary = priorityPolicy.policySummary
+            )
+        }
+
+        // Transient tap/long-press reaction takes second-highest priority.
+        // Shown for TapReactionPresentationMapper.REACTION_DURATION_MS then cleared by caller.
+        if (bridgeInput.transientReactionIntent != null) {
+            return HomePixelPetAvatarIntentResolution(
+                intent = bridgeInput.transientReactionIntent,
+                decisionReason = "tap_reaction_transient",
+                sourceSummary = bridgeInput.sourceSummary,
+                policySummary = priorityPolicy.policySummary
+            )
+        }
+
+        // Sound reaction (third priority): pet briefly reacts to voice or ambient sound.
+        // Tap reactions take precedence since this is checked after transientReactionIntent.
+        if (bridgeInput.soundReactionIntent != null) {
+            return HomePixelPetAvatarIntentResolution(
+                intent = bridgeInput.soundReactionIntent,
+                decisionReason = "sound_reaction_transient",
+                sourceSummary = bridgeInput.sourceSummary,
+                policySummary = priorityPolicy.policySummary
+            )
+        }
+
         val candidates = buildList {
             if (bridgeInput.hasAudioAttention) {
                 add(
@@ -23,6 +56,14 @@ class HomePixelPetAvatarIntentResolver(
                     HomePixelPetAvatarIntentCandidate(
                         intent = PixelPetAvatarIntent.ENGAGED,
                         reason = "direct_engagement_signal"
+                    )
+                )
+            }
+            if (bridgeInput.hasExcitedEmotion) {
+                add(
+                    HomePixelPetAvatarIntentCandidate(
+                        intent = PixelPetAvatarIntent.EXCITED,
+                        reason = "excited_emotion_signal"
                     )
                 )
             }
@@ -63,6 +104,14 @@ class HomePixelPetAvatarIntentResolver(
                     HomePixelPetAvatarIntentCandidate(
                         intent = PixelPetAvatarIntent.LOW_ENERGY,
                         reason = "low_energy_signal"
+                    )
+                )
+            }
+            if (bridgeInput.hasSadEmotion) {
+                add(
+                    HomePixelPetAvatarIntentCandidate(
+                        intent = PixelPetAvatarIntent.SAD,
+                        reason = "sad_emotion_signal"
                     )
                 )
             }
@@ -122,17 +171,19 @@ class HomePixelPetAvatarIntentPriorityPolicy {
     private val priorities = linkedMapOf(
         PixelPetAvatarIntent.PROCESSING to 500,
         PixelPetAvatarIntent.ENGAGED to 400,
+        PixelPetAvatarIntent.EXCITED to 390,
         PixelPetAvatarIntent.ASKING to 300,
         PixelPetAvatarIntent.LOOKING to 250,
+        PixelPetAvatarIntent.HUNGRY_NEED to 225,
         PixelPetAvatarIntent.LOW_ENERGY to 200,
-        PixelPetAvatarIntent.HUNGRY_NEED to 150,
-        PixelPetAvatarIntent.LONELY_NEED to 125,
+        PixelPetAvatarIntent.SAD to 180,
+        PixelPetAvatarIntent.LONELY_NEED to 150,
         PixelPetAvatarIntent.ATTENTIVE to 100,
         PixelPetAvatarIntent.NEUTRAL to 0
     )
 
     val policySummary: String =
-        "processing>engaged>asking>looking>low_energy>hungry_need>lonely_need>attentive>neutral; keep_previous_over_neutral=true"
+        "processing>engaged>excited>asking>looking>hungry_need>low_energy>sad>lonely_need>attentive>neutral; keep_previous_over_neutral=true"
 
     fun selectCandidate(candidates: List<HomePixelPetAvatarIntentCandidate>): HomePixelPetAvatarIntentCandidate {
         return candidates.maxWithOrNull(

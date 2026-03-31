@@ -22,7 +22,7 @@ class PixelAnimationOrchestrator<T>(
     private var clipReuseCount: Int = 0
     private var clipResyncCount: Int = 0
 
-    fun synchronize(state: T): PixelAnimationVariant {
+    fun synchronize(state: T, categoryBias: Map<String, Float> = emptyMap()): PixelAnimationVariant {
         synchronizationCount += 1
         val visualState = stateMapper.map(state)
         val playbackState = animationController.getPlaybackState()
@@ -66,7 +66,8 @@ class PixelAnimationOrchestrator<T>(
         }
         val selectedVariant = variantSelector.selectNext(
             animationSet = animationSet,
-            context = selectionContext
+            context = selectionContext,
+            categoryBias = categoryBias
         )
 
         animationController.setClip(selectedVariant.clip)
@@ -90,6 +91,18 @@ class PixelAnimationOrchestrator<T>(
     fun getActiveVisualState(): PixelPetVisualState? = activeVisualState
 
     fun getActiveVariant(): PixelAnimationVariant? = activeVariant
+
+    /**
+     * Forces the orchestrator to bypass the LOOP-reuse guard and select the next variant
+     * from the current visual state pool, respecting anti-repeat rules.
+     *
+     * Intended for the idle timer in [HomePixelPetAvatar] so each emotion family cycles
+     * through its authored variants during idle periods.
+     */
+    fun forceAdvanceVariant(state: T, categoryBias: Map<String, Float> = emptyMap()): PixelAnimationVariant {
+        activeVariant = null
+        return synchronize(state, categoryBias)
+    }
 
     fun getDiagnostics(): PixelAnimationOrchestratorDiagnostics {
         return PixelAnimationOrchestratorDiagnostics(

@@ -39,14 +39,46 @@ import com.aipet.brain.app.reactions.PersonSeenEventPublisher
 import com.aipet.brain.app.ui.audio.AudioDebugScreen
 import com.aipet.brain.app.ui.audio.AudioPlaybackEngine
 import com.aipet.brain.app.ui.camera.CameraScreen
-import com.aipet.brain.app.ui.debug.AvatarAnimationDebugScreen
+import com.aipet.brain.app.ui.debug.BehaviorIntelligenceDebugScreen
+import com.aipet.brain.brain.attention.AttentionArbitrator
+import com.aipet.brain.brain.attention.AttentionEngine
+import com.aipet.brain.brain.attention.AttentionFatigueTracker
+import com.aipet.brain.brain.attention.AttentionModeResolver
+import com.aipet.brain.brain.attention.AttentionStateRepository
+import com.aipet.brain.brain.attention.AttentionTargetEvaluator
+import com.aipet.brain.brain.b2.BehaviorEngine
+import com.aipet.brain.brain.b2.BehaviorPlanner
+import com.aipet.brain.brain.b2.CooldownTracker
+import com.aipet.brain.brain.b2.EmotionMomentumEngine
+import com.aipet.brain.brain.b2.IntentionArbitrator
+import com.aipet.brain.brain.b2.IntentionScorer
+import com.aipet.brain.brain.b2.RelationshipStateBuilder
+import com.aipet.brain.brain.b2.domain.RecentMemorySummary
+import com.aipet.brain.brain.b2.domain.SessionContext
+import com.aipet.brain.brain.fusion.AudioInterpreter
+import com.aipet.brain.brain.fusion.InMemoryPerceptionFusionRepository
+import com.aipet.brain.brain.fusion.PerceptionFusionCoordinator
+import com.aipet.brain.brain.fusion.PresenceInterpreter
+import com.aipet.brain.brain.fusion.TouchInterpreter
+import com.aipet.brain.brain.fusion.VoiceCommandType
+import com.aipet.brain.brain.fusion.VoiceInterpreter
+import com.aipet.brain.brain.attention.SalienceScorer
+import com.aipet.brain.brain.b2.domain.BehaviorPlan
+import com.aipet.brain.brain.b2.WorkingContextBuilder
+import com.aipet.brain.brain.fusion.PerceptionFusionSnapshot
+import kotlinx.coroutines.flow.collectLatest
 import com.aipet.brain.app.ui.debug.DebugScreen
 import com.aipet.brain.app.ui.debug.FaceAutoEnrollDebugScreen
 import com.aipet.brain.app.ui.diary.DiaryScreen
 import com.aipet.brain.app.ui.debug.EventViewerScreen
 import com.aipet.brain.app.ui.debug.ObservationViewerScreen
 import com.aipet.brain.app.ui.debug.WorkingMemoryDebugScreen
+import com.aipet.brain.app.ui.home.ActivityReactionPresentationMapper
+import com.aipet.brain.app.ui.home.GreetingPresentationMapper
+import com.aipet.brain.app.ui.home.SoundReactionPresentationMapper
 import com.aipet.brain.app.ui.home.HomeInteractionUiState
+import com.aipet.brain.app.ui.home.TapReactionPresentationMapper
+import com.aipet.brain.app.ui.home.TraitAnimationBiasMapper
 import com.aipet.brain.app.ui.home.HomeKnownEntityCount
 import com.aipet.brain.app.ui.home.HomeScreen
 import com.aipet.brain.app.ui.home.HomeTodaySummaryResolver
@@ -189,7 +221,8 @@ private enum class AppScreen {
     TeachPerson,
     PersonEditor,
     PersonDetail,
-    FaceAutoEnroll
+    FaceAutoEnroll,
+    BehaviorIntelligenceDebug
 }
 
 @Composable
@@ -610,6 +643,59 @@ fun PetBrainApp() {
         initial = audioCaptureLifecycleEventPublisher.currentRuntimeDebugState()
     )
     val petAnimationState by petAnimator.state.collectAsState()
+
+    // ── Behavior Intelligence v2 ─────────────────────────────────────────────
+    val perceptionFusionRepo = remember { InMemoryPerceptionFusionRepository() }
+    val presenceInterpreter = remember { PresenceInterpreter() }
+    val audioInterpreter = remember { AudioInterpreter() }
+    val voiceInterpreter = remember { VoiceInterpreter() }
+    val touchInterpreter = remember { TouchInterpreter() }
+    val perceptionFusionCoordinator = remember(
+        perceptionFusionRepo, presenceInterpreter, audioInterpreter,
+        voiceInterpreter, touchInterpreter
+    ) {
+        PerceptionFusionCoordinator(
+            repository = perceptionFusionRepo,
+            presenceInterpreter = presenceInterpreter,
+            audioInterpreter = audioInterpreter,
+            voiceInterpreter = voiceInterpreter,
+            touchInterpreter = touchInterpreter
+        )
+    }
+    val attentionStateRepository = remember { AttentionStateRepository() }
+    val emotionMomentumEngine = remember { EmotionMomentumEngine() }
+    val cooldownTracker = remember { CooldownTracker() }
+    val relationshipStateBuilder = remember { RelationshipStateBuilder() }
+    val attentionEngine = remember(attentionStateRepository) {
+        AttentionEngine(
+            repository = attentionStateRepository,
+            evaluator = AttentionTargetEvaluator(),
+            scorer = SalienceScorer(),
+            arbitrator = AttentionArbitrator(),
+            modeResolver = AttentionModeResolver(),
+            fatigueTracker = AttentionFatigueTracker()
+        )
+    }
+    val behaviorEngine = remember(
+        perceptionFusionRepo, attentionStateRepository, emotionMomentumEngine,
+        cooldownTracker, relationshipStateBuilder
+    ) {
+        BehaviorEngine(
+            fusionRepository = perceptionFusionRepo,
+            attentionStateRepository = attentionStateRepository,
+            emotionMomentumEngine = emotionMomentumEngine,
+            cooldownTracker = cooldownTracker,
+            relationshipStateBuilder = relationshipStateBuilder,
+            scorer = IntentionScorer(),
+            arbitrator = IntentionArbitrator(),
+            planner = BehaviorPlanner()
+        )
+    }
+    val behaviorDebugState by behaviorEngine.debugState.collectAsState()
+    val attentionDebugState by attentionEngine.debugState.collectAsState()
+    val fusionSnapshot by perceptionFusionRepo.observeFusionSnapshot().collectAsState()
+    // RecentMemorySummary tracks short-term history updated from events
+    var recentMemorySummary by remember { mutableStateOf(RecentMemorySummary.DEFAULT) }
     val audioPlaybackDebugState by audioPlaybackEngine.observeDebugState().collectAsState(
         initial = audioPlaybackEngine.currentDebugState()
     )
@@ -624,6 +710,10 @@ fun PetBrainApp() {
     var latestBehaviorDecisionSource by remember { mutableStateOf<String?>(null) }
     var latestBehaviorDecision by remember { mutableStateOf<PetBehaviorDecision<PetEmotion>?>(null) }
     var homeInteractionFeedback by remember { mutableStateOf<PetGameplayFeedback?>(null) }
+    var transientReactionIntent by remember { mutableStateOf<com.aipet.brain.ui.avatar.pixel.bridge.PixelPetAvatarIntent?>(null) }
+    val transientClearJobHolder = remember { arrayOfNulls<kotlinx.coroutines.Job>(1) }
+    var soundReactionIntent by remember { mutableStateOf<com.aipet.brain.ui.avatar.pixel.bridge.PixelPetAvatarIntent?>(null) }
+    var runtimeOrchestratorDiagnostics by remember { mutableStateOf<com.aipet.brain.ui.avatar.pixel.bridge.PixelAnimationOrchestratorDiagnostics?>(null) }
     val diaryDailySummaries = remember(
         diaryEvents,
         currentPetState,
@@ -684,7 +774,10 @@ fun PetBrainApp() {
         brainStateSnapshot.currentState,
         latestAudioStimulus,
         isPerceptionLooking,
-        isPerceptionAsking
+        isPerceptionAsking,
+        appOpenGreeting,
+        transientReactionIntent,
+        soundReactionIntent
     ) {
         com.aipet.brain.app.avatar.HomePixelPetAvatarSignal(
             petEmotion = currentPetEmotion,
@@ -692,7 +785,12 @@ fun PetBrainApp() {
             brainState = brainStateSnapshot.currentState,
             latestAudioStimulus = latestAudioStimulus,
             isPerceptionLooking = isPerceptionLooking,
-            isPerceptionAsking = isPerceptionAsking
+            isPerceptionAsking = isPerceptionAsking,
+            greetingBoostIntent = appOpenGreeting?.let {
+                GreetingPresentationMapper.mapToAvatarIntent(it.emotion)
+            },
+            transientReactionIntent = transientReactionIntent,
+            soundReactionIntent = soundReactionIntent
         )
     }
     val debugPixelPetBridgeAdapter = remember { RealPixelPetBridgeStateAdapter() }
@@ -701,6 +799,21 @@ fun PetBrainApp() {
     }
     val homePixelPetBridgeState = remember(homePixelPetDebugBridgeState) {
         homePixelPetDebugBridgeState.copy(debugMetadata = null)
+    }
+
+    // Sound reaction: when an audio stimulus fires, briefly show the appropriate visual reaction.
+    // VAD STARTED → ATTENTIVE for 1s; SoundStimulus → LOOKING for 0.7s; keywords → no-op (handled by PROCESSING).
+    LaunchedEffect(latestAudioStimulus) {
+        val stimulus = latestAudioStimulus ?: run {
+            soundReactionIntent = null
+            return@LaunchedEffect
+        }
+        val intent = SoundReactionPresentationMapper.mapToAvatarIntent(stimulus) ?: return@LaunchedEffect
+        val duration = SoundReactionPresentationMapper.durationMs(stimulus)
+        if (duration <= 0L) return@LaunchedEffect
+        soundReactionIntent = intent
+        kotlinx.coroutines.delay(duration)
+        soundReactionIntent = null
     }
 
     LaunchedEffect(
@@ -881,6 +994,10 @@ fun PetBrainApp() {
                         }
                         petAnimator.playTrigger(animationInputMapper.mapSoundTrigger(category))
                     }
+                    coroutineScope.launch { perceptionFusionCoordinator.onSelfPlaybackStarted() }
+                }
+                EventType.AUDIO_RESPONSE_COMPLETED -> {
+                    coroutineScope.launch { perceptionFusionCoordinator.onSelfPlaybackStopped() }
                 }
                 EventType.AUDIO_RESPONSE_REQUESTED -> Unit
                 else -> Unit
@@ -902,6 +1019,45 @@ fun PetBrainApp() {
 
     LaunchedEffect(brainInteractionLoop, "inactivity_loop") {
         brainInteractionLoop.runInactivityMonitor()
+    }
+
+    // ── Behavior Intelligence v2 loop (750 ms tick) ───────────────────────────
+    LaunchedEffect(behaviorEngine, attentionEngine) {
+        while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+            val ps = currentPetState
+            if (ps != null) {
+                val nowMs = System.currentTimeMillis()
+                val ctx = WorkingContextBuilder(
+                    fusionRepository = perceptionFusionRepo,
+                    attentionStateRepository = attentionStateRepository,
+                    emotionMomentumEngine = emotionMomentumEngine,
+                    cooldownTracker = cooldownTracker,
+                    relationshipStateBuilder = relationshipStateBuilder
+                ).build(
+                    petState = ps,
+                    conditions = currentPetConditions,
+                    traits = currentPetTraits,
+                    session = behaviorEngine.getSessionContext(nowMs),
+                    currentBehavior = null,
+                    recognizedPersonFamiliarity = null,
+                    recentInteractionCount = 0,
+                    sessionAbsenceMs = 0L,
+                    recentMemory = recentMemorySummary,
+                    nowMs = nowMs
+                )
+                attentionEngine.update(ctx)
+                behaviorEngine.runDecisionCycle(
+                    petState = ps,
+                    conditions = currentPetConditions,
+                    traits = currentPetTraits,
+                    recognizedPersonFamiliarity = null,
+                    recentInteractionCount = 0,
+                    sessionAbsenceMs = 0L,
+                    recentMemory = recentMemorySummary
+                )
+            }
+            kotlinx.coroutines.delay(750L)
+        }
     }
 
     LaunchedEffect(traitsEngine) {
@@ -1168,6 +1324,10 @@ fun PetBrainApp() {
         homeInteractionFeedback = resolvedInteraction.feedback
         latestBehaviorDecisionSource = interactionType.name.lowercase()
         latestBehaviorDecision = resolvedInteraction.decision
+        transientReactionIntent = TapReactionPresentationMapper.mapToAvatarIntent(
+            resultingEmotion = resolvedInteraction.emotion,
+            interactionType = interactionType
+        )
         petAnimator.syncInputFrame(
             animationInputMapper.mapFrame(
                 state = resolvedInteraction.state,
@@ -1207,6 +1367,14 @@ fun PetBrainApp() {
                 timestampMs = resolvedInteraction.interactedAtMs
             )
         )
+        // Feed touch to perception fusion
+        coroutineScope.launch {
+            if (interactionType == PetInteractionType.LONG_PRESS) {
+                perceptionFusionCoordinator.onLongPress()
+            } else {
+                perceptionFusionCoordinator.onTap()
+            }
+        }
     }
 
     suspend fun handlePetActivity(
@@ -1280,6 +1448,10 @@ fun PetBrainApp() {
         homeInteractionFeedback = resolvedActivity.feedback
         latestBehaviorDecisionSource = resolvedActivity.result.activityType.name.lowercase()
         latestBehaviorDecision = resolvedActivity.decision
+        transientReactionIntent = ActivityReactionPresentationMapper.mapToAvatarIntent(
+            activityType = resolvedActivity.result.activityType,
+            resultingEmotion = resolvedActivity.emotion
+        )
         petAnimator.syncInputFrame(
             animationInputMapper.mapFrame(
                 state = resolvedActivity.result.updatedState,
@@ -1411,6 +1583,10 @@ fun PetBrainApp() {
         localAudioIntentCommandRule.observeEventsAndRoute()
     }
 
+    val variantCategoryBias = remember(currentPetTraits) {
+        TraitAnimationBiasMapper.mapToCategories(currentPetTraits)
+    }
+
     MaterialTheme {
         Surface {
             when (resolvedScreen) {
@@ -1423,34 +1599,49 @@ fun PetBrainApp() {
                     petState = currentPetState,
                     brainState = brainStateSnapshot.currentState,
                     onPetTap = {
-                        coroutineScope.launch {
+                        transientClearJobHolder[0]?.cancel()
+                        transientClearJobHolder[0] = coroutineScope.launch {
                             handlePetInteraction(
                                 interactionType = PetInteractionType.TAP,
                                 source = "home_pet_tap"
                             )
+                            kotlinx.coroutines.delay(TapReactionPresentationMapper.REACTION_DURATION_MS)
+                            transientReactionIntent = null
                         }
                     },
                     onPetLongPress = {
-                        coroutineScope.launch {
+                        transientClearJobHolder[0]?.cancel()
+                        transientClearJobHolder[0] = coroutineScope.launch {
                             handlePetInteraction(
                                 interactionType = PetInteractionType.LONG_PRESS,
                                 source = "home_pet_avatar_long_press"
                             )
+                            kotlinx.coroutines.delay(TapReactionPresentationMapper.REACTION_DURATION_MS)
+                            transientReactionIntent = null
                         }
                     },
                     onFeedPet = {
-                        coroutineScope.launch {
+                        transientClearJobHolder[0]?.cancel()
+                        transientClearJobHolder[0] = coroutineScope.launch {
                             handlePetActivity(feedPetUseCase)
+                            kotlinx.coroutines.delay(TapReactionPresentationMapper.REACTION_DURATION_MS)
+                            transientReactionIntent = null
                         }
                     },
                     onPlayWithPet = {
-                        coroutineScope.launch {
+                        transientClearJobHolder[0]?.cancel()
+                        transientClearJobHolder[0] = coroutineScope.launch {
                             handlePetActivity(playWithPetUseCase)
+                            kotlinx.coroutines.delay(TapReactionPresentationMapper.REACTION_DURATION_MS)
+                            transientReactionIntent = null
                         }
                     },
                     onLetPetRest = {
-                        coroutineScope.launch {
+                        transientClearJobHolder[0]?.cancel()
+                        transientClearJobHolder[0] = coroutineScope.launch {
                             handlePetActivity(letPetRestUseCase)
+                            kotlinx.coroutines.delay(TapReactionPresentationMapper.REACTION_DURATION_MS)
+                            transientReactionIntent = null
                         }
                     },
                     onNavigateToDebug = { currentScreenName = AppScreen.Debug.name },
@@ -1614,11 +1805,15 @@ fun PetBrainApp() {
                                 "Recognition probe result: $recognitionProbeSummary"
                             )
                         }
+                    },
+                    onNavigateToBehaviorIntelligence = {
+                        currentScreenName = AppScreen.BehaviorIntelligenceDebug.name
                     }
                 )
 
                 AppScreen.AvatarDebug -> AvatarAnimationDebugScreen(
                     runtimeBridgeState = homePixelPetDebugBridgeState,
+                    runtimeOrchestratorDiagnostics = runtimeOrchestratorDiagnostics,
                     onNavigateBack = { currentScreenName = AppScreen.Debug.name }
                 )
 
@@ -1715,6 +1910,13 @@ fun PetBrainApp() {
                             perceptionLookingUntilMs = maxOf(
                                 perceptionLookingUntilMs,
                                 detectionResult.timestampMs + PERCEPTION_LOOKING_HOLD_MS
+                            )
+                        }
+                        coroutineScope.launch {
+                            perceptionFusionCoordinator.onCameraFrame(
+                                faceCount = currentFaceCount,
+                                recognizedPersonId = null,
+                                faceConfidence = if (currentFaceCount > 0) 0.7f else 0f
                             )
                         }
                         if (currentFaceCount == lastPublishedFaceCount) {
@@ -1995,6 +2197,15 @@ fun PetBrainApp() {
                     onNavigateBack = { currentScreenName = AppScreen.Debug.name },
                     hasRequestedCameraPermission = hasRequestedCameraPermission,
                     onPermissionRequestTracked = { hasRequestedCameraPermission = true }
+                )
+
+                AppScreen.BehaviorIntelligenceDebug -> BehaviorIntelligenceDebugScreen(
+                    behaviorDebugState = behaviorDebugState,
+                    attentionDebugState = attentionDebugState,
+                    fusionSnapshot = fusionSnapshot,
+                    onNavigateToHome = { currentScreenName = AppScreen.Home.name },
+                    onNavigateToDiary = { currentScreenName = AppScreen.Diary.name },
+                    onNavigateToDebug = { currentScreenName = AppScreen.Debug.name }
                 )
             }
 

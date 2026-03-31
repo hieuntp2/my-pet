@@ -10,14 +10,18 @@ class PixelAnimationVariantSelector(
 ) {
     fun selectNext(
         animationSet: PixelPetAnimationStateSet,
-        context: PixelVariantSelectionContext
+        context: PixelVariantSelectionContext,
+        categoryBias: Map<String, Float> = emptyMap()
     ): PixelAnimationVariant {
         val candidates = resolveCandidates(
             animationSet = animationSet,
             context = context
         )
         val selectedVariant = when (strategy) {
-            is PixelVariantSelectionStrategy.WeightedRandom -> weightedRandomSelection(candidates)
+            is PixelVariantSelectionStrategy.WeightedRandom -> weightedRandomSelection(
+                candidates = candidates,
+                categoryBias = categoryBias
+            )
             PixelVariantSelectionStrategy.SimpleRoundRobin -> roundRobinSelection(
                 animationSet = animationSet,
                 context = context,
@@ -54,13 +58,28 @@ class PixelAnimationVariantSelector(
     }
 
     private fun weightedRandomSelection(
-        candidates: List<PixelAnimationVariant>
+        candidates: List<PixelAnimationVariant>,
+        categoryBias: Map<String, Float> = emptyMap()
     ): PixelAnimationVariant {
-        val totalWeight = candidates.sumOf { it.weight }
+        // Apply category bias: if a variant's categories intersect with bias keys,
+        // scale its effective weight up by the bias multiplier (capped at MAX_BIAS_MULTIPLIER).
+        val effectiveWeights = if (categoryBias.isEmpty()) {
+            candidates.map { it.weight }
+        } else {
+            candidates.map { variant ->
+                val multiplier = variant.categories
+                    .mapNotNull { cat -> categoryBias[cat] }
+                    .maxOrNull()
+                    ?.coerceIn(1f, MAX_BIAS_MULTIPLIER)
+                    ?: 1f
+                (variant.weight * multiplier).toInt().coerceAtLeast(1)
+            }
+        }
+        val totalWeight = effectiveWeights.sum()
         var remainingWeight = random.nextInt(totalWeight)
 
-        for (variant in candidates) {
-            remainingWeight -= variant.weight
+        for ((variant, weight) in candidates.zip(effectiveWeights)) {
+            remainingWeight -= weight
             if (remainingWeight < 0) {
                 return variant
             }
@@ -91,7 +110,9 @@ class PixelAnimationVariantSelector(
         return candidates.first()
     }
 
-    private companion object {
+    companion object {
+        /** Maximum multiplier applied by category bias to any single variant's weight. */
+        const val MAX_BIAS_MULTIPLIER: Float = 2.0f
         private const val SINGLE_VARIANT_COUNT = 1
     }
 }

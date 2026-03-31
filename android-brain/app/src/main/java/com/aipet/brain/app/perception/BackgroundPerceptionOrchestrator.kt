@@ -11,7 +11,7 @@ import com.aipet.brain.brain.events.EventBus
 import com.aipet.brain.brain.events.EventEnvelope
 import com.aipet.brain.brain.events.EventType
 import com.aipet.brain.brain.events.PersonTeachAutoCapturePayload
-import com.aipet.brain.brain.events.PersonUnknownEventPayload
+import com.aipet.brain.brain.events.PersonUnknownPayload
 import com.aipet.brain.brain.events.UnknownFaceCandidateLifecyclePayload
 import com.aipet.brain.brain.events.UnknownObjectDetectedPayload
 import com.aipet.brain.brain.recognition.PersonRecognitionService
@@ -691,9 +691,11 @@ class BackgroundPerceptionOrchestrator(
             EventEnvelope.create(
                 type = EventType.PERSON_UNKNOWN_DETECTED,
                 timestampMs = now,
-                payloadJson = PersonUnknownEventPayload(
-                    seenAtMs = now,
-                    source = "background_unknown_face_candidate"
+                payloadJson = PersonUnknownPayload(
+                    bestScore = decision.closestKnownSimilarity,
+                    threshold = 0f,
+                    evaluatedCandidates = decision.sampleCount,
+                    timestamp = now
                 ).toJson()
             )
         )

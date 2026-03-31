@@ -311,4 +311,3 @@ fun HomeScreen(
 private const val LOUD_SOUND_ENERGY_THRESHOLD = 0.55
 // How often the autonomous invitation eligibility is checked
 private const val INVITATION_CHECK_INTERVAL_MS = 30_000L
-
