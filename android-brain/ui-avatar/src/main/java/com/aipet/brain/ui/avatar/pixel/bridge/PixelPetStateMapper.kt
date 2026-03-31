@@ -32,7 +32,15 @@ enum class PixelPetAvatarIntent {
     /** Pet is hungry — ambient state showing food-seeking. */
     HUNGRY_NEED,
     /** Pet is lonely — ambient state showing expectant social attention-seeking. */
-    LONELY_NEED
+    LONELY_NEED,
+    /** Long-press cuddle / hold — warm affectionate one-shot. */
+    LONG_PRESS,
+    /** Spam-tap or overstimulated — brief annoyed one-shot. */
+    ANNOYED,
+    /** Mini-game win celebration — one-shot. */
+    GAME_CELEBRATE,
+    /** Mini-game fail — brief sad/deflated one-shot. */
+    GAME_FAIL
 }
 
 data class PixelPetBridgeDebugMetadata(
@@ -65,6 +73,10 @@ class DefaultPixelPetStateMapper : PixelPetStateMapper<PixelPetBridgeState> {
             PixelPetAvatarIntent.SURPRISED -> Surprised
             PixelPetAvatarIntent.HUNGRY_NEED -> Hungry
             PixelPetAvatarIntent.LONELY_NEED -> Lonely
+            PixelPetAvatarIntent.LONG_PRESS -> Happy
+            PixelPetAvatarIntent.ANNOYED -> Surprised
+            PixelPetAvatarIntent.GAME_CELEBRATE -> Excited
+            PixelPetAvatarIntent.GAME_FAIL -> Lonely
         }
     }
 }

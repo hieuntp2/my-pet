@@ -1420,6 +1420,7 @@ fun PetBrainApp() {
                     avatarBridgeState = homePixelPetBridgeState,
                     appOpenGreeting = appOpenGreeting,
                     latestAudioStimulus = latestAudioStimulus,
+                    petState = currentPetState,
                     brainState = brainStateSnapshot.currentState,
                     onPetTap = {
                         coroutineScope.launch {

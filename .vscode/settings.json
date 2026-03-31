@@ -15,6 +15,7 @@
         "ForEach-Object": true,
         "Get-Command": true,
         "java": true,
-        "Out-File": true
+        "Out-File": true,
+        "git stash": true
     }
 }

@@ -40,18 +40,18 @@ class PetReactionController {
         tapStreak = if (nowMs - lastTapMs < TAP_STREAK_WINDOW_MS) tapStreak + 1 else 1
         lastTapMs = nowMs
         val intent = when {
-            isBlocked -> PixelPetAvatarIntent.SURPRISED
-            tapStreak > TAP_SPAM_THRESHOLD -> PixelPetAvatarIntent.SURPRISED
+            isBlocked -> PixelPetAvatarIntent.ANNOYED
+            tapStreak > TAP_SPAM_THRESHOLD -> PixelPetAvatarIntent.ANNOYED
             else -> PixelPetAvatarIntent.ENGAGED
         }
         setReaction(intent = intent, priority = Priority.INTERACTION)
     }
 
-    /** Called when user long-presses the pet. Triggers ENGAGED (cuddle/affection). */
+    /** Called when user long-presses the pet. Triggers LONG_PRESS (warm cuddle reaction). */
     fun triggerLongPress(nowMs: Long = System.currentTimeMillis()) {
         tapStreak = 1
         lastTapMs = nowMs
-        setReaction(intent = PixelPetAvatarIntent.ENGAGED, priority = Priority.INTERACTION)
+        setReaction(intent = PixelPetAvatarIntent.LONG_PRESS, priority = Priority.INTERACTION)
     }
 
     /**
@@ -79,6 +79,16 @@ class PetReactionController {
     fun triggerLoudSound() {
         if (isAudioSelfTriggered()) return
         setReaction(intent = PixelPetAvatarIntent.SURPRISED, priority = Priority.AUDIO)
+    }
+
+    /** Mini-game win: burst celebration reaction. */
+    fun triggerGameCelebrate() {
+        setReaction(intent = PixelPetAvatarIntent.GAME_CELEBRATE, priority = Priority.GREETING)
+    }
+
+    /** Mini-game fail: brief deflated reaction. */
+    fun triggerGameFail() {
+        setReaction(intent = PixelPetAvatarIntent.GAME_FAIL, priority = Priority.INTERACTION)
     }
 
     /**

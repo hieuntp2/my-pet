@@ -29,6 +29,7 @@ import com.aipet.brain.brain.logic.audio.SoundStimulus
 import com.aipet.brain.brain.pet.PetCondition
 import com.aipet.brain.brain.pet.PetEmotion
 import com.aipet.brain.brain.pet.PetGreetingReaction
+import com.aipet.brain.brain.pet.PetState
 import com.aipet.brain.brain.state.BrainState
 import com.aipet.brain.ui.avatar.pixel.bridge.PixelPetBridgeState
 import kotlinx.coroutines.delay
@@ -58,6 +59,7 @@ fun HomeScreen(
     avatarBridgeState: PixelPetBridgeState,
     appOpenGreeting: PetGreetingReaction?,
     latestAudioStimulus: AudioStimulus?,
+    petState: PetState? = null,
     brainState: BrainState = BrainState.IDLE,
     onPetTap: () -> Unit,
     onPetLongPress: () -> Unit,
@@ -137,10 +139,12 @@ fun HomeScreen(
     val sparkController = rememberSparkGameController(
         onWin = {
             activeFx = HomeFxType.HEARTS
+            reactionController.triggerGameCelebrate()
             invitationPolicy.recordGameCompleted(System.currentTimeMillis())
             onPlayWithPet()
         },
         onFail = {
+            reactionController.triggerGameFail()
             invitationPolicy.recordGameCompleted(System.currentTimeMillis())
         },
         onInviteIgnored = {
@@ -191,10 +195,11 @@ fun HomeScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        // H2/H4: Face � centered, 300dp, floating idle bob via graphicsLayer in HomePixelPetAvatar
+        // H2/H4: Face — centered, 300dp, floating idle bob via graphicsLayer in HomePixelPetAvatar
         HomePixelPetAvatar(
             bridgeState = avatarBridgeState,
             reactionController = reactionController,
+            petState = petState,
             modifier = Modifier
                 .align(Alignment.Center)
                 .offset(y = (-24).dp),

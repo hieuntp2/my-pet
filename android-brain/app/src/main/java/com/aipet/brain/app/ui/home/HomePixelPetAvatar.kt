@@ -16,6 +16,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import com.aipet.brain.brain.pet.PetState
 import com.aipet.brain.ui.avatar.pixel.animation.AnimationPriority
 import com.aipet.brain.ui.avatar.pixel.animation.FaceAnimationContext
 import com.aipet.brain.ui.avatar.pixel.animation.FaceReactionType
@@ -23,6 +24,7 @@ import com.aipet.brain.ui.avatar.pixel.bridge.PixelPetAvatarIntent
 import com.aipet.brain.ui.avatar.pixel.bridge.PixelPetBridgeState
 import com.aipet.brain.ui.avatar.pixel.runtime.FaceAnimationRuntime
 import com.aipet.brain.ui.avatar.pixel.ui.LiveFaceAnimationCanvas
+import kotlin.random.Random
 
 /**
  * Home-stage pixel pet avatar using the layered FaceAnimationRuntime.
@@ -43,6 +45,7 @@ import com.aipet.brain.ui.avatar.pixel.ui.LiveFaceAnimationCanvas
 fun HomePixelPetAvatar(
     bridgeState: PixelPetBridgeState,
     reactionController: PetReactionController,
+    petState: PetState? = null,
     modifier: Modifier = Modifier,
     displaySize: Dp = 300.dp,
     onTap: () -> Unit,
@@ -79,9 +82,15 @@ fun HomePixelPetAvatar(
         }
     }
 
-    // Build context from bridge state (vitals not yet plumbed — extend here when HomeUiModel
-    // exposes raw PetState values)
-    val context = FaceAnimationContext(intent = bridgeState.intent)
+    // Build context from bridge state + pet vitals for state leakage
+    val context = FaceAnimationContext(
+        intent = bridgeState.intent,
+        energy = petState?.energy ?: 100,
+        hunger = petState?.hunger ?: 0,
+        sleepiness = petState?.sleepiness ?: 0,
+        social = petState?.social ?: 50,
+        bond = petState?.bond ?: 50
+    )
 
     LiveFaceAnimationCanvas(
         runtime = runtime,
@@ -98,12 +107,18 @@ fun HomePixelPetAvatar(
  * Maps a PixelPetAvatarIntent that originates from PetReactionController into the
  * corresponding FaceReactionType used by FaceAnimationRuntime.
  * Returns null for intents that have no specific reaction sequence (handled as idle state).
+ *
+ * ENGAGED randomly picks between TAP_ENGAGED (70%) and TAP_PLAYFUL (30%) for variety.
  */
 private fun PixelPetAvatarIntent.toFaceReactionType(): FaceReactionType? = when (this) {
     PixelPetAvatarIntent.SURPRISED -> FaceReactionType.STARTLED_SNAP
     PixelPetAvatarIntent.EXCITED -> FaceReactionType.EXCITED_GREETING
-    PixelPetAvatarIntent.ENGAGED -> FaceReactionType.TAP_ENGAGED
+    PixelPetAvatarIntent.ENGAGED -> if (Random.nextFloat() < 0.30f) FaceReactionType.TAP_PLAYFUL else FaceReactionType.TAP_ENGAGED
+    PixelPetAvatarIntent.LONG_PRESS -> FaceReactionType.LONG_PRESS_CUDDLE
+    PixelPetAvatarIntent.ANNOYED -> FaceReactionType.TAP_ANNOYED
     PixelPetAvatarIntent.ATTENTIVE -> FaceReactionType.KEYWORD_ATTENTIVE
+    PixelPetAvatarIntent.GAME_CELEBRATE -> FaceReactionType.GAME_CELEBRATE
+    PixelPetAvatarIntent.GAME_FAIL -> FaceReactionType.GAME_FAIL
     else -> null
 }
 
