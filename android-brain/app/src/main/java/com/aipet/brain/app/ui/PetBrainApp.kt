@@ -39,6 +39,7 @@ import com.aipet.brain.app.reactions.PersonSeenEventPublisher
 import com.aipet.brain.app.ui.audio.AudioDebugScreen
 import com.aipet.brain.app.ui.audio.AudioPlaybackEngine
 import com.aipet.brain.app.ui.camera.CameraScreen
+import com.aipet.brain.app.ui.debug.AvatarAnimationDebugScreen
 import com.aipet.brain.app.ui.debug.BehaviorIntelligenceDebugScreen
 import com.aipet.brain.brain.attention.AttentionArbitrator
 import com.aipet.brain.brain.attention.AttentionEngine
@@ -1023,7 +1024,7 @@ fun PetBrainApp() {
 
     // ── Behavior Intelligence v2 loop (750 ms tick) ───────────────────────────
     LaunchedEffect(behaviorEngine, attentionEngine) {
-        while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+        while (true) {
             val ps = currentPetState
             if (ps != null) {
                 val nowMs = System.currentTimeMillis()

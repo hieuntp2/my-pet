@@ -7,7 +7,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Card
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Divider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -47,12 +47,12 @@ fun BehaviorIntelligenceDebugScreen(
             // ── Behavior Engine v2 ────────────────────────────────────────────
             BehaviorEngineSection(behaviorDebugState)
 
-            HorizontalDivider()
+            Divider()
 
             // ── Attention System ──────────────────────────────────────────────
             AttentionSystemSection(attentionDebugState)
 
-            HorizontalDivider()
+            Divider()
 
             // ── Perception Fusion ─────────────────────────────────────────────
             PerceptionFusionSection(fusionSnapshot)
