@@ -11,5 +11,6 @@ enum class CareActionType {
     SOOTHE,     // intentional emotional repair; best after stress or neglect
     PLAY,       // engagement and stimulation
     FEED,       // direct care; resolves hunger and builds comfort
+    REST,       // intentional rest session; calm recovery + settling
     LINGER;     // user stays without acting — passive presence
 }

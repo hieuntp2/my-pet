@@ -66,6 +66,7 @@ class RealPixelPetBridgeStateAdapter(
             if (hasLowEnergy) add("low_energy")
             if (hasLonelyNeed) add("lonely_need")
             if (hasSadEmotion) add("sad")
+            if (signal.behaviorDrivenIntent != null) add("behavior_intention")
             if (signal.greetingBoostIntent != null) add("greeting_active")
             if (signal.transientReactionIntent != null) add("tap_reaction")
             if (signal.soundReactionIntent != null) add("sound_reaction")
@@ -85,6 +86,7 @@ class RealPixelPetBridgeStateAdapter(
             hasSadEmotion = hasSadEmotion,
             hasPerceptionLooking = signal.isPerceptionLooking,
             hasPerceptionAsking = signal.isPerceptionAsking,
+            behaviorDrivenIntent = signal.behaviorDrivenIntent,
             greetingBoostIntent = signal.greetingBoostIntent,
             transientReactionIntent = signal.transientReactionIntent,
             soundReactionIntent = signal.soundReactionIntent,

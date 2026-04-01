@@ -1072,6 +1072,14 @@ fun AudioDebugScreen(
             modifier = Modifier.fillMaxWidth()
         )
         Text(
+            text = "Last playback request context: ${formatLastRequestContext(playbackDebugState)}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "Last playback decision: ${formatLastPlaybackDecision(playbackDebugState)}",
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
             text = "Last manual playback request: $lastPlaybackRequestSummary",
             modifier = Modifier.fillMaxWidth()
         )
@@ -1302,6 +1310,17 @@ private fun formatLastSkippedReason(state: AudioPlaybackDebugState): String {
     val reason = state.lastSkippedReason?.name ?: return "-"
     val timestamp = state.lastSkippedAtMs?.let(::formatSoundEventTimestamp) ?: "-"
     return "$reason @ $timestamp"
+}
+
+private fun formatLastRequestContext(state: AudioPlaybackDebugState): String {
+    val category = state.lastRequestCategory ?: return "-"
+    val cooldownKey = state.lastRequestCooldownKey ?: "-"
+    val timestamp = state.lastRequestAtMs?.let(::formatSoundEventTimestamp) ?: "-"
+    return "category=$category, cooldownKey=$cooldownKey, timestamp=$timestamp"
+}
+
+private fun formatLastPlaybackDecision(state: AudioPlaybackDebugState): String {
+    return state.lastDecisionReason ?: "-"
 }
 
 private fun formatKeywordSpottingRuntimeStatus(

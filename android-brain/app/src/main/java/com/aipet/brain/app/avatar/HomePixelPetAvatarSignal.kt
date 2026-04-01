@@ -13,6 +13,8 @@ data class HomePixelPetAvatarSignal(
     val latestAudioStimulus: AudioStimulus? = null,
     val isPerceptionLooking: Boolean = false,
     val isPerceptionAsking: Boolean = false,
+    // Non-null when behavior-experience execution owns the current home reaction.
+    val behaviorDrivenIntent: PixelPetAvatarIntent? = null,
     // Non-null during the app-open greeting window; drives the highest-priority avatar intent.
     val greetingBoostIntent: PixelPetAvatarIntent? = null,
     // Non-null for [TapReactionPresentationMapper.REACTION_DURATION_MS] after a tap/long-press.

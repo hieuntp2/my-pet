@@ -55,6 +55,11 @@ class PetTraitEvolutionEngine {
                 playful = 0.010f,
                 social = 0.010f
             )
+            CareActionType.REST -> TraitDelta(
+                playful = -0.004f,
+                lazy = 0.016f,
+                patience = 0.006f
+            )
             CareActionType.LINGER -> TraitDelta(
                 lazy = 0.003f,
                 patience = 0.004f

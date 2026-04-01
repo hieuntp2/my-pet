@@ -7,6 +7,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import com.aipet.brain.app.behavior.experience.TalkDirective
 import com.aipet.brain.brain.pet.PetCondition
 import com.aipet.brain.brain.pet.PetGreetingReaction
 import kotlinx.coroutines.delay
@@ -28,6 +29,7 @@ private const val AMBIENT_IDLE_TRIGGER_MS = 25_000L
  */
 @Composable
 fun rememberHomeTalkBubbleOrchestrator(
+    behaviorTalkDirective: TalkDirective?,
     appOpenGreeting: PetGreetingReaction?,
     feedbackMessage: String?,
     feedbackToken: Long,
@@ -35,6 +37,16 @@ fun rememberHomeTalkBubbleOrchestrator(
 ): HomeTalkBubble? {
     var currentBubble by remember { mutableStateOf<HomeTalkBubble?>(null) }
     val currentConditions by rememberUpdatedState(conditions)
+
+    // Behavior-authoritative talk output has highest priority.
+    LaunchedEffect(behaviorTalkDirective?.issuedAtMs) {
+        val directive = behaviorTalkDirective ?: return@LaunchedEffect
+        currentBubble = HomeTalkBubble(message = directive.message)
+        delay(directive.maxDisplayMs.coerceAtLeast(800L))
+        if (currentBubble?.message == directive.message) {
+            currentBubble = null
+        }
+    }
 
     // Show greeting immediately when it arrives
     LaunchedEffect(appOpenGreeting?.message) {

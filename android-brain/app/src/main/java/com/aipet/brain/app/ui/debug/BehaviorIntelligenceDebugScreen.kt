@@ -1,5 +1,6 @@
 package com.aipet.brain.app.ui.debug
 
+import com.aipet.brain.app.behavior.experience.BehaviorExperienceDebugState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -22,6 +23,7 @@ import com.aipet.brain.app.ui.navigation.PetPrimaryNavigationBar
 @Composable
 fun BehaviorIntelligenceDebugScreen(
     behaviorDebugState: BehaviorEngineDebugState?,
+    behaviorExperienceDebugState: BehaviorExperienceDebugState?,
     attentionDebugState: AttentionDebugState?,
     fusionSnapshot: PerceptionFusionSnapshot,
     onNavigateToHome: () -> Unit,
@@ -46,6 +48,10 @@ fun BehaviorIntelligenceDebugScreen(
 
             // ── Behavior Engine v2 ────────────────────────────────────────────
             BehaviorEngineSection(behaviorDebugState)
+
+            Divider()
+
+            BehaviorExperienceExecutionSection(behaviorExperienceDebugState)
 
             Divider()
 
@@ -106,6 +112,33 @@ private fun BehaviorEngineSection(state: BehaviorEngineDebugState?) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun BehaviorExperienceExecutionSection(state: BehaviorExperienceDebugState?) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text("Behavior Experience Execution", style = MaterialTheme.typography.titleMedium)
+            if (state == null) {
+                Text("No execution state yet", style = MaterialTheme.typography.bodySmall)
+                return@Column
+            }
+            DebugRow("Source Intention", state.sourceIntention.name)
+            DebugRow("Source Plan", "${state.sourcePlanId} (${state.debugLabel})")
+            DebugRow("Execution Phase", state.phase.name)
+            DebugRow("Accepted", state.accepted.toString())
+            DebugRow("Rejected Reason", state.rejectionReason?.name ?: "-")
+            DebugRow("Mapped Visual", state.mappedVisualIntent.name)
+            DebugRow("Mapped Audio", state.mappedAudioCategory?.label ?: "-")
+            DebugRow("Mapped Talk Key", state.mappedTalkDedupeKey ?: "-")
+            DebugRow("Visual Result", "${state.visualResult.decision.name} (${state.visualResult.reason ?: "-"})")
+            DebugRow("Audio Result", "${state.audioResult.decision.name} (${state.audioResult.reason ?: "-"})")
+            DebugRow("Talk Result", "${state.talkResult.decision.name} (${state.talkResult.reason ?: "-"})")
+            DebugRow("Cooldown Keys", state.activeCooldownKeys.joinToString().ifBlank { "-" })
+            DebugRow("Anti Repeat Keys", state.activeAntiRepeatKeys.joinToString().ifBlank { "-" })
+            DebugRow("Updated", state.updatedAtMs.toReadableTime())
         }
     }
 }

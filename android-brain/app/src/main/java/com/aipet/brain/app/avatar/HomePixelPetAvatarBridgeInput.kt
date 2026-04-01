@@ -13,6 +13,8 @@ data class HomePixelPetAvatarBridgeInput(
     val hasSadEmotion: Boolean,
     val hasPerceptionLooking: Boolean,
     val hasPerceptionAsking: Boolean,
+    // Non-null when behavior-driven execution is actively controlling home intent.
+    val behaviorDrivenIntent: PixelPetAvatarIntent? = null,
     // Non-null during the greeting window — highest priority override in the intent resolver.
     val greetingBoostIntent: PixelPetAvatarIntent? = null,
     // Non-null for the reaction window after a tap/long-press — second-highest priority.

@@ -31,7 +31,9 @@ class CareActionProcessor(
         val diminishing = burstCount > PetEmotionalConfig.BURST_COUNT_DIMINISH_START
         val isRepairAction = action == CareActionType.SOOTHE ||
                 (action == CareActionType.FEED && state.hunger >= 60) ||
-                (action == CareActionType.LONG_PRESS && state.trustScore <= 30)
+                (action == CareActionType.LONG_PRESS && state.trustScore <= 30) ||
+                (action == CareActionType.REST &&
+                    (state.moodArousal >= 65 || state.stimulation >= 70))
 
         val newState = when (action) {
             CareActionType.TAP -> applyTap(state, traits, diminishing, burstCount)
@@ -39,6 +41,7 @@ class CareActionProcessor(
             CareActionType.SOOTHE -> applySoothe(state, traits)
             CareActionType.PLAY -> applyPlay(state, traits)
             CareActionType.FEED -> applyFeed(state, traits)
+            CareActionType.REST -> applyRest(state)
             CareActionType.LINGER -> applyLinger(state)
         }.let {
             it.withClampedValues(lastUpdatedAt = now).copy(
@@ -166,6 +169,17 @@ class CareActionProcessor(
         )
     }
 
+    private fun applyRest(state: PetState): PetState {
+        val careGain = if (state.careStreak < 10) 1 else 0
+        return state.copy(
+            comfort = state.comfort + PetEmotionalConfig.REST_COMFORT_GAIN,
+            trustScore = state.trustScore + PetEmotionalConfig.REST_TRUST_GAIN,
+            moodArousal = (state.moodArousal - PetEmotionalConfig.REST_AROUSAL_DROP).coerceAtLeast(0),
+            stimulation = (state.stimulation - PetEmotionalConfig.REST_STIMULATION_DROP).coerceAtLeast(0),
+            careStreak = state.careStreak + careGain
+        )
+    }
+
     private fun applyLinger(state: PetState): PetState {
         return state.copy(
             comfort = state.comfort + PetEmotionalConfig.LINGER_COMFORT_GAIN,
@@ -177,6 +191,7 @@ class CareActionProcessor(
         return action == CareActionType.SOOTHE ||
                 action == CareActionType.FEED ||
                 action == CareActionType.PLAY ||
+                action == CareActionType.REST ||
                 action == CareActionType.LONG_PRESS
     }
 
@@ -192,6 +207,7 @@ class CareActionProcessor(
             CareActionType.SOOTHE -> PetEmotion.RELIEVED
             CareActionType.FEED -> if (newState.hunger <= 30) PetEmotion.HAPPY else PetEmotion.CURIOUS
             CareActionType.PLAY -> if (newState.energy >= 40) PetEmotion.EXCITED else PetEmotion.HAPPY
+            CareActionType.REST -> if (newState.sleepiness >= 65) PetEmotion.SLEEPY else PetEmotion.IDLE
             CareActionType.LONG_PRESS -> if (newState.comfort >= 70) PetEmotion.IDLE else PetEmotion.SHY
             CareActionType.TAP -> if (diminishing) PetEmotion.WITHDRAWN else PetEmotion.HAPPY
             CareActionType.LINGER -> PetEmotion.IDLE

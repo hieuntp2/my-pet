@@ -9,6 +9,15 @@ class HomePixelPetAvatarIntentResolver(
         bridgeInput: HomePixelPetAvatarBridgeInput,
         previousResolution: HomePixelPetAvatarIntentResolution? = null
     ): HomePixelPetAvatarIntentResolution {
+        if (bridgeInput.behaviorDrivenIntent != null) {
+            return HomePixelPetAvatarIntentResolution(
+                intent = bridgeInput.behaviorDrivenIntent,
+                decisionReason = "behavior_intention_active",
+                sourceSummary = bridgeInput.sourceSummary,
+                policySummary = priorityPolicy.policySummary
+            )
+        }
+
         // Greeting takes absolute priority — pet immediately reacts to app-open greeting
         // and its reaction overrides any perception or audio signal that happens to be active.
         if (bridgeInput.greetingBoostIntent != null) {
@@ -183,7 +192,7 @@ class HomePixelPetAvatarIntentPriorityPolicy {
     )
 
     val policySummary: String =
-        "processing>engaged>excited>asking>looking>hungry_need>low_energy>sad>lonely_need>attentive>neutral; keep_previous_over_neutral=true"
+        "behavior_intention>greeting>transient>sound>processing>engaged>excited>asking>looking>hungry_need>low_energy>sad>lonely_need>attentive>neutral; keep_previous_over_neutral=true"
 
     fun selectCandidate(candidates: List<HomePixelPetAvatarIntentCandidate>): HomePixelPetAvatarIntentCandidate {
         return candidates.maxWithOrNull(

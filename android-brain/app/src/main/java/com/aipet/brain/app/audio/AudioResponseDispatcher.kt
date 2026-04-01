@@ -6,6 +6,7 @@ import com.aipet.brain.app.ui.audio.model.AudioCategory
 import com.aipet.brain.brain.events.EventBus
 import com.aipet.brain.brain.events.EventEnvelope
 import com.aipet.brain.brain.events.EventType
+import com.aipet.brain.brain.events.audio.AudioResponsePayload
 import com.aipet.brain.brain.events.audio.AudioResponseRequestPayload
 import kotlinx.coroutines.flow.collect
 
@@ -22,13 +23,18 @@ internal class AudioResponseDispatcher(
         }
     }
 
-    private fun dispatchRequestedResponse(event: EventEnvelope) {
+    private suspend fun dispatchRequestedResponse(event: EventEnvelope) {
         val request = AudioResponseRequestPayload.fromJson(event.payloadJson)
         if (request == null) {
             Log.w(
                 TAG,
                 "Ignored malformed ${EventType.AUDIO_RESPONSE_REQUESTED.name}. " +
                     "eventId=${event.eventId}, payload=${event.payloadJson}"
+            )
+            publishDispatcherSkippedEvent(
+                requestEvent = event,
+                rawCategory = "MALFORMED",
+                reason = DispatcherSkipReason.MALFORMED_REQUEST
             )
             return
         }
@@ -39,6 +45,11 @@ internal class AudioResponseDispatcher(
                 TAG,
                 "Ignored ${EventType.AUDIO_RESPONSE_REQUESTED.name} with unknown category. " +
                     "eventId=${event.eventId}, category=${request.category}"
+            )
+            publishDispatcherSkippedEvent(
+                requestEvent = event,
+                rawCategory = request.category,
+                reason = DispatcherSkipReason.UNKNOWN_CATEGORY
             )
             return
         }
@@ -52,7 +63,10 @@ internal class AudioResponseDispatcher(
                 "cooldownKey=${request.cooldownKey ?: "-"}"
         )
 
-        val playbackResult = playbackEngine.playRandomClipWithDetails(category)
+        val playbackResult = playbackEngine.playRandomClipWithDetails(
+            category = category,
+            cooldownKey = request.cooldownKey
+        )
         Log.d(
             TAG,
             "Routed audio response request to playback engine. eventId=${event.eventId}, " +
@@ -60,6 +74,44 @@ internal class AudioResponseDispatcher(
                 "started=${playbackResult.started}, reason=${playbackResult.reason}, " +
                 "selectedClip=${playbackResult.clipLogicalName ?: "-"}"
         )
+    }
+
+    private suspend fun publishDispatcherSkippedEvent(
+        requestEvent: EventEnvelope,
+        rawCategory: String,
+        reason: DispatcherSkipReason
+    ) {
+        val timestampMs = requestEvent.timestampMs.takeIf { it > 0L } ?: System.currentTimeMillis()
+        val normalizedCategory = rawCategory.trim().ifBlank { "UNKNOWN" }
+        val payloadJson = AudioResponsePayload(
+            category = normalizedCategory,
+            clipId = null,
+            durationMs = 0L,
+            priority = 0,
+            timestamp = timestampMs,
+            reason = reason.name
+        ).toJson()
+        try {
+            eventBus.publish(
+                EventEnvelope.create(
+                    type = EventType.AUDIO_RESPONSE_SKIPPED,
+                    timestampMs = timestampMs,
+                    payloadJson = payloadJson
+                )
+            )
+            Log.d(
+                TAG,
+                "Published ${EventType.AUDIO_RESPONSE_SKIPPED.name}. " +
+                    "eventId=${requestEvent.eventId}, category=$normalizedCategory, reason=${reason.name}"
+            )
+        } catch (error: Throwable) {
+            Log.e(
+                TAG,
+                "Failed to publish ${EventType.AUDIO_RESPONSE_SKIPPED.name}. " +
+                    "eventId=${requestEvent.eventId}, reason=${reason.name}",
+                error
+            )
+        }
     }
 
     private fun resolveCategory(rawCategory: String): AudioCategory? {
@@ -76,4 +128,9 @@ internal class AudioResponseDispatcher(
     companion object {
         private const val TAG = "AudioResponseDispatcher"
     }
+}
+
+private enum class DispatcherSkipReason {
+    MALFORMED_REQUEST,
+    UNKNOWN_CATEGORY
 }

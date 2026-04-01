@@ -22,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
+import com.aipet.brain.app.behavior.experience.TalkDirective
 import com.aipet.brain.app.gameplay.GameInvitationPolicy
 import com.aipet.brain.brain.logic.audio.AudioStimulus
 import com.aipet.brain.brain.logic.audio.KeywordStimulus
@@ -57,6 +58,8 @@ fun HomeScreen(
     homeUiModel: HomeUiModel,
     homeInteractionUiState: HomeInteractionUiState,
     avatarBridgeState: PixelPetBridgeState,
+    behaviorTalkDirective: TalkDirective?,
+    isBehaviorExperienceAuthoritative: Boolean,
     appOpenGreeting: PetGreetingReaction?,
     latestAudioStimulus: AudioStimulus?,
     petState: PetState? = null,
@@ -75,6 +78,9 @@ fun HomeScreen(
     var activeFx by remember { mutableStateOf<HomeFxType?>(null) }
     // H5: Greeting reaction � injected once when app-open greeting arrives
     LaunchedEffect(appOpenGreeting?.message) {
+        if (isBehaviorExperienceAuthoritative) {
+            return@LaunchedEffect
+        }
         val greeting = appOpenGreeting ?: return@LaunchedEffect
         val isExcited = greeting.emotion == PetEmotion.EXCITED ||
                 greeting.emotion == PetEmotion.HAPPY
@@ -86,6 +92,9 @@ fun HomeScreen(
 
     // H7: Audio stimulus reactions + self-trigger guard + keyword FX (merged to avoid duplicate key)
     LaunchedEffect(latestAudioStimulus?.timestampMs) {
+        if (isBehaviorExperienceAuthoritative) {
+            return@LaunchedEffect
+        }
         val stimulus = latestAudioStimulus ?: return@LaunchedEffect
         when (stimulus) {
             is KeywordStimulus -> {
@@ -101,6 +110,7 @@ fun HomeScreen(
 
     // -- Talk bubble orchestrator ----------------------------------------------
     val activeBubble = rememberHomeTalkBubbleOrchestrator(
+        behaviorTalkDirective = behaviorTalkDirective,
         appOpenGreeting = appOpenGreeting,
         feedbackMessage = homeInteractionUiState.feedbackMessage,
         feedbackToken = homeInteractionUiState.feedbackToken,
@@ -141,7 +151,6 @@ fun HomeScreen(
             activeFx = HomeFxType.HEARTS
             reactionController.triggerGameCelebrate()
             invitationPolicy.recordGameCompleted(System.currentTimeMillis())
-            onPlayWithPet()
         },
         onFail = {
             reactionController.triggerGameFail()
@@ -208,20 +217,27 @@ fun HomeScreen(
                 if (sparkController.state.phase == SparkGamePhase.INVITE) {
                     // User accepted the pet's invitation — start game immediately
                     invitationPolicy.resetIgnoreStreak()
+                    onPlayWithPet()
                     sparkController.acceptInvite()
                 } else if (homeInteractionUiState.canTapPet) {
                     // H6-01: immediate visual reaction before brain processes
-                    reactionController.triggerTap(isBlocked = false)
+                    if (!isBehaviorExperienceAuthoritative) {
+                        reactionController.triggerTap(isBlocked = false)
+                    }
                     onPetTap()
                 } else {
                     // H6-03: blocked tap anti-spam reaction
-                    reactionController.triggerTap(isBlocked = true)
+                    if (!isBehaviorExperienceAuthoritative) {
+                        reactionController.triggerTap(isBlocked = true)
+                    }
                 }
             },
             onLongPress = {
                 if (homeInteractionUiState.canLongPressPet) {
                     // H6-02: cuddle long-press reaction
-                    reactionController.triggerLongPress()
+                    if (!isBehaviorExperienceAuthoritative) {
+                        reactionController.triggerLongPress()
+                    }
                     onPetLongPress()
                 }
             }
@@ -296,6 +312,7 @@ fun HomeScreen(
                 onPlayWithPet = {
                     showMenuSheet = false
                     invitationPolicy.recordManualGameStarted(System.currentTimeMillis())
+                    onPlayWithPet()
                     sparkController.startGame()
                 },
                 onLetPetRest = {

@@ -22,6 +22,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import java.util.Locale
 import kotlin.random.Random
 
 class AudioPlaybackEngine(
@@ -34,12 +35,20 @@ class AudioPlaybackEngine(
         return playRandomClipWithDetails(category).started
     }
 
-    fun playRandomClipWithDetails(category: AudioCategory): AudioPlaybackResult {
+    fun playRandomClipWithDetails(
+        category: AudioCategory,
+        cooldownKey: String? = null
+    ): AudioPlaybackResult {
         Log.d(TAG, "Playback requested. category=${category.label}")
+        val normalizedCooldownKey = normalizeCooldownKey(
+            cooldownKey = cooldownKey,
+            fallbackCategory = category
+        )
         val categoryClips = AudioAssetRegistry.getClipMetadata(category)
         if (categoryClips.isEmpty()) {
             return skipPlayback(
                 category = category,
+                cooldownKey = normalizedCooldownKey,
                 clipMetadata = null,
                 skipReason = AudioPlaybackSkipReason.CATEGORY_EMPTY,
                 reasonDetail = "no manifest clip for category"
@@ -50,6 +59,7 @@ class AudioPlaybackEngine(
             if (playbackDebugState.value.readinessState != AudioPlaybackReadinessState.READY) {
                 return skipPlaybackLocked(
                     category = category,
+                    cooldownKey = normalizedCooldownKey,
                     clipMetadata = null,
                     clipResourceName = null,
                     skipReason = AudioPlaybackSkipReason.NOT_READY,
@@ -58,10 +68,12 @@ class AudioPlaybackEngine(
             }
 
             val nowMs = SystemClock.elapsedRealtime()
+            cleanupExpiredCooldownsLocked(nowMs)
             val remainingPlaybackMs = activePlaybackUntilElapsedRealtimeMs - nowMs
             if (remainingPlaybackMs > 0L) {
                 return skipPlaybackLocked(
                     category = category,
+                    cooldownKey = normalizedCooldownKey,
                     clipMetadata = null,
                     clipResourceName = null,
                     skipReason = AudioPlaybackSkipReason.OVERLAP_GUARD,
@@ -69,14 +81,16 @@ class AudioPlaybackEngine(
                 )
             }
 
-            val elapsedSinceLastPlaybackMs = nowMs - lastPlaybackStartedElapsedRealtimeMs
-            if (elapsedSinceLastPlaybackMs in 0 until cooldownMs) {
+            val cooldownUntil = cooldownUntilElapsedRealtimeByKey[normalizedCooldownKey] ?: 0L
+            if (nowMs < cooldownUntil) {
                 return skipPlaybackLocked(
                     category = category,
+                    cooldownKey = normalizedCooldownKey,
                     clipMetadata = null,
                     clipResourceName = null,
                     skipReason = AudioPlaybackSkipReason.COOLDOWN,
-                    reasonDetail = "cooldown active: elapsedMs=$elapsedSinceLastPlaybackMs"
+                    reasonDetail = "cooldown active: key=$normalizedCooldownKey " +
+                        "remainingMs=${cooldownUntil - nowMs}"
                 )
             }
 
@@ -87,6 +101,7 @@ class AudioPlaybackEngine(
             if (clipSelection == null) {
                 return skipPlaybackLocked(
                     category = category,
+                    cooldownKey = normalizedCooldownKey,
                     clipMetadata = null,
                     clipResourceName = null,
                     skipReason = AudioPlaybackSkipReason.NO_PLAYABLE_CLIP,
@@ -102,6 +117,7 @@ class AudioPlaybackEngine(
             if (soundId == null || soundId !in loadedSoundIds) {
                 return skipPlaybackLocked(
                     category = category,
+                    cooldownKey = normalizedCooldownKey,
                     clipMetadata = clipMetadata,
                     clipResourceName = clipResourceName,
                     skipReason = AudioPlaybackSkipReason.NO_PLAYABLE_CLIP,
@@ -122,6 +138,7 @@ class AudioPlaybackEngine(
             if (streamId == 0) {
                 return skipPlaybackLocked(
                     category = category,
+                    cooldownKey = normalizedCooldownKey,
                     clipMetadata = clipMetadata,
                     clipResourceName = clipResourceName,
                     skipReason = AudioPlaybackSkipReason.PLAYBACK_ERROR,
@@ -130,12 +147,13 @@ class AudioPlaybackEngine(
             }
 
             val clipDurationMs = clipDurationByResId[clipResId] ?: fallbackClipDurationMs
-            lastPlaybackStartedElapsedRealtimeMs = nowMs
+            cooldownUntilElapsedRealtimeByKey[normalizedCooldownKey] = nowMs + cooldownMs
             activePlaybackUntilElapsedRealtimeMs = nowMs + clipDurationMs
             val startedAtMs = System.currentTimeMillis()
             updateStartedDebugStateLocked(
                 category = category,
                 clipMetadata = clipMetadata,
+                cooldownKey = normalizedCooldownKey,
                 timestampMs = startedAtMs
             )
             publishStartedEvent(
@@ -153,7 +171,7 @@ class AudioPlaybackEngine(
                 TAG,
                 "Playback started. category=${category.label}, clip=${clipMetadata.logicalClipName}, " +
                     "clipResId=$clipResId, clipResource=R.raw.$clipResourceName, soundId=$soundId, " +
-                    "streamId=$streamId, durationMs=$clipDurationMs"
+                    "streamId=$streamId, durationMs=$clipDurationMs, cooldownKey=$normalizedCooldownKey"
             )
             return AudioPlaybackResult(
                 category = category,
@@ -180,7 +198,7 @@ class AudioPlaybackEngine(
             loadedSoundIds.clear()
             clipDurationByResId.clear()
             activePlaybackUntilElapsedRealtimeMs = 0L
-            lastPlaybackStartedElapsedRealtimeMs = 0L
+            cooldownUntilElapsedRealtimeByKey.clear()
             updateReadinessStateLocked()
             Log.d(TAG, "AudioPlaybackEngine released.")
         }
@@ -288,6 +306,7 @@ class AudioPlaybackEngine(
 
     private fun skipPlayback(
         category: AudioCategory,
+        cooldownKey: String,
         clipMetadata: AudioClipMetadata?,
         skipReason: AudioPlaybackSkipReason,
         reasonDetail: String
@@ -296,6 +315,7 @@ class AudioPlaybackEngine(
         synchronized(lock) {
             return skipPlaybackLocked(
                 category = category,
+                cooldownKey = cooldownKey,
                 clipMetadata = clipMetadata,
                 clipResourceName = clipResourceName,
                 skipReason = skipReason,
@@ -306,6 +326,7 @@ class AudioPlaybackEngine(
 
     private fun skipPlaybackLocked(
         category: AudioCategory,
+        cooldownKey: String,
         clipMetadata: AudioClipMetadata?,
         clipResourceName: String?,
         skipReason: AudioPlaybackSkipReason,
@@ -315,6 +336,8 @@ class AudioPlaybackEngine(
         val durationMs = clipResId?.let { clipDurationByResId[it] } ?: 0L
         val timestampMs = System.currentTimeMillis()
         updateSkippedDebugStateLocked(
+            category = category,
+            cooldownKey = cooldownKey,
             skipReason = skipReason,
             timestampMs = timestampMs
         )
@@ -329,7 +352,7 @@ class AudioPlaybackEngine(
             TAG,
             "Playback skipped. category=${category.label}, clip=${clipMetadata?.logicalClipName ?: "-"}, " +
                 "clipResId=${clipResId ?: -1}, clipResource=${clipResourceName?.let { "R.raw.$it" } ?: "-"}, " +
-                "skipReason=${skipReason.name}, detail=$reasonDetail"
+                "skipReason=${skipReason.name}, cooldownKey=$cooldownKey, detail=$reasonDetail"
         )
         return AudioPlaybackResult(
             category = category,
@@ -468,9 +491,14 @@ class AudioPlaybackEngine(
     private fun updateStartedDebugStateLocked(
         category: AudioCategory,
         clipMetadata: AudioClipMetadata,
+        cooldownKey: String,
         timestampMs: Long
     ) {
         playbackDebugState.value = playbackDebugState.value.copy(
+            lastRequestCategory = category.label,
+            lastRequestCooldownKey = cooldownKey,
+            lastRequestAtMs = timestampMs,
+            lastDecisionReason = PlaybackStatus.STARTED.name,
             lastPlayedCategory = category.label,
             lastPlayedClipName = clipMetadata.logicalClipName,
             lastPlayedAtMs = timestampMs
@@ -478,13 +506,36 @@ class AudioPlaybackEngine(
     }
 
     private fun updateSkippedDebugStateLocked(
+        category: AudioCategory,
+        cooldownKey: String,
         skipReason: AudioPlaybackSkipReason,
         timestampMs: Long
     ) {
         playbackDebugState.value = playbackDebugState.value.copy(
+            lastRequestCategory = category.label,
+            lastRequestCooldownKey = cooldownKey,
+            lastRequestAtMs = timestampMs,
+            lastDecisionReason = skipReason.name,
             lastSkippedReason = skipReason,
             lastSkippedAtMs = timestampMs
         )
+    }
+
+    private fun normalizeCooldownKey(
+        cooldownKey: String?,
+        fallbackCategory: AudioCategory
+    ): String {
+        return cooldownKey
+            ?.trim()
+            ?.ifBlank { null }
+            ?.uppercase(Locale.US)
+            ?: fallbackCategory.label.uppercase(Locale.US)
+    }
+
+    private fun cleanupExpiredCooldownsLocked(nowMs: Long) {
+        cooldownUntilElapsedRealtimeByKey.entries.removeAll { (_, cooldownUntil) ->
+            cooldownUntil <= nowMs
+        }
     }
 
     private fun updateReadinessStateLocked() {
@@ -517,6 +568,7 @@ class AudioPlaybackEngine(
     private val clipMetadataBySoundId: MutableMap<Int, AudioClipMetadata> = mutableMapOf()
     private val loadedSoundIds: MutableSet<Int> = mutableSetOf()
     private val clipDurationByResId: MutableMap<Int, Long> = mutableMapOf()
+    private val cooldownUntilElapsedRealtimeByKey: MutableMap<String, Long> = mutableMapOf()
     private val random = Random.Default
     private val totalManifestClipCount: Int = AudioAssetRegistry.allClipMetadata().size
     private val playbackDebugState = MutableStateFlow(
@@ -529,7 +581,6 @@ class AudioPlaybackEngine(
     )
     private var failedClipCount: Int = 0
     private var activePlaybackUntilElapsedRealtimeMs: Long = 0L
-    private var lastPlaybackStartedElapsedRealtimeMs: Long = 0L
     private var completionJob: Job? = null
 
     init {
@@ -592,6 +643,10 @@ data class AudioPlaybackDebugState(
     val loadedClipCount: Int,
     val totalClipCount: Int,
     val failedClipCount: Int,
+    val lastRequestCategory: String? = null,
+    val lastRequestCooldownKey: String? = null,
+    val lastRequestAtMs: Long? = null,
+    val lastDecisionReason: String? = null,
     val lastPlayedCategory: String? = null,
     val lastPlayedClipName: String? = null,
     val lastPlayedAtMs: Long? = null,

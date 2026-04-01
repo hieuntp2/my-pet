@@ -47,6 +47,12 @@ object PetEmotionalConfig {
     const val FEED_TRUST_GAIN: Int = 5
     const val FEED_VALENCE_GAIN: Int = 8
 
+    // Rest (intentional recovery)
+    const val REST_COMFORT_GAIN: Int = 6
+    const val REST_TRUST_GAIN: Int = 2
+    const val REST_AROUSAL_DROP: Int = 10
+    const val REST_STIMULATION_DROP: Int = 8
+
     // Linger (user stays in app without acting)
     const val LINGER_COMFORT_GAIN: Int = 3
     const val LINGER_TRUST_GAIN: Int = 2
