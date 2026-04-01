@@ -22,6 +22,8 @@
         "FAILURE": true,
         "Exception": true,
         "could": true,
-        "jetbrains": true
+        "jetbrains": true,
+        "New-Item": true,
+        "Out-Null": true
     }
 }
