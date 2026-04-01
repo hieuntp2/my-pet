@@ -4,6 +4,7 @@ val junitVersion = property("dep.junit4").toString()
 plugins {
     id("com.android.library")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
@@ -26,9 +27,7 @@ android {
         compose = true
     }
 
-    composeOptions {
-        kotlinCompilerExtensionVersion = property("android.composeCompiler").toString()
-    }
+
 }
 
 dependencies {

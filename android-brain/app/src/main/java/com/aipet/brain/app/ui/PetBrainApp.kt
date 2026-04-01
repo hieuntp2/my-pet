@@ -73,6 +73,7 @@ import com.aipet.brain.app.ui.debug.FaceAutoEnrollDebugScreen
 import com.aipet.brain.app.ui.diary.DiaryScreen
 import com.aipet.brain.app.ui.debug.EventViewerScreen
 import com.aipet.brain.app.ui.debug.ObservationViewerScreen
+import com.aipet.brain.app.ui.debug.EvolutionSystemDebugScreen
 import com.aipet.brain.app.ui.debug.WorkingMemoryDebugScreen
 import com.aipet.brain.app.ui.home.ActivityReactionPresentationMapper
 import com.aipet.brain.app.ui.home.GreetingPresentationMapper
@@ -223,7 +224,8 @@ private enum class AppScreen {
     PersonDetail,
     FaceAutoEnroll,
     BehaviorIntelligenceDebug,
-    EmotionalSystemsDebug
+    EmotionalSystemsDebug,
+    EvolutionSystemDebug
 }
 
 @Composable
@@ -277,7 +279,8 @@ fun PetBrainApp() {
                 AppDatabase.MIGRATION_18_19,
                 AppDatabase.MIGRATION_19_20,
                 AppDatabase.MIGRATION_20_21,
-                AppDatabase.MIGRATION_21_22
+                AppDatabase.MIGRATION_21_22,
+                AppDatabase.MIGRATION_22_23
             )
             .fallbackToDestructiveMigrationOnDowngrade()
             .build()
@@ -487,6 +490,33 @@ fun PetBrainApp() {
     val petTraitRepository = remember(petTraitStore) {
         PetTraitRepository(store = petTraitStore)
     }
+    // ── Evolution system repositories ────────────────────────────────────────
+    val episodeRepository = remember(database) {
+        com.aipet.brain.memory.evolution.RoomEpisodeRepository(database.memoryEpisodeDao())
+    }
+    val semanticMemoryRepository = remember(database) {
+        com.aipet.brain.memory.semantics.RoomSemanticMemoryRepository(database.semanticMemoryFactDao())
+    }
+    val bondRepositoryV2 = remember(database) {
+        com.aipet.brain.memory.bond.RoomBondRepositoryV2(database.bondStateV2Dao())
+    }
+    val habitRepository = remember(database) {
+        com.aipet.brain.memory.habit.RoomUserHabitRepository(database.userHabitProfileDao())
+    }
+    val evolutionCoordinator = remember(
+        episodeRepository, semanticMemoryRepository, bondRepositoryV2,
+        habitRepository, petTraitRepository, eventBus
+    ) {
+        com.aipet.brain.brain.evolution.EvolutionCoordinator(
+            episodeRepository = episodeRepository,
+            semanticRepository = semanticMemoryRepository,
+            bondRepository = bondRepositoryV2,
+            habitRepository = habitRepository,
+            traitRepository = petTraitRepository,
+            eventBus = eventBus
+        )
+    }
+    val evolutionContext by evolutionCoordinator.evolutionContext.collectAsState()
     val petStateDecayEngine = remember {
         PetStateDecayEngine()
     }
@@ -498,6 +528,9 @@ fun PetBrainApp() {
     }
     val petGreetingResolver = remember {
         PetGreetingResolver()
+    }
+    val invitationContextResolver = remember {
+        com.aipet.brain.brain.evolution.InvitationContextResolver()
     }
     val petDayBoundaryResolver = remember {
         PetDayBoundaryResolver()
@@ -722,6 +755,10 @@ fun PetBrainApp() {
     val careActionProcessor = remember { com.aipet.brain.brain.pet.CareActionProcessor() }
     var homeInteractionFeedback by remember { mutableStateOf<PetGameplayFeedback?>(null) }
     var transientReactionIntent by remember { mutableStateOf<com.aipet.brain.ui.avatar.pixel.bridge.PixelPetAvatarIntent?>(null) }
+    // Invitation system state
+    var lastInvitationMs by remember { mutableStateOf(0L) }
+    var invitationIgnoredCount by remember { mutableStateOf(0) }
+    var pendingInvitationUntilMs by remember { mutableStateOf(0L) }
     val transientClearJobHolder = remember { arrayOfNulls<kotlinx.coroutines.Job>(1) }
     var soundReactionIntent by remember { mutableStateOf<com.aipet.brain.ui.avatar.pixel.bridge.PixelPetAvatarIntent?>(null) }
     var runtimeOrchestratorDiagnostics by remember { mutableStateOf<com.aipet.brain.ui.avatar.pixel.bridge.PixelAnimationOrchestratorDiagnostics?>(null) }
@@ -867,11 +904,15 @@ fun PetBrainApp() {
 
             val conditions = petConditionResolver.resolve(persistedState)
             val emotion = petEmotionResolver.resolve(persistedState, conditions)
+            val evoCtx = evolutionCoordinator.evolutionContext.value
             val greetingContext = com.aipet.brain.brain.pet.PetGreetingContext(
                 absenceBucket = absenceBucket,
                 state = persistedState,
                 conditions = conditions,
-                traits = traits
+                traits = traits,
+                evolutionReunionType = evoCtx?.reunionType?.name,
+                evolutionBondAffection = evoCtx?.bond?.affection ?: 0f,
+                evolutionBondTrust = evoCtx?.bond?.trust ?: 0f
             )
             val greetingResolution = petGreetingResolver.resolveWithContext(
                 context = greetingContext,
@@ -963,6 +1004,11 @@ fun PetBrainApp() {
             currentScreenName = AppScreen.Onboarding.name
         }
         hasAppliedAppOpenLifecycle = true
+        // Notify evolution coordinator of app open
+        evolutionCoordinator.onAppOpened(
+            petState = resolvedState.state,
+            petTraits = resolvedState.traits
+        )
     }
 
     // Auto-expire perception flags so the avatar doesn't stay stuck in LOOKING/ASKING
@@ -1029,6 +1075,22 @@ fun PetBrainApp() {
                     perceptionLookingUntilMs = maxOf(perceptionLookingUntilMs, event.timestampMs + PERCEPTION_LOOKING_HOLD_MS)
                     perceptionAskingUntilMs = maxOf(perceptionAskingUntilMs, event.timestampMs + PERCEPTION_ASKING_HOLD_MS)
                 }
+                // If the user interacts while an invitation is pending, accept it
+                EventType.USER_INTERACTED_PET,
+                EventType.AFFECTION_INTERACTION,
+                EventType.PET_LONG_PRESSED -> {
+                    if (pendingInvitationUntilMs > 0L && event.timestampMs <= pendingInvitationUntilMs) {
+                        coroutineScope.launch {
+                            eventBus.publish(
+                                com.aipet.brain.brain.events.EventEnvelope.create(
+                                    type = EventType.PET_INVITATION_ACCEPTED
+                                )
+                            )
+                        }
+                        invitationIgnoredCount = 0
+                        pendingInvitationUntilMs = 0L
+                    }
+                }
                 EventType.AUDIO_RESPONSE_STARTED -> {
                     val payload = com.aipet.brain.brain.events.audio.AudioResponsePayload
                         .fromJson(event.payloadJson)
@@ -1089,7 +1151,8 @@ fun PetBrainApp() {
                     recentInteractionCount = 0,
                     sessionAbsenceMs = 0L,
                     recentMemory = recentMemorySummary,
-                    nowMs = nowMs
+                    nowMs = nowMs,
+                    evolutionContext = evolutionContext
                 )
                 attentionEngine.update(ctx)
                 behaviorEngine.runDecisionCycle(
@@ -1101,6 +1164,46 @@ fun PetBrainApp() {
                     sessionAbsenceMs = 0L,
                     recentMemory = recentMemorySummary
                 )
+
+                // Invitation system: expire pending invitations and emit new ones
+                if (pendingInvitationUntilMs > 0L && nowMs > pendingInvitationUntilMs) {
+                    eventBus.publish(
+                        com.aipet.brain.brain.events.EventEnvelope.create(
+                            type = EventType.PET_INVITATION_IGNORED,
+                            timestampMs = nowMs
+                        )
+                    )
+                    invitationIgnoredCount++
+                    pendingInvitationUntilMs = 0L
+                }
+                val evo = evolutionContext
+                if (evo != null && pendingInvitationUntilMs == 0L) {
+                    val decision = invitationContextResolver.resolve(
+                        state = ps,
+                        conditions = currentPetConditions,
+                        traits = currentPetTraits,
+                        bond = evo.bond,
+                        habitProfile = evo.habitProfile,
+                        dayPhase = evo.dayPhase,
+                        reunionType = evo.reunionType,
+                        expectationState = evo.expectationState,
+                        ignoredCount = invitationIgnoredCount,
+                        msSinceLastInvitation = nowMs - lastInvitationMs,
+                        nowMs = nowMs
+                    )
+                    val intentType = decision.intentType
+                    if (decision.shouldInvite && intentType != null) {
+                        eventBus.publish(
+                            com.aipet.brain.brain.events.EventEnvelope.create(
+                                type = EventType.PET_INVITATION_EMITTED,
+                                payloadJson = """{"intentType":"${intentType.name}","confidence":${decision.confidenceScore}}""",
+                                timestampMs = nowMs
+                            )
+                        )
+                        lastInvitationMs = nowMs
+                        pendingInvitationUntilMs = nowMs + INVITATION_RESPONSE_WINDOW_MS
+                    }
+                }
             }
             kotlinx.coroutines.delay(750L)
         }
@@ -1157,11 +1260,33 @@ fun PetBrainApp() {
         onDispose {
             audioPlaybackEngine.release()
             faceEmbeddingEngine.close()
+            // Finalize the open episode on app exit
+            evolutionCoordinator.onSessionEnded(
+                petState = currentPetState ?: return@onDispose,
+                traits = currentPetTraits
+            )
         }
     }
 
-    // ── Background perception (camera eye running continuously) ──────────────────
+    // Start evolution event observation for episode auto-recording
+    LaunchedEffect(evolutionCoordinator) {
+        evolutionCoordinator.startObservingEvents()
+    }
+
+    // Finalize episode on app background (ON_STOP) for reliable session capture
     val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, evolutionCoordinator) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
+                val state = currentPetState ?: return@LifecycleEventObserver
+                evolutionCoordinator.onSessionEnded(petState = state, traits = currentPetTraits)
+            } else if (event == androidx.lifecycle.Lifecycle.Event.ON_START) {
+                // No-op: onAppOpened already called on first run via hasAppliedAppOpenLifecycle guard
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     val objectDetectionEngineForBackground = remember(appContext) {
         runCatching { RealObjectDetectionEngine(appContext.assets) }.getOrNull()
     }
@@ -1893,8 +2018,32 @@ fun PetBrainApp() {
                     },
                     onNavigateToEmotionalSystems = {
                         currentScreenName = AppScreen.EmotionalSystemsDebug.name
+                    },
+                    onNavigateToEvolutionDebug = {
+                        currentScreenName = AppScreen.EvolutionSystemDebug.name
                     }
                 )
+
+                AppScreen.EvolutionSystemDebug -> {
+                    val evCtx = evolutionContext
+                    val recentEpisodes = evCtx?.recentEpisodes ?: emptyList()
+                    val bond = evCtx?.bond
+                    val habit = evCtx?.habitProfile
+                    var latestFacts by remember { mutableStateOf<List<com.aipet.brain.brain.evolution.domain.SemanticMemoryFact>>(emptyList()) }
+                    LaunchedEffect(Unit) {
+                        latestFacts = withContext(Dispatchers.IO) {
+                            semanticMemoryRepository.getAll()
+                        }
+                    }
+                    EvolutionSystemDebugScreen(
+                        evolutionContext = evCtx,
+                        recentEpisodes = recentEpisodes,
+                        semanticFacts = latestFacts,
+                        bond = bond,
+                        habitProfile = habit,
+                        onNavigateBack = { currentScreenName = AppScreen.Debug.name }
+                    )
+                }
 
                 AppScreen.AvatarDebug -> AvatarAnimationDebugScreen(
                     runtimeBridgeState = homePixelPetDebugBridgeState,
@@ -2557,6 +2706,8 @@ private const val MAX_PET_NAME_LENGTH = 24
 private const val AUTO_LEARN_MIN_SCORE = 0.82f
 private const val PERCEPTION_LOOKING_HOLD_MS = 2_500L
 private const val PERCEPTION_ASKING_HOLD_MS = 4_500L
+// Time the user has to interact after an invitation before it is counted as ignored
+private const val INVITATION_RESPONSE_WINDOW_MS = 30_000L
 
 // Cap total auto-learned embeddings per-person to avoid unbounded DB growth.
 private const val AUTO_LEARN_MAX_EMBEDDINGS_PER_PERSON = 20

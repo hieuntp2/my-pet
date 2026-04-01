@@ -6,6 +6,9 @@ import com.aipet.brain.brain.b2.domain.PetIntention
 import com.aipet.brain.brain.b2.domain.WorkingContext
 import com.aipet.brain.brain.attention.AttentionMode
 import com.aipet.brain.brain.attention.FocusTargetType
+import com.aipet.brain.brain.evolution.DayPhase
+import com.aipet.brain.brain.evolution.EvolutionContext
+import com.aipet.brain.brain.evolution.ReunionType
 import com.aipet.brain.brain.pet.PetCondition
 import com.aipet.brain.brain.state.BrainState
 
@@ -121,6 +124,13 @@ class IntentionScorer {
         if (currentPlan != null && currentPlan.intention == intention && !currentPlan.isExpired(ctx.snapshotAtMs)) {
             score += 0.10f
             reasons += "continuity_bonus=0.10"
+        }
+
+        // Evolution context modifier (long-term memory, bond, habit, lifecycle)
+        val evoDelta = evolutionModifier(intention, ctx.evolutionContext)
+        if (evoDelta != 0f) {
+            score += evoDelta
+            reasons += "evolution=%.2f".format(evoDelta)
         }
 
         // Fatigue penalty
@@ -405,5 +415,71 @@ class IntentionScorer {
 
             else -> candidate
         }
+    }
+
+    // ─── Evolution context modifier ──────────────────────────────────────────
+
+    /**
+     * Applies long-term evolution signals (bond, habit, lifecycle, recent memory)
+     * as a bounded modifier on intention scores.
+     * Returns 0 when no evolution context is available (safe default).
+     */
+    private fun evolutionModifier(intention: PetIntention, evo: EvolutionContext?): Float {
+        if (evo == null) return 0f
+        val bond = evo.bond
+        val dayPhase = evo.dayPhase
+        val reunionType = evo.reunionType
+        val habit = evo.habitProfile
+        val modifiers = evo.lifecycleModifiers
+        val recentEpisodes = evo.recentEpisodes
+
+        val recentNeglect = recentEpisodes.any { it.neglectSignal }
+        val recentGoodCare = recentEpisodes.any { it.careScoreDelta > 5 }
+
+        return when (intention) {
+            PetIntention.SEEK_ATTENTION -> {
+                // High dependency and expectation increase seeking behavior
+                val dependencyBoost = bond.dependency * 0.15f
+                val neglectBoost = if (recentNeglect) 0.1f else 0f
+                dependencyBoost + neglectBoost
+            }
+            PetIntention.INVITE_PLAY -> {
+                // Playfulness and positive care enable play invitations more readily
+                val initiativeBoost = modifiers.initiativeBias * 0.12f
+                val goodCareBoost = if (recentGoodCare) 0.08f else 0f
+                val nightSuppression = if (dayPhase == DayPhase.NIGHT) -0.2f else 0f
+                initiativeBoost + goodCareBoost + nightSuppression
+            }
+            PetIntention.STAY_NEAR -> {
+                // High affection and routine returns increase closeness
+                val affectionBoost = bond.affection * 0.1f
+                val routineBoost = if (reunionType == ReunionType.ROUTINE_RETURN) 0.08f else 0f
+                affectionBoost + routineBoost
+            }
+            PetIntention.RECOVER -> {
+                // After neglect or long absence, recovery intention is more natural
+                val neglectSignal = if (recentNeglect || reunionType == ReunionType.LONG_ABSENCE) 0.15f else 0f
+                val trustDeficit = (1f - bond.trust) * 0.1f
+                neglectSignal + trustDeficit
+            }
+            PetIntention.WITHDRAW -> {
+                // Low stability increases withdrawal tendency
+                val instabilityFactor = (1f - bond.stability) * 0.1f
+                instabilityFactor
+            }
+            PetIntention.CELEBRATE -> {
+                // Strong bond and good recent care enable celebratory rare moments
+                if (bond.affection > 0.7f && bond.trust > 0.6f && recentGoodCare) 0.1f else 0f
+            }
+            PetIntention.REST, PetIntention.DOZE -> {
+                // Night phase increases rest preference
+                if (dayPhase == DayPhase.NIGHT) modifiers.initiativeBias * -0.1f else 0f
+            }
+            PetIntention.OBSERVE -> {
+                // High curiosity and morning phase increase observation tendency
+                if (dayPhase == DayPhase.MORNING) 0.08f else 0f
+            }
+            else -> 0f
+        }.coerceIn(-0.3f, 0.3f)
     }
 }

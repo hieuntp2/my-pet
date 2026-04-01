@@ -10,6 +10,14 @@ import com.aipet.brain.memory.pet.PetProfileDao
 import com.aipet.brain.memory.pet.PetProfileEntity
 import com.aipet.brain.memory.pet.PetStateDao
 import com.aipet.brain.memory.pet.PetStateEntity
+import com.aipet.brain.memory.evolution.MemoryEpisodeDao
+import com.aipet.brain.memory.evolution.MemoryEpisodeEntity
+import com.aipet.brain.memory.semantics.SemanticMemoryFactDao
+import com.aipet.brain.memory.semantics.SemanticMemoryFactEntity
+import com.aipet.brain.memory.bond.BondStateV2Dao
+import com.aipet.brain.memory.bond.BondStateV2Entity
+import com.aipet.brain.memory.habit.UserHabitProfileDao
+import com.aipet.brain.memory.habit.UserHabitProfileEntity
 
 @Database(
     entities = [
@@ -25,9 +33,13 @@ import com.aipet.brain.memory.pet.PetStateEntity
         TraitsSnapshotEntity::class,
         PetStateEntity::class,
         PetProfileEntity::class,
-        PetTraitEntity::class
+        PetTraitEntity::class,
+        MemoryEpisodeEntity::class,
+        SemanticMemoryFactEntity::class,
+        BondStateV2Entity::class,
+        UserHabitProfileEntity::class
     ],
-    version = 22,
+    version = 23,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -42,6 +54,10 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun petStateDao(): PetStateDao
     abstract fun petProfileDao(): PetProfileDao
     abstract fun petTraitDao(): PetTraitDao
+    abstract fun memoryEpisodeDao(): MemoryEpisodeDao
+    abstract fun semanticMemoryFactDao(): SemanticMemoryFactDao
+    abstract fun bondStateV2Dao(): BondStateV2Dao
+    abstract fun userHabitProfileDao(): UserHabitProfileDao
 
     companion object {
         const val DB_NAME: String = "pet_brain.db"
@@ -476,6 +492,87 @@ abstract class AppDatabase : RoomDatabase() {
                 db.execSQL("ALTER TABLE pet_traits ADD COLUMN patience REAL NOT NULL DEFAULT 0.5")
                 db.execSQL("ALTER TABLE pet_traits ADD COLUMN attachment REAL NOT NULL DEFAULT 0.3")
                 db.execSQL("ALTER TABLE pet_traits ADD COLUMN energy_profile REAL NOT NULL DEFAULT 0.5")
+            }
+        }
+
+        val MIGRATION_22_23: Migration = object : Migration(22, 23) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `memory_episodes` (
+                        `id` TEXT NOT NULL,
+                        `start_time_ms` INTEGER NOT NULL,
+                        `end_time_ms` INTEGER NOT NULL,
+                        `duration_ms` INTEGER NOT NULL,
+                        `event_count` INTEGER NOT NULL,
+                        `interaction_count` INTEGER NOT NULL,
+                        `interaction_types_json` TEXT NOT NULL,
+                        `dominant_pet_emotion` TEXT NOT NULL,
+                        `dominant_pet_mood` TEXT NOT NULL,
+                        `care_score_delta` INTEGER NOT NULL,
+                        `bond_delta` INTEGER NOT NULL,
+                        `neglect_signal` INTEGER NOT NULL,
+                        `reunion_type` TEXT NOT NULL,
+                        `user_behavior_tag` TEXT NOT NULL,
+                        `importance_score` REAL NOT NULL,
+                        `summary_text` TEXT NOT NULL,
+                        `created_at_ms` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_memory_episodes_created_at_ms` ON `memory_episodes` (`created_at_ms`)"
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `semantic_memory_facts` (
+                        `id` TEXT NOT NULL,
+                        `fact_key` TEXT NOT NULL,
+                        `value_json` TEXT NOT NULL,
+                        `confidence` REAL NOT NULL,
+                        `source_episode_count` INTEGER NOT NULL,
+                        `first_learned_at_ms` INTEGER NOT NULL,
+                        `last_confirmed_at_ms` INTEGER NOT NULL,
+                        `last_updated_at_ms` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_semantic_memory_facts_fact_key` ON `semantic_memory_facts` (`fact_key`)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_semantic_memory_facts_last_updated_at_ms` ON `semantic_memory_facts` (`last_updated_at_ms`)"
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `bond_state_v2` (
+                        `id` TEXT NOT NULL,
+                        `affection` REAL NOT NULL,
+                        `trust` REAL NOT NULL,
+                        `dependency` REAL NOT NULL,
+                        `stability` REAL NOT NULL,
+                        `last_updated_at_ms` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `user_habit_profile` (
+                        `id` TEXT NOT NULL,
+                        `preferred_time_slots_json` TEXT NOT NULL,
+                        `avg_session_length_ms` INTEGER NOT NULL,
+                        `avg_sessions_per_day` REAL NOT NULL,
+                        `primary_interaction_style` TEXT NOT NULL,
+                        `recent_consistency_score` REAL NOT NULL,
+                        `strongest_daypart` TEXT NOT NULL,
+                        `last_updated_at_ms` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
             }
         }
     }

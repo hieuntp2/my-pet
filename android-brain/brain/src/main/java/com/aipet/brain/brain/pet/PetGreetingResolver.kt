@@ -79,9 +79,16 @@ class PetGreetingResolver(
     /**
      * Resolves greeting style from context + selected emotion.
      * Style is independent from emotion — same emotion can be warm or hesitant.
+     * Evolution context fields (evolutionReunionType, evolutionBondAffection, evolutionBondTrust)
+     * bias the result when available.
      */
     fun resolveStyle(context: PetGreetingContext): PetGreetingStyle {
         val state = context.state
+
+        // Evolution: RECOVERY_RETURN always starts cautious then relieved
+        if (context.evolutionReunionType == "RECOVERY_RETURN") {
+            return if (state.careStreak >= 1) PetGreetingStyle.RELIEVED else PetGreetingStyle.HESITANT
+        }
 
         // Distant state always produces hesitant or distant style
         if (context.isDistant && state.trustScore <= 25) {
@@ -101,29 +108,38 @@ class PetGreetingResolver(
             return PetGreetingStyle.RELIEVED
         }
 
+        // Evolution: long absence with good trust → warm but slightly tentative
+        if (context.evolutionReunionType == "LONG_ABSENCE" && context.evolutionBondTrust >= 0.4f) {
+            return PetGreetingStyle.WARM
+        }
+
+        // Evolution: high affection biases base bond score upward for style selection
+        val evoWarmth = context.evolutionBondAffection
+        val evoBoostedBond = state.bond + (evoWarmth * 20).toInt()
+
         return when (context.absenceBucket) {
             AbsenceBucket.SHORT_RETURN -> {
                 when {
                     context.isPlayful && state.energy >= 60 -> PetGreetingStyle.PLAYFUL
-                    state.bond >= 40 -> PetGreetingStyle.GENTLE
+                    evoBoostedBond >= 40 -> PetGreetingStyle.GENTLE
                     else -> PetGreetingStyle.GENTLE
                 }
             }
 
             AbsenceBucket.MEDIUM_RETURN -> {
                 when {
-                    state.bond >= 60 && state.trustScore >= 40 -> PetGreetingStyle.WARM
+                    evoBoostedBond >= 60 && state.trustScore >= 40 -> PetGreetingStyle.WARM
                     context.isNeedy -> PetGreetingStyle.NEEDY
                     context.isPlayful && state.energy >= 50 -> PetGreetingStyle.PLAYFUL
-                    state.bond >= 30 -> PetGreetingStyle.GENTLE
+                    evoBoostedBond >= 30 -> PetGreetingStyle.GENTLE
                     else -> PetGreetingStyle.GENTLE
                 }
             }
 
             AbsenceBucket.LONG_RETURN -> {
                 when {
-                    state.bond >= 50 && state.trustScore >= 35 -> PetGreetingStyle.WARM
-                    state.bond >= 30 && state.trustScore >= 25 -> PetGreetingStyle.GENTLE
+                    evoBoostedBond >= 50 && state.trustScore >= 35 -> PetGreetingStyle.WARM
+                    evoBoostedBond >= 30 && state.trustScore >= 25 -> PetGreetingStyle.GENTLE
                     context.isNeedy -> PetGreetingStyle.NEEDY
                     else -> PetGreetingStyle.HESITANT
                 }

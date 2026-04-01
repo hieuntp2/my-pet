@@ -1,6 +1,7 @@
 package com.aipet.brain.brain.b2.domain
 
 import com.aipet.brain.brain.attention.AttentionState
+import com.aipet.brain.brain.evolution.EvolutionContext
 import com.aipet.brain.brain.fusion.PerceptionFusionSnapshot
 import com.aipet.brain.brain.pet.PetCondition
 import com.aipet.brain.brain.pet.PetState
@@ -25,7 +26,9 @@ data class WorkingContext(
     val currentBehavior: ActiveBehaviorState?,
     val session: SessionContext,
     val cooldowns: CooldownState,
-    val snapshotAtMs: Long
+    val snapshotAtMs: Long,
+    /** Evolution system context supplied from EvolutionCoordinator. Null until system is warm. */
+    val evolutionContext: EvolutionContext? = null
 )
 
 /**

@@ -17,6 +17,11 @@
         "java": true,
         "Out-File": true,
         "git stash": true,
-        "&": true
+        "&": true,
+        "?m": true,
+        "FAILURE": true,
+        "Exception": true,
+        "could": true,
+        "jetbrains": true
     }
 }

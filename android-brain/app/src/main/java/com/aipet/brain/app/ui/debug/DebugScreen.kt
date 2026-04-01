@@ -73,6 +73,7 @@ fun DebugScreen(
     onNavigateToAvatarDebug: () -> Unit,
     onNavigateToBehaviorIntelligence: () -> Unit,
     onNavigateToEmotionalSystems: () -> Unit,
+    onNavigateToEvolutionDebug: () -> Unit,
     onForceSleep: () -> Unit,
     onForceWake: () -> Unit,
     onEmitAudioResponseRequestFromStimulus: () -> Unit,
@@ -277,6 +278,7 @@ fun DebugScreen(
         DebugNavButton(label = "Working Memory", onClick = onNavigateToWorkingMemoryDebug)
         DebugNavButton(label = "Behavior Intelligence", onClick = onNavigateToBehaviorIntelligence)
         DebugNavButton(label = "Emotional Systems", onClick = onNavigateToEmotionalSystems)
+        DebugNavButton(label = "Evolution System", onClick = onNavigateToEvolutionDebug)
 
         DebugNavButton(
             label = "Back to Home",

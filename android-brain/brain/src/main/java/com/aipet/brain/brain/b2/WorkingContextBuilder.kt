@@ -5,6 +5,7 @@ import com.aipet.brain.brain.b2.domain.ActiveBehaviorState
 import com.aipet.brain.brain.b2.domain.RecentMemorySummary
 import com.aipet.brain.brain.b2.domain.SessionContext
 import com.aipet.brain.brain.b2.domain.WorkingContext
+import com.aipet.brain.brain.evolution.EvolutionContext
 import com.aipet.brain.brain.fusion.PerceptionFusionRepository
 import com.aipet.brain.brain.pet.PetCondition
 import com.aipet.brain.brain.pet.PetState
@@ -31,7 +32,8 @@ class WorkingContextBuilder(
         recentInteractionCount: Int,
         sessionAbsenceMs: Long,
         recentMemory: RecentMemorySummary,
-        nowMs: Long
+        nowMs: Long,
+        evolutionContext: EvolutionContext? = null
     ): WorkingContext {
         val relationship = relationshipStateBuilder.build(
             petState = petState,
@@ -51,7 +53,8 @@ class WorkingContextBuilder(
             currentBehavior = currentBehavior,
             session = session,
             cooldowns = cooldownTracker.current(),
-            snapshotAtMs = nowMs
+            snapshotAtMs = nowMs,
+            evolutionContext = evolutionContext
         )
     }
 }
