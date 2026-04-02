@@ -7,6 +7,8 @@ package com.aipet.brain.app.behavior.experience
  * runtime execution feel and suppression decisions.
  */
 class PetIntentionExecutor(
+    private val globalAudioMinIntervalMs: Long = DEFAULT_GLOBAL_AUDIO_MIN_INTERVAL_MS,
+    private val sameCategoryAudioMinIntervalMs: Long = DEFAULT_SAME_CATEGORY_AUDIO_MIN_INTERVAL_MS,
     private val nowProvider: () -> Long = { System.currentTimeMillis() }
 ) {
     private data class ActiveExecution(
@@ -23,6 +25,8 @@ class PetIntentionExecutor(
 
     private var activeExecution: ActiveExecution? = null
     private var lastDebugState: BehaviorExperienceDebugState = BehaviorExperienceDebugState.EMPTY
+    private var lastAudioDispatchedAtMs: Long = 0L
+    private var lastAudioDispatchedCategory: com.aipet.brain.app.ui.audio.model.AudioCategory? = null
 
     fun execute(bundle: PetExperienceBundle, nowMs: Long = nowProvider()): BehaviorExperienceExecution {
         cleanupExpired(nowMs)
@@ -147,6 +151,16 @@ class PetIntentionExecutor(
 
     fun currentDebugState(): BehaviorExperienceDebugState = lastDebugState
 
+    fun resetRuntimeState() {
+        activeExecution = null
+        audioCooldownUntilByKey.clear()
+        talkCooldownUntilByKey.clear()
+        antiRepeatUntilByKey.clear()
+        lastAudioDispatchedAtMs = 0L
+        lastAudioDispatchedCategory = null
+        lastDebugState = BehaviorExperienceDebugState.EMPTY
+    }
+
     private fun canInterrupt(
         currentActive: ActiveExecution?,
         candidateBundle: PetExperienceBundle
@@ -206,6 +220,29 @@ class PetIntentionExecutor(
             )
         }
 
+        if (globalAudioMinIntervalMs > 0L && lastAudioDispatchedAtMs > 0L) {
+            val elapsedMs = nowMs - lastAudioDispatchedAtMs
+            if (elapsedMs in 0 until globalAudioMinIntervalMs) {
+                return null to ChannelExecutionResult(
+                    decision = ChannelDecision.SUPPRESSED,
+                    reason = "global_interval_active_${globalAudioMinIntervalMs - elapsedMs}ms"
+                )
+            }
+        }
+
+        if (sameCategoryAudioMinIntervalMs > 0L &&
+            lastAudioDispatchedAtMs > 0L &&
+            lastAudioDispatchedCategory == directive.category
+        ) {
+            val elapsedMs = nowMs - lastAudioDispatchedAtMs
+            if (elapsedMs in 0 until sameCategoryAudioMinIntervalMs) {
+                return null to ChannelExecutionResult(
+                    decision = ChannelDecision.SUPPRESSED,
+                    reason = "same_category_interval_active_${sameCategoryAudioMinIntervalMs - elapsedMs}ms"
+                )
+            }
+        }
+
         val cooldownUntil = audioCooldownUntilByKey[directive.cooldownKey] ?: 0L
         if (nowMs < cooldownUntil) {
             return null to ChannelExecutionResult(
@@ -214,6 +251,8 @@ class PetIntentionExecutor(
             )
         }
 
+        lastAudioDispatchedAtMs = nowMs
+        lastAudioDispatchedCategory = directive.category
         audioCooldownUntilByKey[directive.cooldownKey] = nowMs + directive.minIntervalMs
         return directive to ChannelExecutionResult(
             decision = ChannelDecision.EXECUTED,
@@ -264,5 +303,10 @@ class PetIntentionExecutor(
         audioCooldownUntilByKey.entries.removeAll { it.value <= nowMs }
         talkCooldownUntilByKey.entries.removeAll { it.value <= nowMs }
         antiRepeatUntilByKey.entries.removeAll { it.value <= nowMs }
+    }
+
+    private companion object {
+        private const val DEFAULT_GLOBAL_AUDIO_MIN_INTERVAL_MS = 1_200L
+        private const val DEFAULT_SAME_CATEGORY_AUDIO_MIN_INTERVAL_MS = 2_200L
     }
 }

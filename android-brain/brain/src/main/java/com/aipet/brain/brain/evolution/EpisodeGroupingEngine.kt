@@ -105,5 +105,19 @@ class EpisodeGroupingEngine(
         return episode
     }
 
+    /**
+     * Finalize the open episode only when the inactivity boundary is reached.
+     * Returns null when there is no open episode or inactivity has not elapsed yet.
+     */
+    fun closeCurrentEpisodeIfInactive(): MemoryEpisode? {
+        val candidate = openCandidate ?: return null
+        val now = nowProvider()
+        val inactiveMs = now - candidate.lastActivityMs
+        if (inactiveMs < EpisodeBoundaryResolver.INACTIVITY_TIMEOUT_MS) {
+            return null
+        }
+        return closeCurrentEpisode()
+    }
+
     fun hasOpenEpisode(): Boolean = openCandidate != null
 }

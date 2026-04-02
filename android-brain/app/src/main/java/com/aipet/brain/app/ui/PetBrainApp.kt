@@ -16,6 +16,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
@@ -29,6 +30,8 @@ import com.aipet.brain.app.animation.PetAnimationSource
 import com.aipet.brain.app.animation.PetAnimator
 import com.aipet.brain.app.behavior.experience.BehaviorExperienceBinder
 import com.aipet.brain.app.behavior.experience.BehaviorExperienceDebugState
+import com.aipet.brain.app.behavior.experience.ChannelDecision
+import com.aipet.brain.app.behavior.experience.ChannelExecutionResult
 import com.aipet.brain.app.behavior.experience.PetIntentionExecutor
 import com.aipet.brain.app.behavior.experience.TalkDirective
 import com.aipet.brain.app.gameplay.PetGameplayAction
@@ -81,7 +84,6 @@ import com.aipet.brain.app.ui.debug.EvolutionSystemDebugScreen
 import com.aipet.brain.app.ui.debug.WorkingMemoryDebugScreen
 import com.aipet.brain.app.ui.home.ActivityReactionPresentationMapper
 import com.aipet.brain.app.ui.home.GreetingPresentationMapper
-import com.aipet.brain.app.ui.home.SoundReactionPresentationMapper
 import com.aipet.brain.app.ui.home.HomeInteractionUiState
 import com.aipet.brain.app.ui.home.TapReactionPresentationMapper
 import com.aipet.brain.app.ui.home.HomeKnownEntityCount
@@ -645,6 +647,7 @@ fun PetBrainApp() {
     val keywordIntentMapper = remember {
         KeywordIntentMapper()
     }
+    val isBehaviorExperienceAuthoritative = true
     val keywordIntentCommandRule = remember(
         audioStimulusObserver,
         keywordIntentMapper,
@@ -655,7 +658,8 @@ fun PetBrainApp() {
             audioStimulusObserver = audioStimulusObserver,
             keywordIntentMapper = keywordIntentMapper,
             audioResponseRequestEmitter = audioResponseRequestEmitter,
-            brainStateStore = brainStateStore
+            brainStateStore = brainStateStore,
+            shouldEmitAudioResponse = { !isBehaviorExperienceAuthoritative }
         )
     }
     val currentWorkingMemory by workingMemoryStore.observe().collectAsState(
@@ -769,7 +773,6 @@ fun PetBrainApp() {
     val relationshipStageResolver = remember { com.aipet.brain.brain.pet.RelationshipStageResolver() }
     val careActionProcessor = remember { com.aipet.brain.brain.pet.CareActionProcessor() }
     var homeInteractionFeedback by remember { mutableStateOf<PetGameplayFeedback?>(null) }
-    val isBehaviorExperienceAuthoritative = true
     var behaviorDrivenIntent by remember { mutableStateOf<com.aipet.brain.ui.avatar.pixel.bridge.PixelPetAvatarIntent?>(null) }
     var behaviorTalkDirective by remember { mutableStateOf<TalkDirective?>(null) }
     var behaviorExperienceDebugState by remember { mutableStateOf(BehaviorExperienceDebugState.EMPTY) }
@@ -778,8 +781,13 @@ fun PetBrainApp() {
     var lastInvitationMs by remember { mutableStateOf(0L) }
     var invitationIgnoredCount by remember { mutableStateOf(0) }
     var pendingInvitationUntilMs by remember { mutableStateOf(0L) }
+    var invitationUiTriggerToken by remember { mutableStateOf(0L) }
+    var lastLifecycleStopAtMs by remember { mutableStateOf(0L) }
+    var lastAudioRequestDispatchAtMs by remember { mutableStateOf(0L) }
+    var lastAudioRequestDispatchCategory by remember { mutableStateOf<AudioCategory?>(null) }
+    var latestAudioOutputStartedAtMs by remember { mutableStateOf(0L) }
+    var transientReactionActiveUntilMs by remember { mutableStateOf(0L) }
     val transientClearJobHolder = remember { arrayOfNulls<kotlinx.coroutines.Job>(1) }
-    var soundReactionIntent by remember { mutableStateOf<com.aipet.brain.ui.avatar.pixel.bridge.PixelPetAvatarIntent?>(null) }
     var runtimeOrchestratorDiagnostics by remember { mutableStateOf<com.aipet.brain.ui.avatar.pixel.bridge.PixelAnimationOrchestratorDiagnostics?>(null) }
     val diaryDailySummaries = remember(
         diaryEvents,
@@ -860,8 +868,7 @@ fun PetBrainApp() {
         isBehaviorExperienceAuthoritative,
         behaviorDrivenIntent,
         startupGreetingForVisual,
-        transientReactionIntent,
-        soundReactionIntent
+        transientReactionIntent
     ) {
         com.aipet.brain.app.avatar.HomePixelPetAvatarSignal(
             petEmotion = currentPetEmotion,
@@ -882,15 +889,17 @@ fun PetBrainApp() {
             } else {
                 null
             },
-            // Keep tap/long-press transient available even in behavior-authoritative mode.
-            // handlePetInteraction() clears behaviorDrivenIntent before setting this so touch
-            // feedback can render immediately, then behavior regains control on next tick.
-            transientReactionIntent = transientReactionIntent,
-            soundReactionIntent = if (isBehaviorExperienceAuthoritative) {
-                null
+            // In behavior-authoritative mode, one-shot touch feedback is injected through
+            // the bridge transient channel; non-authoritative mode uses HomeScreen-owned
+            // reaction controller to avoid duplicate reaction ownership.
+            transientReactionIntent = if (isBehaviorExperienceAuthoritative) {
+                transientReactionIntent
             } else {
-                soundReactionIntent
-            }
+                null
+            },
+            // Sound reaction ownership is consolidated away from the bridge path to prevent
+            // competing triggers with HomeScreen and behavior execution channels.
+            soundReactionIntent = null
         )
     }
     LaunchedEffect(activeAppOpenGreeting, activeAppOpenGreetingExpiresAtMs) {
@@ -915,23 +924,88 @@ fun PetBrainApp() {
         homePixelPetDebugBridgeState.copy(debugMetadata = null)
     }
 
-    // Sound reaction: when an audio stimulus fires, briefly show the appropriate visual reaction.
-    // VAD STARTED → ATTENTIVE for 1s; SoundStimulus → LOOKING for 0.7s; keywords → no-op (handled by PROCESSING).
-    LaunchedEffect(latestAudioStimulus) {
-        if (isBehaviorExperienceAuthoritative) {
-            soundReactionIntent = null
-            return@LaunchedEffect
+    fun queueTransientReaction(
+        intent: com.aipet.brain.ui.avatar.pixel.bridge.PixelPetAvatarIntent,
+        durationMs: Long = TapReactionPresentationMapper.REACTION_DURATION_MS
+    ) {
+        val safeDurationMs = durationMs.coerceAtLeast(0L)
+        transientClearJobHolder[0]?.cancel()
+        transientReactionIntent = intent
+        transientReactionActiveUntilMs = System.currentTimeMillis() + safeDurationMs
+        transientClearJobHolder[0] = coroutineScope.launch {
+            if (safeDurationMs > 0L) {
+                kotlinx.coroutines.delay(safeDurationMs)
+            }
+            if (transientReactionIntent == intent && System.currentTimeMillis() >= transientReactionActiveUntilMs) {
+                transientReactionIntent = null
+                transientReactionActiveUntilMs = 0L
+            }
         }
-        val stimulus = latestAudioStimulus ?: run {
-            soundReactionIntent = null
-            return@LaunchedEffect
+    }
+
+    suspend fun publishAudioResponseRequestWithRuntimeGuards(
+        category: AudioCategory,
+        timestampMs: Long,
+        cooldownKey: String,
+        priority: Int,
+        source: String
+    ): String? {
+        val elapsedSinceLastDispatch = if (lastAudioRequestDispatchAtMs > 0L) {
+            timestampMs - lastAudioRequestDispatchAtMs
+        } else {
+            Long.MAX_VALUE
         }
-        val intent = SoundReactionPresentationMapper.mapToAvatarIntent(stimulus) ?: return@LaunchedEffect
-        val duration = SoundReactionPresentationMapper.durationMs(stimulus)
-        if (duration <= 0L) return@LaunchedEffect
-        soundReactionIntent = intent
-        kotlinx.coroutines.delay(duration)
-        soundReactionIntent = null
+        val hitsGlobalRateGuard =
+            elapsedSinceLastDispatch < RUNTIME_AUDIO_GLOBAL_MIN_INTERVAL_MS
+        val hitsCategoryRateGuard =
+            lastAudioRequestDispatchCategory == category &&
+                elapsedSinceLastDispatch < RUNTIME_AUDIO_SAME_CATEGORY_MIN_INTERVAL_MS
+        if (hitsGlobalRateGuard || hitsCategoryRateGuard) {
+            val suppressionReason = if (hitsCategoryRateGuard) {
+                "runtime_same_category_guard_${RUNTIME_AUDIO_SAME_CATEGORY_MIN_INTERVAL_MS}ms"
+            } else {
+                "runtime_global_guard_${RUNTIME_AUDIO_GLOBAL_MIN_INTERVAL_MS}ms"
+            }
+            eventBus.publish(
+                EventEnvelope.create(
+                    type = EventType.AUDIO_RESPONSE_SKIPPED,
+                    timestampMs = timestampMs,
+                    payloadJson = com.aipet.brain.brain.events.audio.AudioResponsePayload(
+                        category = category.label,
+                        clipId = null,
+                        durationMs = 0L,
+                        priority = 0,
+                        timestamp = timestampMs,
+                        reason = suppressionReason
+                    ).toJson()
+                )
+            )
+            Log.d(
+                AUDIO_RUNTIME_TAG,
+                "Suppressed audio request. source=$source, category=${category.label}, reason=$suppressionReason"
+            )
+            return suppressionReason
+        }
+        eventBus.publish(
+            EventEnvelope.create(
+                type = EventType.AUDIO_RESPONSE_REQUESTED,
+                timestampMs = timestampMs,
+                payloadJson = AudioResponseRequestPayload(
+                    category = category.label,
+                    priority = priority,
+                    interruptPolicy = "INTERRUPT_NONE",
+                    cooldownKey = cooldownKey,
+                    timestamp = timestampMs
+                ).toJson()
+            )
+        )
+        lastAudioRequestDispatchAtMs = timestampMs
+        lastAudioRequestDispatchCategory = category
+        Log.d(
+            AUDIO_RUNTIME_TAG,
+            "Queued audio request. source=$source, category=${category.label}, cooldownKey=$cooldownKey"
+        )
+        return null
     }
 
     LaunchedEffect(
@@ -946,7 +1020,80 @@ fun PetBrainApp() {
         eventBus,
         hasAppliedAppOpenLifecycle
     ) {
-        if (hasAppliedAppOpenLifecycle) {
+        val hasHydratedRuntimeState =
+            currentPetState != null &&
+                activePetProfile != null &&
+                currentPetTraits != null
+        if (hasAppliedAppOpenLifecycle && hasHydratedRuntimeState) {
+            return@LaunchedEffect
+        }
+        if (hasAppliedAppOpenLifecycle && !hasHydratedRuntimeState) {
+            Log.w(
+                DEBUG_STARTUP_TAG,
+                "Rehydrating app-open lifecycle because runtime state is missing."
+            )
+            val restoredSnapshot = withContext(Dispatchers.IO) {
+                val profile = petProfileRepository.getOrCreateActiveProfile()
+                val traits = petTraitRepository.getOrCreateForPet(profile.id)
+                val persistedState = petStateRepository.getOrCreateState()
+                val nowMs = System.currentTimeMillis()
+                val dayBoundary = petDayBoundaryResolver.resolve(
+                    previousUpdatedAt = persistedState.lastUpdatedAt,
+                    now = nowMs
+                )
+                val conditions = petConditionResolver.resolve(persistedState)
+                val emotion = petEmotionResolver.resolve(persistedState, conditions)
+                val absenceBucket = absenceClassifier.classify(persistedState, nowMs)
+                val relationshipStage = relationshipStageResolver.resolve(persistedState)
+                RuntimeRehydrateSnapshot(
+                    profile = profile,
+                    state = persistedState,
+                    traits = traits,
+                    conditions = conditions,
+                    emotion = emotion,
+                    absenceBucket = absenceBucket,
+                    relationshipStage = relationshipStage,
+                    dayBoundaryType = dayBoundary.type,
+                    summaryDate = dayBoundary.currentDate
+                )
+            }
+            activePetProfile = restoredSnapshot.profile
+            petNameDraft = restoredSnapshot.profile.name
+            currentPetState = restoredSnapshot.state
+            currentPetEmotion = restoredSnapshot.emotion
+            currentPetTraits = restoredSnapshot.traits
+            currentPetConditions = restoredSnapshot.conditions
+            currentAbsenceBucket = restoredSnapshot.absenceBucket
+            currentRelationshipStage = restoredSnapshot.relationshipStage
+            currentDayBoundaryType = restoredSnapshot.dayBoundaryType
+            currentSummaryDate = restoredSnapshot.summaryDate
+            currentGreetingStyle = null
+            homeInteractionFeedback = null
+            appOpenGreeting = null
+            activeAppOpenGreeting = null
+            activeAppOpenGreetingExpiresAtMs = 0L
+            latestBehaviorDecisionSource = "runtime_rehydrate"
+            latestBehaviorDecision = null
+            sessionInteractionTracker.resetForNewSession()
+            val nowMs = System.currentTimeMillis()
+            val rehydrateCalendar = java.util.Calendar.getInstance().apply {
+                timeInMillis = nowMs
+            }
+            val lastDirectInteractionAt = restoredSnapshot.state.lastMeaningfulInteractionAt
+                .takeIf { it > 0L } ?: restoredSnapshot.state.lastUpdatedAt
+            behaviorEngine.setSessionContext(
+                SessionContext(
+                    sessionStartMs = nowMs,
+                    sessionAgeMs = 0L,
+                    hourOfDay = rehydrateCalendar.get(java.util.Calendar.HOUR_OF_DAY),
+                    isFirstGreetToday = false,
+                    sessionInteractionCount = 0,
+                    msSinceLastDirectInteraction = (nowMs - lastDirectInteractionAt).coerceAtLeast(0L),
+                    isReturningAfterLongAbsence = restoredSnapshot.absenceBucket == com.aipet.brain.brain.pet.AbsenceBucket.LONG_RETURN ||
+                        restoredSnapshot.absenceBucket == com.aipet.brain.brain.pet.AbsenceBucket.NEGLECT_RETURN,
+                    nowMs = nowMs
+                )
+            )
             return@LaunchedEffect
         }
         val resolvedState = withContext(Dispatchers.IO) {
@@ -968,21 +1115,30 @@ fun PetBrainApp() {
                 state = decayedState,
                 absenceBucket = absenceBucket
             )
+            val absenceMsBeforeOpen = if (stateAfterNeglect.lastOpenAt > 0L) {
+                (startupNow - stateAfterNeglect.lastOpenAt).coerceAtLeast(0L)
+            } else {
+                0L
+            }
+            val appOpenEvolutionContext = evolutionCoordinator.previewAppOpenContext(
+                petState = stateAfterNeglect,
+                petTraits = traits,
+                absenceMsOverride = absenceMsBeforeOpen
+            )
             // Update lastOpenAt so future absences can be classified correctly
             val stateWithOpenTimestamp = stateAfterNeglect.copy(lastOpenAt = startupNow)
             val persistedState = petStateRepository.updateState(stateWithOpenTimestamp)
 
             val conditions = petConditionResolver.resolve(persistedState)
             val emotion = petEmotionResolver.resolve(persistedState, conditions)
-            val evoCtx = evolutionCoordinator.evolutionContext.value
             val greetingContext = com.aipet.brain.brain.pet.PetGreetingContext(
                 absenceBucket = absenceBucket,
                 state = persistedState,
                 conditions = conditions,
                 traits = traits,
-                evolutionReunionType = evoCtx?.reunionType?.name,
-                evolutionBondAffection = evoCtx?.bond?.affection ?: 0f,
-                evolutionBondTrust = evoCtx?.bond?.trust ?: 0f
+                evolutionReunionType = appOpenEvolutionContext.reunionType.name,
+                evolutionBondAffection = appOpenEvolutionContext.bond.affection,
+                evolutionBondTrust = appOpenEvolutionContext.bond.trust
             )
             val greetingResolution = petGreetingResolver.resolveWithContext(
                 context = greetingContext,
@@ -1001,7 +1157,8 @@ fun PetBrainApp() {
                 dayBoundaryType = dayBoundary.type,
                 summaryDate = dayBoundary.currentDate,
                 absenceBucket = absenceBucket,
-                relationshipStage = relationshipStage
+                relationshipStage = relationshipStage,
+                evolutionAbsenceMs = absenceMsBeforeOpen
             )
         }
         val shouldShowNamingOnboarding = withContext(Dispatchers.IO) {
@@ -1045,15 +1202,15 @@ fun PetBrainApp() {
                 nowMs = resolvedState.greetedAtMs
             )
         )
-        petAnimator.syncInputFrame(
-            animationInputMapper.mapFrame(
-                state = resolvedState.state,
-                emotion = resolvedState.emotion,
-                conditions = resolvedState.conditions,
-                traits = resolvedState.traits
-            )
-        )
         if (!isBehaviorExperienceAuthoritative) {
+            petAnimator.syncInputFrame(
+                animationInputMapper.mapFrame(
+                    state = resolvedState.state,
+                    emotion = resolvedState.emotion,
+                    conditions = resolvedState.conditions,
+                    traits = resolvedState.traits
+                )
+            )
             petAnimator.playTrigger(
                 animationInputMapper.mapGreetingTrigger(
                     greeting = resolvedState.greeting,
@@ -1096,11 +1253,21 @@ fun PetBrainApp() {
         if (shouldShowNamingOnboarding) {
             currentScreenName = AppScreen.Onboarding.name
         }
+        transientClearJobHolder[0]?.cancel()
+        transientReactionIntent = null
+        transientReactionActiveUntilMs = 0L
+        behaviorDrivenIntent = null
+        behaviorTalkDirective = null
+        behaviorExperienceDebugState = BehaviorExperienceDebugState.EMPTY
+        lastAudioRequestDispatchAtMs = 0L
+        lastAudioRequestDispatchCategory = null
+        petIntentionExecutor.resetRuntimeState()
         hasAppliedAppOpenLifecycle = true
         // Notify evolution coordinator of app open
         evolutionCoordinator.onAppOpened(
             petState = resolvedState.state,
-            petTraits = resolvedState.traits
+            petTraits = resolvedState.traits,
+            absenceMsOverride = resolvedState.evolutionAbsenceMs
         )
     }
 
@@ -1168,6 +1335,13 @@ fun PetBrainApp() {
                     perceptionLookingUntilMs = maxOf(perceptionLookingUntilMs, event.timestampMs + PERCEPTION_LOOKING_HOLD_MS)
                     perceptionAskingUntilMs = maxOf(perceptionAskingUntilMs, event.timestampMs + PERCEPTION_ASKING_HOLD_MS)
                 }
+                EventType.PET_INVITATION_EMITTED -> {
+                    invitationUiTriggerToken = if (event.timestampMs > 0L) {
+                        event.timestampMs
+                    } else {
+                        System.currentTimeMillis()
+                    }
+                }
                 // If the user interacts while an invitation is pending, accept it
                 EventType.USER_INTERACTED_PET,
                 EventType.AFFECTION_INTERACTION,
@@ -1187,7 +1361,10 @@ fun PetBrainApp() {
                 EventType.AUDIO_RESPONSE_STARTED -> {
                     val payload = com.aipet.brain.brain.events.audio.AudioResponsePayload
                         .fromJson(event.payloadJson)
-                    if (payload != null) {
+                    latestAudioOutputStartedAtMs = event.timestampMs
+                        .takeIf { it > 0L }
+                        ?: System.currentTimeMillis()
+                    if (!isBehaviorExperienceAuthoritative && payload != null) {
                         val category = try {
                             AudioCategory.valueOf(payload.category)
                         } catch (e: Exception) {
@@ -1231,9 +1408,18 @@ fun PetBrainApp() {
         isBehaviorExperienceAuthoritative
     ) {
         while (true) {
+            // Keep behavior execution foreground-bound; ON_START clears this marker after resume sync.
+            if (lastLifecycleStopAtMs > 0L) {
+                kotlinx.coroutines.delay(750L)
+                continue
+            }
             val ps = currentPetState
             if (ps != null) {
                 val nowMs = System.currentTimeMillis()
+                if (transientReactionIntent != null && nowMs >= transientReactionActiveUntilMs) {
+                    transientReactionIntent = null
+                    transientReactionActiveUntilMs = 0L
+                }
                 val appOpenGreetingForExecution = activeAppOpenGreeting?.takeIf {
                     nowMs <= activeAppOpenGreetingExpiresAtMs
                 }
@@ -1268,7 +1454,8 @@ fun PetBrainApp() {
                     recognizedPersonFamiliarity = null,
                     recentInteractionCount = 0,
                     sessionAbsenceMs = 0L,
-                    recentMemory = recentMemorySummary
+                    recentMemory = recentMemorySummary,
+                    evolutionContext = evolutionContext
                 )
                 if (isBehaviorExperienceAuthoritative) {
                     val experienceBundle = behaviorExperienceBinder.resolve(
@@ -1281,17 +1468,23 @@ fun PetBrainApp() {
                         bundle = experienceBundle,
                         nowMs = nowMs
                     )
-                    behaviorDrivenIntent = execution.activeVisualIntent
-                    behaviorTalkDirective = execution.talkDirective
-                    behaviorExperienceDebugState = execution.debugState
-                    if (appOpenGreetingForExecution != null && execution.debugState.accepted) {
-                        val consumedByTalk = execution.debugState.mappedTalkDedupeKey == APP_OPEN_GREETING_DEDUPE_KEY
-                        val consumedByAudio = execution.debugState.mappedAudioCategory == AudioCategory.GREETING
-                        if (consumedByTalk || consumedByAudio) {
-                            activeAppOpenGreeting = null
-                            activeAppOpenGreetingExpiresAtMs = 0L
-                        }
+                    var executionDebugState = execution.debugState
+                    val transientVisualActive =
+                        transientReactionIntent != null && nowMs < transientReactionActiveUntilMs
+                    behaviorDrivenIntent = if (transientVisualActive) {
+                        null
+                    } else {
+                        execution.activeVisualIntent
                     }
+                    if (transientVisualActive && executionDebugState.visualResult.decision == ChannelDecision.EXECUTED) {
+                        executionDebugState = executionDebugState.copy(
+                            visualResult = ChannelExecutionResult(
+                                decision = ChannelDecision.SUPPRESSED,
+                                reason = "transient_visual_override_active"
+                            )
+                        )
+                    }
+                    behaviorTalkDirective = execution.talkDirective
                     execution.audioDirective?.let { audioDirective ->
                         eventBus.publish(
                             EventEnvelope.create(
@@ -1307,6 +1500,43 @@ fun PetBrainApp() {
                             )
                         )
                     }
+                    if (execution.audioDirective == null &&
+                        executionDebugState.audioResult.decision == ChannelDecision.SUPPRESSED &&
+                        executionDebugState.mappedAudioCategory != null
+                    ) {
+                        val suppressionReason = executionDebugState.audioResult.reason
+                        val isAudioRateOrCooldownSuppression =
+                            suppressionReason?.startsWith("global_interval_active_") == true ||
+                                suppressionReason?.startsWith("same_category_interval_active_") == true ||
+                                suppressionReason?.startsWith("cooldown_active_") == true
+                        if (isAudioRateOrCooldownSuppression) {
+                            eventBus.publish(
+                                EventEnvelope.create(
+                                    type = EventType.AUDIO_RESPONSE_SKIPPED,
+                                    timestampMs = nowMs,
+                                    payloadJson = com.aipet.brain.brain.events.audio.AudioResponsePayload(
+                                        category = executionDebugState.mappedAudioCategory.label,
+                                        clipId = null,
+                                        durationMs = 0L,
+                                        priority = 0,
+                                        timestamp = nowMs,
+                                        reason = suppressionReason
+                                    ).toJson()
+                                )
+                            )
+                        }
+                    }
+                    if (appOpenGreetingForExecution != null && executionDebugState.accepted) {
+                        val consumedByTalk = executionDebugState.mappedTalkDedupeKey == APP_OPEN_GREETING_DEDUPE_KEY &&
+                            executionDebugState.talkResult.decision == ChannelDecision.EXECUTED
+                        val consumedByAudio = executionDebugState.mappedAudioCategory == AudioCategory.GREETING &&
+                            executionDebugState.audioResult.decision == ChannelDecision.EXECUTED
+                        if (consumedByTalk || consumedByAudio) {
+                            activeAppOpenGreeting = null
+                            activeAppOpenGreetingExpiresAtMs = 0L
+                        }
+                    }
+                    behaviorExperienceDebugState = executionDebugState
                 } else {
                     behaviorDrivenIntent = null
                     behaviorTalkDirective = null
@@ -1331,13 +1561,11 @@ fun PetBrainApp() {
                         conditions = currentPetConditions,
                         traits = currentPetTraits,
                         bond = evo.bond,
-                        habitProfile = evo.habitProfile,
                         dayPhase = evo.dayPhase,
                         reunionType = evo.reunionType,
                         expectationState = evo.expectationState,
                         ignoredCount = invitationIgnoredCount,
-                        msSinceLastInvitation = nowMs - lastInvitationMs,
-                        nowMs = nowMs
+                        msSinceLastInvitation = nowMs - lastInvitationMs
                     )
                     val intentType = decision.intentType
                     if (decision.shouldInvite && intentType != null) {
@@ -1352,6 +1580,10 @@ fun PetBrainApp() {
                         pendingInvitationUntilMs = nowMs + INVITATION_RESPONSE_WINDOW_MS
                     }
                 }
+                evolutionCoordinator.finalizeEpisodeIfInactive(
+                    petState = ps,
+                    traits = currentPetTraits
+                )
             }
             kotlinx.coroutines.delay(750L)
         }
@@ -1417,11 +1649,6 @@ fun PetBrainApp() {
         onDispose {
             audioPlaybackEngine.release()
             faceEmbeddingEngine.close()
-            // Finalize the open episode on app exit
-            evolutionCoordinator.onSessionEnded(
-                petState = currentPetState ?: return@onDispose,
-                traits = currentPetTraits
-            )
         }
     }
 
@@ -1430,15 +1657,178 @@ fun PetBrainApp() {
         evolutionCoordinator.startObservingEvents()
     }
 
+    suspend fun syncRuntimeStateOnResume(
+        resumedAtMs: Long,
+        absenceMs: Long
+    ): ResumeLifecycleSnapshot {
+        val snapshot = withContext(Dispatchers.IO) {
+            val profile = activePetProfile ?: petProfileRepository.getOrCreateActiveProfile()
+            val traits = currentPetTraits ?: petTraitRepository.getOrCreateForPet(profile.id)
+            val previousState = petStateRepository.getOrCreateState()
+            val dayBoundary = petDayBoundaryResolver.resolve(
+                previousUpdatedAt = previousState.lastUpdatedAt,
+                now = resumedAtMs
+            )
+            val decayedState = petStateDecayEngine.applyDecay(
+                currentState = previousState,
+                now = resumedAtMs
+            )
+            val absenceBucket = absenceClassifier.classify(decayedState, resumedAtMs)
+            val stateAfterNeglect = neglectTracker.applyIfNeeded(
+                state = decayedState,
+                absenceBucket = absenceBucket
+            )
+            val stateWithOpenTimestamp = stateAfterNeglect.copy(lastOpenAt = resumedAtMs)
+            val persistedState = petStateRepository.updateState(stateWithOpenTimestamp)
+            val conditions = petConditionResolver.resolve(persistedState)
+            val emotion = petEmotionResolver.resolve(persistedState, conditions)
+            val relationshipStage = relationshipStageResolver.resolve(persistedState)
+            val elapsedMinutes = (absenceMs / 60_000L).coerceAtLeast(0L)
+            val decayPayload = com.aipet.brain.brain.events.PetStateDecayAppliedPayload(
+                appliedAtMs = resumedAtMs,
+                absenceBucket = absenceBucket.name,
+                elapsedMinutes = elapsedMinutes,
+                energyDelta = persistedState.energy - previousState.energy,
+                hungerDelta = persistedState.hunger - previousState.hunger,
+                sleepinessDelta = persistedState.sleepiness - previousState.sleepiness,
+                socialDelta = persistedState.social - previousState.social,
+                comfortDelta = persistedState.comfort - previousState.comfort,
+                stimulationDelta = persistedState.stimulation - previousState.stimulation,
+                trustDelta = persistedState.trustScore - previousState.trustScore
+            )
+            ResumeLifecycleSnapshot(
+                profile = profile,
+                state = persistedState,
+                emotion = emotion,
+                traits = traits,
+                conditions = conditions,
+                absenceBucket = absenceBucket,
+                relationshipStage = relationshipStage,
+                dayBoundaryType = dayBoundary.type,
+                summaryDate = dayBoundary.currentDate,
+                decayPayload = decayPayload
+            )
+        }
+        activePetProfile = snapshot.profile
+        currentPetState = snapshot.state
+        currentPetEmotion = snapshot.emotion
+        currentPetTraits = snapshot.traits
+        currentPetConditions = snapshot.conditions
+        currentAbsenceBucket = snapshot.absenceBucket
+        currentRelationshipStage = snapshot.relationshipStage
+        currentDayBoundaryType = snapshot.dayBoundaryType
+        currentSummaryDate = snapshot.summaryDate
+        pendingInvitationUntilMs = 0L
+        invitationUiTriggerToken = 0L
+        homeInteractionFeedback = null
+        latestBehaviorDecisionSource = "resume_sync"
+        latestBehaviorDecision = null
+        currentGreetingStyle = null
+        appOpenGreeting = null
+        activeAppOpenGreeting = null
+        activeAppOpenGreetingExpiresAtMs = 0L
+        transientClearJobHolder[0]?.cancel()
+        transientReactionIntent = null
+        transientReactionActiveUntilMs = 0L
+        behaviorDrivenIntent = null
+        behaviorTalkDirective = null
+        behaviorExperienceDebugState = BehaviorExperienceDebugState.EMPTY
+        lastAudioRequestDispatchAtMs = 0L
+        lastAudioRequestDispatchCategory = null
+        petIntentionExecutor.resetRuntimeState()
+        sessionInteractionTracker.resetForNewSession()
+        val lastDirectInteractionAt = snapshot.state.lastMeaningfulInteractionAt
+            .takeIf { it > 0L } ?: snapshot.state.lastUpdatedAt
+        val startupCalendar = java.util.Calendar.getInstance().apply {
+            timeInMillis = resumedAtMs
+        }
+        behaviorEngine.setSessionContext(
+            SessionContext(
+                sessionStartMs = resumedAtMs,
+                sessionAgeMs = 0L,
+                hourOfDay = startupCalendar.get(java.util.Calendar.HOUR_OF_DAY),
+                isFirstGreetToday = snapshot.dayBoundaryType == PetDayBoundaryType.NEW_DAY_RETURN,
+                sessionInteractionCount = 0,
+                msSinceLastDirectInteraction = (resumedAtMs - lastDirectInteractionAt)
+                    .coerceAtLeast(0L),
+                isReturningAfterLongAbsence = snapshot.absenceBucket == com.aipet.brain.brain.pet.AbsenceBucket.LONG_RETURN ||
+                    snapshot.absenceBucket == com.aipet.brain.brain.pet.AbsenceBucket.NEGLECT_RETURN,
+                nowMs = resumedAtMs
+            )
+        )
+        eventBus.publish(
+            EventEnvelope.create(
+                type = EventType.PET_STATE_DECAY_APPLIED,
+                payloadJson = snapshot.decayPayload.toJson(),
+                timestampMs = resumedAtMs
+            )
+        )
+        return snapshot
+    }
+
     // Finalize episode on app background (ON_STOP) for reliable session capture
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, evolutionCoordinator) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
-                val state = currentPetState ?: return@LifecycleEventObserver
-                evolutionCoordinator.onSessionEnded(petState = state, traits = currentPetTraits)
+                lastLifecycleStopAtMs = System.currentTimeMillis()
+                transientClearJobHolder[0]?.cancel()
+                transientReactionIntent = null
+                transientReactionActiveUntilMs = 0L
+                behaviorDrivenIntent = null
+                behaviorTalkDirective = null
+                behaviorExperienceDebugState = BehaviorExperienceDebugState.EMPTY
+                appOpenGreeting = null
+                activeAppOpenGreeting = null
+                activeAppOpenGreetingExpiresAtMs = 0L
+                latestAudioOutputStartedAtMs = 0L
+                lastAudioRequestDispatchAtMs = 0L
+                lastAudioRequestDispatchCategory = null
+                pendingInvitationUntilMs = 0L
+                invitationUiTriggerToken = 0L
+                petIntentionExecutor.resetRuntimeState()
+                val state = currentPetState
+                if (state != null) {
+                    evolutionCoordinator.onSessionEnded(petState = state, traits = currentPetTraits)
+                }
             } else if (event == androidx.lifecycle.Lifecycle.Event.ON_START) {
-                // No-op: onAppOpened already called on first run via hasAppliedAppOpenLifecycle guard
+                if (!hasAppliedAppOpenLifecycle) {
+                    lastLifecycleStopAtMs = 0L
+                    return@LifecycleEventObserver
+                }
+                val stoppedAtMs = lastLifecycleStopAtMs
+                if (stoppedAtMs <= 0L) {
+                    return@LifecycleEventObserver
+                }
+                val nowMs = System.currentTimeMillis()
+                val absenceMs = (nowMs - stoppedAtMs).coerceAtLeast(0L)
+                if (absenceMs < RESUME_EVOLUTION_MIN_ABSENCE_MS) {
+                    lastLifecycleStopAtMs = 0L
+                    return@LifecycleEventObserver
+                }
+                coroutineScope.launch {
+                    runCatching {
+                        val resumeSnapshot = syncRuntimeStateOnResume(
+                            resumedAtMs = nowMs,
+                            absenceMs = absenceMs
+                        )
+                        evolutionCoordinator.onAppOpened(
+                            petState = resumeSnapshot.state,
+                            petTraits = resumeSnapshot.traits,
+                            absenceMsOverride = absenceMs
+                        )
+                    }.onFailure { error ->
+                        Log.w(
+                            DEBUG_STARTUP_TAG,
+                            "Resume runtime sync failed; keeping existing state. absenceMs=$absenceMs",
+                            error
+                        )
+                    }
+                    // Consume this stop marker so ON_START can only trigger one reopen lifecycle pass.
+                    if (lastLifecycleStopAtMs == stoppedAtMs) {
+                        lastLifecycleStopAtMs = 0L
+                    }
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -1496,22 +1886,40 @@ fun PetBrainApp() {
         timestampMs: Long,
         cooldownKey: String
     ) {
-        eventBus.publish(
-            EventEnvelope.create(
-                type = EventType.AUDIO_RESPONSE_REQUESTED,
-                timestampMs = timestampMs,
-                payloadJson = AudioResponseRequestPayload(
-                    category = category.label,
-                    priority = 2,
-                    interruptPolicy = "INTERRUPT_NONE",
-                    cooldownKey = cooldownKey,
-                    timestamp = timestampMs
-                ).toJson()
-            )
+        publishAudioResponseRequestWithRuntimeGuards(
+            category = category,
+            timestampMs = timestampMs,
+            cooldownKey = cooldownKey,
+            priority = 2,
+            source = "gameplay_action"
         )
     }
 
+    suspend fun markPendingInvitationIgnored(
+        timestampMs: Long = System.currentTimeMillis()
+    ) {
+        if (pendingInvitationUntilMs <= 0L) {
+            return
+        }
+        eventBus.publish(
+            EventEnvelope.create(
+                type = EventType.PET_INVITATION_IGNORED,
+                timestampMs = timestampMs
+            )
+        )
+        invitationIgnoredCount++
+        pendingInvitationUntilMs = 0L
+    }
+
     suspend fun publishVoiceCommandAudioFeedback(intent: AudioIntent): Boolean {
+        if (isBehaviorExperienceAuthoritative) {
+            Log.d(
+                VOICE_FEEDBACK_TAG,
+                "Skipped direct voice audio feedback in behavior-authoritative mode; " +
+                    "behavior loop owns audio reaction. intent=${intent.name}"
+            )
+            return false
+        }
         val category = when (intent) {
             AudioIntent.WAKE_UP -> AudioCategory.ACKNOWLEDGMENT
             AudioIntent.LEARN_PERSON -> AudioCategory.ACKNOWLEDGMENT
@@ -1521,31 +1929,34 @@ fun PetBrainApp() {
         } ?: return false
 
         val timestampMs = System.currentTimeMillis()
-        return runCatching {
-            eventBus.publish(
-                EventEnvelope.create(
-                    type = EventType.AUDIO_RESPONSE_REQUESTED,
-                    timestampMs = timestampMs,
-                    payloadJson = AudioResponseRequestPayload(
-                        category = category.label,
-                        priority = 3,
-                        interruptPolicy = "INTERRUPT_NONE",
-                        cooldownKey = "voice_cmd_${intent.name.lowercase()}",
-                        timestamp = timestampMs
-                    ).toJson()
-                )
+        val suppressionReason = runCatching {
+            publishAudioResponseRequestWithRuntimeGuards(
+                category = category,
+                timestampMs = timestampMs,
+                cooldownKey = "voice_cmd_${intent.name.lowercase()}",
+                priority = 3,
+                source = "voice_command"
             )
-        }.onSuccess {
+        }.getOrElse { error ->
+            Log.w(
+                VOICE_FEEDBACK_TAG,
+                "Voice feedback failed. intent=${intent.name}, category=${category.label}, reason=${error.message}"
+            )
+            return false
+        }
+        return if (suppressionReason == null) {
             Log.d(
                 VOICE_FEEDBACK_TAG,
                 "Voice feedback queued. intent=${intent.name}, category=${category.label}"
             )
-        }.onFailure { error ->
-            Log.w(
+            true
+        } else {
+            Log.d(
                 VOICE_FEEDBACK_TAG,
-                "Voice feedback skipped. intent=${intent.name}, category=${category.label}, reason=${error.message}"
+                "Voice feedback suppressed. intent=${intent.name}, category=${category.label}, reason=$suppressionReason"
             )
-        }.isSuccess
+            false
+        }
     }
 
     suspend fun playVoiceCommandAvatarReaction(intent: AudioIntent): Boolean {
@@ -1553,6 +1964,14 @@ fun PetBrainApp() {
             Log.d(
                 VOICE_AVATAR_TAG,
                 "Skipped voice avatar reaction due to active teach flow. intent=${intent.name}"
+            )
+            return false
+        }
+        if (isBehaviorExperienceAuthoritative) {
+            Log.d(
+                VOICE_AVATAR_TAG,
+                "Skipped direct voice avatar reaction in behavior-authoritative mode; " +
+                    "behavior loop owns avatar reaction. intent=${intent.name}"
             )
             return false
         }
@@ -1673,24 +2092,28 @@ fun PetBrainApp() {
         if (isBehaviorExperienceAuthoritative) {
             behaviorDrivenIntent = null
         }
-        transientReactionIntent = TapReactionPresentationMapper.mapToAvatarIntent(
-            resultingEmotion = resolvedInteraction.emotion,
-            interactionType = interactionType
-        )
-        petAnimator.syncInputFrame(
-            animationInputMapper.mapFrame(
-                state = resolvedInteraction.state,
-                emotion = resolvedInteraction.emotion,
-                conditions = resolvedInteraction.conditions,
-                traits = resolvedInteraction.traits
+        queueTransientReaction(
+            intent = TapReactionPresentationMapper.mapToAvatarIntent(
+                resultingEmotion = resolvedInteraction.emotion,
+                interactionType = interactionType
             )
         )
-        petAnimator.playTrigger(
-            animationInputMapper.mapInteractionTrigger(
-                interactionType = interactionType,
-                decision = resolvedInteraction.decision
+        if (!isBehaviorExperienceAuthoritative) {
+            petAnimator.syncInputFrame(
+                animationInputMapper.mapFrame(
+                    state = resolvedInteraction.state,
+                    emotion = resolvedInteraction.emotion,
+                    conditions = resolvedInteraction.conditions,
+                    traits = resolvedInteraction.traits
+                )
             )
-        )
+            petAnimator.playTrigger(
+                animationInputMapper.mapInteractionTrigger(
+                    interactionType = interactionType,
+                    decision = resolvedInteraction.decision
+                )
+            )
+        }
         if (!isBehaviorExperienceAuthoritative) {
             publishGameplayAudioResponse(
                 category = PetGameplayAudioMapper.categoryForInteraction(interactionType),
@@ -1826,24 +2249,28 @@ fun PetBrainApp() {
             behaviorDrivenIntent = null
         }
         sessionInteractionTracker.recordInteraction()
-        transientReactionIntent = ActivityReactionPresentationMapper.mapToAvatarIntent(
-            activityType = resolvedActivity.result.activityType,
-            resultingEmotion = resolvedActivity.emotion
-        )
-        petAnimator.syncInputFrame(
-            animationInputMapper.mapFrame(
-                state = resolvedActivity.result.updatedState,
-                emotion = resolvedActivity.emotion,
-                conditions = resolvedActivity.conditions,
-                traits = resolvedActivity.traits
-            )
-        )
-        petAnimator.playTrigger(
-            animationInputMapper.mapActivityTrigger(
+        queueTransientReaction(
+            intent = ActivityReactionPresentationMapper.mapToAvatarIntent(
                 activityType = resolvedActivity.result.activityType,
-                decision = resolvedActivity.decision
+                resultingEmotion = resolvedActivity.emotion
             )
         )
+        if (!isBehaviorExperienceAuthoritative) {
+            petAnimator.syncInputFrame(
+                animationInputMapper.mapFrame(
+                    state = resolvedActivity.result.updatedState,
+                    emotion = resolvedActivity.emotion,
+                    conditions = resolvedActivity.conditions,
+                    traits = resolvedActivity.traits
+                )
+            )
+            petAnimator.playTrigger(
+                animationInputMapper.mapActivityTrigger(
+                    activityType = resolvedActivity.result.activityType,
+                    decision = resolvedActivity.decision
+                )
+            )
+        }
         if (!isBehaviorExperienceAuthoritative) {
             publishGameplayAudioResponse(
                 category = PetGameplayAudioMapper.categoryForActivity(resolvedActivity.result),
@@ -1936,12 +2363,12 @@ fun PetBrainApp() {
     // Placed here so onPlayRandom/onAcceptedAudioFeedback/onAcceptedAvatarReaction lambdas can
     // reference the local suspend functions defined above (Kotlin local functions require
     // declaration before use at the call site).
+    val latestCurrentScreenForAudioRule by rememberUpdatedState(currentScreen)
+    val latestTeachTargetForAudioRule by rememberUpdatedState(activeTeachTarget)
     val localAudioIntentCommandRule = remember(
         eventBus,
         brainInteractionLoop,
-        playWithPetUseCase,
-        currentScreen,
-        activeTeachTarget
+        playWithPetUseCase
         // brainStateSnapshot.currentState is intentionally excluded: currentBrainState reads
         // live state at call time, so including it would recreate and restart the observer
         // coroutine on every SLEEPY↔CURIOUS transition unnecessarily.
@@ -1952,13 +2379,14 @@ fun PetBrainApp() {
                 brainStateStore.currentSnapshot().currentState
             },
             isTeachPersonFlowActive = {
-                currentScreen == AppScreen.TeachPerson || activeTeachTarget is TeachUnknownTarget.UnknownFace
+                latestCurrentScreenForAudioRule == AppScreen.TeachPerson ||
+                    latestTeachTargetForAudioRule is TeachUnknownTarget.UnknownFace
             },
             isTeachObjectFlowActive = {
-                activeTeachTarget is TeachUnknownTarget.UnknownObject
+                latestTeachTargetForAudioRule is TeachUnknownTarget.UnknownObject
             },
             isExclusiveFlowActive = {
-                activeTeachTarget != null
+                latestTeachTargetForAudioRule != null
             },
             isPlayRandomEntryAvailable = { true },
             onWakeUp = { timestampMs ->
@@ -2004,52 +2432,54 @@ fun PetBrainApp() {
                         startupGreetingForVisual
                     },
                     latestAudioStimulus = latestAudioStimulus,
+                    latestAudioOutputStartedAtMs = latestAudioOutputStartedAtMs,
+                    invitationTriggerToken = invitationUiTriggerToken,
                     petState = currentPetState,
                     brainState = brainStateSnapshot.currentState,
                     onPetTap = {
-                        transientClearJobHolder[0]?.cancel()
-                        transientClearJobHolder[0] = coroutineScope.launch {
+                        coroutineScope.launch {
                             handlePetInteraction(
                                 interactionType = PetInteractionType.TAP,
                                 source = "home_pet_tap"
                             )
-                            kotlinx.coroutines.delay(TapReactionPresentationMapper.REACTION_DURATION_MS)
-                            transientReactionIntent = null
                         }
                     },
                     onPetLongPress = {
-                        transientClearJobHolder[0]?.cancel()
-                        transientClearJobHolder[0] = coroutineScope.launch {
+                        coroutineScope.launch {
                             handlePetInteraction(
                                 interactionType = PetInteractionType.LONG_PRESS,
                                 source = "home_pet_avatar_long_press"
                             )
-                            kotlinx.coroutines.delay(TapReactionPresentationMapper.REACTION_DURATION_MS)
-                            transientReactionIntent = null
                         }
                     },
                     onFeedPet = {
-                        transientClearJobHolder[0]?.cancel()
-                        transientClearJobHolder[0] = coroutineScope.launch {
+                        coroutineScope.launch {
                             handlePetActivity(feedPetUseCase)
-                            kotlinx.coroutines.delay(TapReactionPresentationMapper.REACTION_DURATION_MS)
-                            transientReactionIntent = null
                         }
                     },
                     onPlayWithPet = {
-                        transientClearJobHolder[0]?.cancel()
-                        transientClearJobHolder[0] = coroutineScope.launch {
+                        coroutineScope.launch {
                             handlePetActivity(playWithPetUseCase)
-                            kotlinx.coroutines.delay(TapReactionPresentationMapper.REACTION_DURATION_MS)
-                            transientReactionIntent = null
                         }
                     },
                     onLetPetRest = {
-                        transientClearJobHolder[0]?.cancel()
-                        transientClearJobHolder[0] = coroutineScope.launch {
+                        coroutineScope.launch {
                             handlePetActivity(letPetRestUseCase)
-                            kotlinx.coroutines.delay(TapReactionPresentationMapper.REACTION_DURATION_MS)
-                            transientReactionIntent = null
+                        }
+                    },
+                    onMiniGameCelebrate = {
+                        queueTransientReaction(
+                            intent = com.aipet.brain.ui.avatar.pixel.bridge.PixelPetAvatarIntent.GAME_CELEBRATE
+                        )
+                    },
+                    onMiniGameFail = {
+                        queueTransientReaction(
+                            intent = com.aipet.brain.ui.avatar.pixel.bridge.PixelPetAvatarIntent.GAME_FAIL
+                        )
+                    },
+                    onInvitationIgnored = {
+                        coroutineScope.launch {
+                            markPendingInvitationIgnored()
                         }
                     },
                     onNavigateToDebug = { currentScreenName = AppScreen.Debug.name },
@@ -2901,9 +3331,13 @@ private const val DEBUG_OBJECT_ALIAS_TAG = "ObjectAliasResolver"
 private const val DEBUG_STARTUP_TAG = "PetBrainStartup"
 private const val VOICE_FEEDBACK_TAG = "VoiceCmdFeedback"
 private const val VOICE_AVATAR_TAG = "VoiceCmdAvatar"
+private const val AUDIO_RUNTIME_TAG = "HomeAudioRuntime"
 private const val MAX_PET_NAME_LENGTH = 24
 private const val APP_OPEN_GREETING_WINDOW_MS = 3_000L
 private const val APP_OPEN_GREETING_DEDUPE_KEY = "app_open_greeting"
+private const val RESUME_EVOLUTION_MIN_ABSENCE_MS = 1_000L
+private const val RUNTIME_AUDIO_GLOBAL_MIN_INTERVAL_MS = 1_200L
+private const val RUNTIME_AUDIO_SAME_CATEGORY_MIN_INTERVAL_MS = 2_200L
 
 // Auto-learning: minimum recognition score (cosine similarity) before a live frame
 // embedding is added to the person's profile automatically.
@@ -2956,6 +3390,31 @@ private fun rotateBitmapForPortrait(bitmap: Bitmap, cameraRotation: Int): Bitmap
     return rotated
 }
 
+private data class RuntimeRehydrateSnapshot(
+    val profile: PetProfile,
+    val state: PetState,
+    val emotion: PetEmotion,
+    val traits: PetTrait,
+    val conditions: Set<PetCondition>,
+    val absenceBucket: com.aipet.brain.brain.pet.AbsenceBucket,
+    val relationshipStage: com.aipet.brain.brain.pet.RelationshipStage,
+    val dayBoundaryType: PetDayBoundaryType,
+    val summaryDate: java.time.LocalDate
+)
+
+private data class ResumeLifecycleSnapshot(
+    val profile: PetProfile,
+    val state: PetState,
+    val emotion: PetEmotion,
+    val traits: PetTrait,
+    val conditions: Set<PetCondition>,
+    val absenceBucket: com.aipet.brain.brain.pet.AbsenceBucket,
+    val relationshipStage: com.aipet.brain.brain.pet.RelationshipStage,
+    val dayBoundaryType: PetDayBoundaryType,
+    val summaryDate: java.time.LocalDate,
+    val decayPayload: com.aipet.brain.brain.events.PetStateDecayAppliedPayload
+)
+
 private data class StartupPetSnapshot(
     val profile: PetProfile,
     val state: PetState,
@@ -2968,7 +3427,8 @@ private data class StartupPetSnapshot(
     val dayBoundaryType: PetDayBoundaryType,
     val summaryDate: java.time.LocalDate,
     val absenceBucket: com.aipet.brain.brain.pet.AbsenceBucket = com.aipet.brain.brain.pet.AbsenceBucket.SHORT_RETURN,
-    val relationshipStage: com.aipet.brain.brain.pet.RelationshipStage = com.aipet.brain.brain.pet.RelationshipStage.STRANGER
+    val relationshipStage: com.aipet.brain.brain.pet.RelationshipStage = com.aipet.brain.brain.pet.RelationshipStage.STRANGER,
+    val evolutionAbsenceMs: Long = 0L
 )
 
 private data class InteractionAppliedSnapshot(

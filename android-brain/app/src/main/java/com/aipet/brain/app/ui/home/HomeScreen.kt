@@ -16,14 +16,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.aipet.brain.app.behavior.experience.TalkDirective
-import com.aipet.brain.app.gameplay.GameInvitationPolicy
 import com.aipet.brain.brain.logic.audio.AudioStimulus
 import com.aipet.brain.brain.logic.audio.KeywordStimulus
 import com.aipet.brain.brain.logic.audio.SoundStimulus
@@ -33,7 +31,6 @@ import com.aipet.brain.brain.pet.PetGreetingReaction
 import com.aipet.brain.brain.pet.PetState
 import com.aipet.brain.brain.state.BrainState
 import com.aipet.brain.ui.avatar.pixel.bridge.PixelPetBridgeState
-import kotlinx.coroutines.delay
 
 /**
  * Full-screen pet stage � the redesigned Looi-like Home experience.
@@ -62,6 +59,8 @@ fun HomeScreen(
     isBehaviorExperienceAuthoritative: Boolean,
     appOpenGreeting: PetGreetingReaction?,
     latestAudioStimulus: AudioStimulus?,
+    latestAudioOutputStartedAtMs: Long,
+    invitationTriggerToken: Long,
     petState: PetState? = null,
     brainState: BrainState = BrainState.IDLE,
     onPetTap: () -> Unit,
@@ -69,11 +68,19 @@ fun HomeScreen(
     onFeedPet: () -> Unit,
     onPlayWithPet: () -> Unit,
     onLetPetRest: () -> Unit,
+    onMiniGameCelebrate: () -> Unit,
+    onMiniGameFail: () -> Unit,
+    onInvitationIgnored: () -> Unit,
     onNavigateToDebug: () -> Unit,
     onNavigateToDiary: () -> Unit
 ) {
     // -- Reaction controller (H4-04/05, H5, H6, H7) ---------------------------
     val reactionController = remember { PetReactionController() }
+    LaunchedEffect(latestAudioOutputStartedAtMs) {
+        if (latestAudioOutputStartedAtMs > 0L) {
+            reactionController.recordAudioOutput(latestAudioOutputStartedAtMs)
+        }
+    }
     // -- Scene FX (H10) — declared early so all LaunchedEffects can reference it --
     var activeFx by remember { mutableStateOf<HomeFxType?>(null) }
     // H5: Greeting reaction � injected once when app-open greeting arrives
@@ -145,39 +152,32 @@ fun HomeScreen(
     }
 
     // -- Mini-game (H12) -------------------------------------------------------
-    val invitationPolicy = remember { GameInvitationPolicy() }
     val sparkController = rememberSparkGameController(
         onWin = {
             activeFx = HomeFxType.HEARTS
-            reactionController.triggerGameCelebrate()
-            invitationPolicy.recordGameCompleted(System.currentTimeMillis())
+            if (isBehaviorExperienceAuthoritative) {
+                onMiniGameCelebrate()
+            } else {
+                reactionController.triggerGameCelebrate()
+            }
         },
         onFail = {
-            reactionController.triggerGameFail()
-            invitationPolicy.recordGameCompleted(System.currentTimeMillis())
+            if (isBehaviorExperienceAuthoritative) {
+                onMiniGameFail()
+            } else {
+                reactionController.triggerGameFail()
+            }
         },
         onInviteIgnored = {
-            invitationPolicy.recordInviteIgnored()
+            onInvitationIgnored()
         }
     )
 
-    // Autonomous invitation loop — checks eligibility every 30s
-    val latestConditions by rememberUpdatedState(homeUiModel.currentConditions)
-    val latestBrainState by rememberUpdatedState(brainState)
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(INVITATION_CHECK_INTERVAL_MS)
-            val nowMs = System.currentTimeMillis()
-            if (invitationPolicy.isEligible(
-                    nowMs = nowMs,
-                    gamePhase = sparkController.state.phase,
-                    petConditions = latestConditions,
-                    brainState = latestBrainState
-                )
-            ) {
-                invitationPolicy.recordInvitationSent(nowMs)
-                sparkController.startInvite()
-            }
+    // Invitation ownership is app-runtime driven. Home only renders invite state
+    // when the runtime emits a new invitation trigger.
+    LaunchedEffect(invitationTriggerToken) {
+        if (invitationTriggerToken > 0L && sparkController.state.phase == SparkGamePhase.INACTIVE) {
+            sparkController.startInvite()
         }
     }
 
@@ -216,7 +216,6 @@ fun HomeScreen(
             onTap = {
                 if (sparkController.state.phase == SparkGamePhase.INVITE) {
                     // User accepted the pet's invitation — start game immediately
-                    invitationPolicy.resetIgnoreStreak()
                     onPlayWithPet()
                     sparkController.acceptInvite()
                 } else if (homeInteractionUiState.canTapPet) {
@@ -311,7 +310,6 @@ fun HomeScreen(
                 },
                 onPlayWithPet = {
                     showMenuSheet = false
-                    invitationPolicy.recordManualGameStarted(System.currentTimeMillis())
                     onPlayWithPet()
                     sparkController.startGame()
                 },
@@ -326,5 +324,3 @@ fun HomeScreen(
 
 // Energy threshold for loud-sound surprise reaction (empirically tuned for typical env noise)
 private const val LOUD_SOUND_ENERGY_THRESHOLD = 0.55
-// How often the autonomous invitation eligibility is checked
-private const val INVITATION_CHECK_INTERVAL_MS = 30_000L

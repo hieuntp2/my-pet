@@ -11,6 +11,7 @@ import com.aipet.brain.brain.b2.domain.RecentMemorySummary
 import com.aipet.brain.brain.b2.domain.RelationshipState
 import com.aipet.brain.brain.b2.domain.SessionContext
 import com.aipet.brain.brain.b2.domain.WorkingContext
+import com.aipet.brain.brain.evolution.EvolutionContext
 import com.aipet.brain.brain.fusion.PerceptionFusionRepository
 import com.aipet.brain.brain.pet.PetCondition
 import com.aipet.brain.brain.pet.PetState
@@ -81,7 +82,8 @@ class BehaviorEngine(
         recognizedPersonFamiliarity: Float?,
         recentInteractionCount: Int,
         sessionAbsenceMs: Long,
-        recentMemory: RecentMemorySummary
+        recentMemory: RecentMemorySummary,
+        evolutionContext: EvolutionContext? = null
     ): BehaviorPlan {
         return lock.withLock {
             val nowMs = nowProvider()
@@ -110,7 +112,8 @@ class BehaviorEngine(
                 currentBehavior = current,
                 session = session,
                 cooldowns = cooldowns,
-                snapshotAtMs = nowMs
+                snapshotAtMs = nowMs,
+                evolutionContext = evolutionContext
             )
 
             val candidates = scorer.score(ctx)

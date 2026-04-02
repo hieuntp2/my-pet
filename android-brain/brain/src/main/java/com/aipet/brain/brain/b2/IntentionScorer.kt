@@ -426,27 +426,24 @@ class IntentionScorer {
      */
     private fun evolutionModifier(intention: PetIntention, evo: EvolutionContext?): Float {
         if (evo == null) return 0f
+
         val bond = evo.bond
         val dayPhase = evo.dayPhase
         val reunionType = evo.reunionType
-        val habit = evo.habitProfile
         val modifiers = evo.lifecycleModifiers
-        val recentEpisodes = evo.recentEpisodes
+        val signals = extractEvolutionSignals(evo)
 
-        val recentNeglect = recentEpisodes.any { it.neglectSignal }
-        val recentGoodCare = recentEpisodes.any { it.careScoreDelta > 5 }
-
-        return when (intention) {
+        val delta = when (intention) {
             PetIntention.SEEK_ATTENTION -> {
                 // High dependency and expectation increase seeking behavior
                 val dependencyBoost = bond.dependency * 0.15f
-                val neglectBoost = if (recentNeglect) 0.1f else 0f
+                val neglectBoost = if (signals.recentNeglect) 0.1f else 0f
                 dependencyBoost + neglectBoost
             }
             PetIntention.INVITE_PLAY -> {
                 // Playfulness and positive care enable play invitations more readily
                 val initiativeBoost = modifiers.initiativeBias * 0.12f
-                val goodCareBoost = if (recentGoodCare) 0.08f else 0f
+                val goodCareBoost = if (signals.recentGoodCare) 0.08f else 0f
                 val nightSuppression = if (dayPhase == DayPhase.NIGHT) -0.2f else 0f
                 initiativeBoost + goodCareBoost + nightSuppression
             }
@@ -458,18 +455,18 @@ class IntentionScorer {
             }
             PetIntention.RECOVER -> {
                 // After neglect or long absence, recovery intention is more natural
-                val neglectSignal = if (recentNeglect || reunionType == ReunionType.LONG_ABSENCE) 0.15f else 0f
+                val neglectSignal =
+                    if (signals.recentNeglect || reunionType == ReunionType.LONG_ABSENCE) 0.15f else 0f
                 val trustDeficit = (1f - bond.trust) * 0.1f
                 neglectSignal + trustDeficit
             }
             PetIntention.WITHDRAW -> {
                 // Low stability increases withdrawal tendency
-                val instabilityFactor = (1f - bond.stability) * 0.1f
-                instabilityFactor
+                (1f - bond.stability) * 0.1f
             }
             PetIntention.CELEBRATE -> {
                 // Strong bond and good recent care enable celebratory rare moments
-                if (bond.affection > 0.7f && bond.trust > 0.6f && recentGoodCare) 0.1f else 0f
+                if (bond.affection > 0.7f && bond.trust > 0.6f && signals.recentGoodCare) 0.1f else 0f
             }
             PetIntention.REST, PetIntention.DOZE -> {
                 // Night phase increases rest preference
@@ -480,6 +477,26 @@ class IntentionScorer {
                 if (dayPhase == DayPhase.MORNING) 0.08f else 0f
             }
             else -> 0f
-        }.coerceIn(-0.3f, 0.3f)
+        }
+        return delta.coerceIn(EVOLUTION_DELTA_MIN, EVOLUTION_DELTA_MAX)
+    }
+
+    private fun extractEvolutionSignals(evo: EvolutionContext): EvolutionSignals {
+        val recentEpisodes = evo.recentEpisodes
+        return EvolutionSignals(
+            recentNeglect = recentEpisodes.any { it.neglectSignal },
+            recentGoodCare = recentEpisodes.any { it.careScoreDelta > RECENT_GOOD_CARE_THRESHOLD }
+        )
+    }
+
+    private data class EvolutionSignals(
+        val recentNeglect: Boolean,
+        val recentGoodCare: Boolean
+    )
+
+    private companion object {
+        const val EVOLUTION_DELTA_MIN = -0.3f
+        const val EVOLUTION_DELTA_MAX = 0.3f
+        const val RECENT_GOOD_CARE_THRESHOLD = 5
     }
 }

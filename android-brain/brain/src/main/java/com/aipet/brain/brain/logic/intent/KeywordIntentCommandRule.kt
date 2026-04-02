@@ -14,6 +14,7 @@ class KeywordIntentCommandRule(
     private val keywordIntentMapper: KeywordIntentMapper,
     private val audioResponseRequestEmitter: AudioResponseRequestEmitter,
     private val brainStateStore: BrainStateStore,
+    private val shouldEmitAudioResponse: () -> Boolean = { true },
     private val nowProvider: () -> Long = { System.currentTimeMillis() },
     private val intentCooldownMs: Long = DEFAULT_INTENT_COOLDOWN_MS
 ) {
@@ -83,6 +84,15 @@ class KeywordIntentCommandRule(
             command = command,
             eventTimestampMs = stimulus.timestampMs.takeIf { it > 0L } ?: nowMs
         )
+
+        if (!shouldEmitAudioResponse()) {
+            Log.d(
+                TAG,
+                "Skipped keyword response audio emission due to execution ownership. " +
+                    "intent=${command.intent.intentType.name}, keywordId=${command.intent.keywordId}"
+            )
+            return
+        }
 
         val emitted = audioResponseRequestEmitter.emitFromStimulus(
             AudioResponseRequestInput(

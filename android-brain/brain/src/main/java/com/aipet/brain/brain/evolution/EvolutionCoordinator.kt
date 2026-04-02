@@ -7,7 +7,6 @@ import com.aipet.brain.brain.events.EventType
 import com.aipet.brain.brain.events.PetActivityAppliedEventPayload
 import com.aipet.brain.brain.personality.PetTrait
 import com.aipet.brain.brain.personality.PetTraitRepository
-import com.aipet.brain.brain.pet.PetCondition
 import com.aipet.brain.brain.pet.PetEmotion
 import com.aipet.brain.brain.pet.PetMood
 import com.aipet.brain.brain.pet.PetState
@@ -17,6 +16,7 @@ import com.aipet.brain.brain.evolution.domain.EpisodeRepository
 import com.aipet.brain.brain.evolution.domain.MemoryEpisode
 import com.aipet.brain.brain.evolution.domain.UserHabitRepository
 import com.aipet.brain.brain.evolution.domain.SemanticMemoryRepository
+import com.aipet.brain.brain.evolution.domain.UserHabitProfile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -25,6 +25,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Central coordinator for all evolution system components.
@@ -49,6 +52,8 @@ class EvolutionCoordinator(
     private val nowProvider: () -> Long = { System.currentTimeMillis() }
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val groupingMutex = Mutex()
+    private val inactivityFinalizeInFlight = AtomicBoolean(false)
 
     private val groupingEngine = EpisodeGroupingEngine(
         summarizer = EpisodeSummarizer(),
@@ -66,81 +71,130 @@ class EvolutionCoordinator(
     private val _evolutionContext = MutableStateFlow<EvolutionContext?>(null)
     val evolutionContext: StateFlow<EvolutionContext?> = _evolutionContext.asStateFlow()
 
+    private data class AppOpenResolution(
+        val context: EvolutionContext,
+        val absenceMs: Long
+    )
+
+    /**
+     * Builds app-open evolution context without mutating runtime state.
+     * Use this before greeting resolution so greeting tone can depend on reunion/bond context.
+     */
+    suspend fun previewAppOpenContext(
+        petState: PetState,
+        petTraits: PetTrait?,
+        absenceMsOverride: Long? = null
+    ): EvolutionContext = resolveAppOpenContext(
+        petState = petState,
+        petTraits = petTraits,
+        absenceMsOverride = absenceMsOverride
+    ).context
+
     /**
      * Call when the app opens (app-open lifecycle trigger).
-     * Resolves reunion type, starts episode, and builds the evolution context.
+     * Resolves reunion type, starts episode, and publishes evolution context.
      */
-    fun onAppOpened(petState: PetState, petTraits: PetTrait?) {
+    fun onAppOpened(
+        petState: PetState,
+        petTraits: PetTrait?,
+        absenceMsOverride: Long? = null
+    ) {
         scope.launch(Dispatchers.IO) {
             runCatching {
-                val now = nowProvider()
-                val bond = bondRepository.load()
-                val habit = habitRepository.load()
-                val currentPhase = DayPhaseResolver.resolve(now)
-                val absenceMs = if (petState.lastOpenAt > 0) now - petState.lastOpenAt else 0L
-
-                val reunionType = reunionResolver.resolve(
-                    ReunionResolver.ReunionContext(
-                        absenceMs = absenceMs,
-                        bond = bond,
-                        habitProfile = habit,
-                        neglectStreak = petState.neglectStreak,
-                        careStreak = petState.careStreak,
-                        lastExpectedWindowDaypart = habit.strongestDaypart,
-                        currentDaypart = currentPhase.name,
-                        nowMs = now
-                    )
+                val resolution = resolveAppOpenContext(
+                    petState = petState,
+                    petTraits = petTraits,
+                    absenceMsOverride = absenceMsOverride
                 )
-                val expectation = expectationResolver.resolve(habit, currentPhase, absenceMs)
-
-                groupingEngine.onSessionStarted(reunionType.name)
-
-                val recentEpisodes = episodeRepository.loadRecent(20)
-                val lifecycleModifiers = LifecycleBaselineModifiers.for_(currentPhase)
-                val personalityProfile = petTraits?.let { DerivedPersonalityProfile.from(it) } ?: "unknown"
-
-                _evolutionContext.value = EvolutionContext(
-                    bond = bond,
-                    habitProfile = habit,
-                    dayPhase = currentPhase,
-                    reunionType = reunionType,
-                    expectationState = expectation,
-                    recentEpisodes = recentEpisodes,
-                    lifecycleModifiers = lifecycleModifiers,
-                    personalityProfile = personalityProfile
+                groupingMutex.withLock {
+                    groupingEngine.onSessionStarted(resolution.context.reunionType.name)
+                }
+                _evolutionContext.value = resolution.context
+                publishReunionEvent(
+                    reunionType = resolution.context.reunionType,
+                    absenceMs = resolution.absenceMs,
+                    bond = resolution.context.bond
                 )
-
-                publishReunionEvent(reunionType, absenceMs, bond)
-                Log.d(TAG, "App opened: reunionType=$reunionType phase=$currentPhase")
+                Log.d(
+                    TAG,
+                    "App opened: reunionType=${resolution.context.reunionType} phase=${resolution.context.dayPhase} absenceMs=${resolution.absenceMs}"
+                )
             }.onFailure { e ->
                 Log.e(TAG, "Error in onAppOpened", e)
             }
         }
     }
 
+    private suspend fun resolveAppOpenContext(
+        petState: PetState,
+        petTraits: PetTrait?,
+        absenceMsOverride: Long?
+    ): AppOpenResolution {
+        val now = nowProvider()
+        val bond = bondRepository.load()
+        val habit = habitRepository.load()
+        val currentPhase = DayPhaseResolver.resolve(now)
+        val absenceMs = absenceMsOverride
+            ?: if (petState.lastOpenAt > 0L) (now - petState.lastOpenAt).coerceAtLeast(0L) else 0L
+
+        val reunionType = reunionResolver.resolve(
+            ReunionResolver.ReunionContext(
+                absenceMs = absenceMs,
+                bond = bond,
+                habitProfile = habit,
+                neglectStreak = petState.neglectStreak,
+                careStreak = petState.careStreak,
+                lastExpectedWindowDaypart = habit.strongestDaypart,
+                currentDaypart = currentPhase.name,
+                nowMs = now
+            )
+        )
+        val expectation = expectationResolver.resolve(habit, currentPhase, absenceMs)
+        val recentEpisodes = episodeRepository.loadRecent(20)
+        val lifecycleModifiers = LifecycleBaselineModifiers.for_(currentPhase)
+        val personalityProfile = petTraits?.let { DerivedPersonalityProfile.from(it) } ?: "unknown"
+        val context = EvolutionContext(
+            bond = bond,
+            habitProfile = habit,
+            dayPhase = currentPhase,
+            reunionType = reunionType,
+            expectationState = expectation,
+            recentEpisodes = recentEpisodes,
+            lifecycleModifiers = lifecycleModifiers,
+            personalityProfile = personalityProfile
+        )
+        return AppOpenResolution(context = context, absenceMs = absenceMs)
+    }
+
     /** Record a pet event for the current episode. */
-    fun recordPetEvent(
+    private suspend fun recordPetEvent(
         emotion: PetEmotion,
         mood: PetMood,
         isInteraction: Boolean,
         interactionType: String? = null
     ) {
-        groupingEngine.recordEvent(
-            emotionName = emotion.name,
-            moodName = mood.name,
-            isInteraction = isInteraction,
-            interactionType = interactionType
-        )
+        groupingMutex.withLock {
+            groupingEngine.recordEvent(
+                emotionName = emotion.name,
+                moodName = mood.name,
+                isInteraction = isInteraction,
+                interactionType = interactionType
+            )
+        }
     }
 
     /** Record a care quality change for the current episode. */
-    fun recordCareChange(careScoreDelta: Int, bondDelta: Int) {
-        groupingEngine.recordCareChange(careScoreDelta, bondDelta)
+    private suspend fun recordCareChange(careScoreDelta: Int, bondDelta: Int) {
+        groupingMutex.withLock {
+            groupingEngine.recordCareChange(careScoreDelta, bondDelta)
+        }
     }
 
     /** Record a neglect signal for the current episode. */
-    fun recordNeglectSignal() {
-        groupingEngine.recordNeglectSignal()
+    private suspend fun recordNeglectSignal() {
+        groupingMutex.withLock {
+            groupingEngine.recordNeglectSignal()
+        }
     }
 
     /**
@@ -155,7 +209,7 @@ class EvolutionCoordinator(
         }
     }
 
-    private fun handleEventForEpisode(event: EventEnvelope) {
+    private suspend fun handleEventForEpisode(event: EventEnvelope) {
         when (event.type) {
             EventType.PET_FED -> {
                 val payload = PetActivityAppliedEventPayload.fromJson(event.payloadJson)
@@ -245,11 +299,11 @@ class EvolutionCoordinator(
     fun onSessionEnded(petState: PetState, traits: PetTrait?) {
         scope.launch(Dispatchers.IO) {
             runCatching {
-                val episode = groupingEngine.closeCurrentEpisode()
-                if (episode != null) {
-                    episodeRepository.save(episode)
-                    Log.d(TAG, "Episode saved: id=${episode.id} importance=${episode.importanceScore}")
-                    runPostSessionInference(episode, petState, traits)
+                finalizeClosedEpisode(
+                    petState = petState,
+                    traits = traits
+                ) {
+                    groupingEngine.closeCurrentEpisode()
                 }
             }.onFailure { e ->
                 Log.e(TAG, "Error in onSessionEnded", e)
@@ -257,9 +311,48 @@ class EvolutionCoordinator(
         }
     }
 
+    /**
+     * Finalizes an open episode only when inactivity timeout is reached.
+     * Safe to call periodically from the runtime loop.
+     */
+    fun finalizeEpisodeIfInactive(petState: PetState, traits: PetTrait?) {
+        if (!inactivityFinalizeInFlight.compareAndSet(false, true)) return
+        scope.launch(Dispatchers.IO) {
+            try {
+                runCatching {
+                    finalizeClosedEpisode(
+                        petState = petState,
+                        traits = traits
+                    ) {
+                        groupingEngine.closeCurrentEpisodeIfInactive()
+                    }
+                }.onFailure { e ->
+                    Log.e(TAG, "Error finalizing inactive episode", e)
+                }
+            } finally {
+                inactivityFinalizeInFlight.set(false)
+            }
+        }
+    }
+
+    private suspend fun finalizeClosedEpisode(
+        petState: PetState,
+        traits: PetTrait?,
+        closeEpisode: () -> MemoryEpisode?
+    ) {
+        val episode = groupingMutex.withLock {
+            closeEpisode()
+        } ?: return
+
+        episodeRepository.save(episode)
+        publishEpisodeSavedEvent(episode)
+        Log.d(TAG, "Episode saved: id=${episode.id} importance=${episode.importanceScore}")
+        runPostSessionInference(episode, petState, traits)
+    }
+
     private suspend fun runPostSessionInference(
         episode: MemoryEpisode,
-        petState: PetState,
+        _petState: PetState,
         traits: PetTrait?
     ) {
         val recentEpisodes = episodeRepository.loadRecent(20)
@@ -276,24 +369,31 @@ class EvolutionCoordinator(
         )
         val updatedBond = relationshipEngine.update(bond, sessionOutcome, recentEpisodes)
         bondRepository.save(updatedBond)
+        publishBondUpdatedEvent(updatedBond)
 
-        // Infer semantic facts
+        val semanticFactsBefore = semanticRepository.getAll()
         semanticInference.inferFromEpisodes(recentEpisodes)
+        val semanticFactsAfter = semanticRepository.getAll()
+        publishSemanticFactsUpdatedEvent(
+            beforeCount = semanticFactsBefore.size,
+            afterCount = semanticFactsAfter.size
+        )
 
-        // Update habit profile
         habitAggregator.updateFromEpisodes(recentEpisodes)
+        val updatedHabit = habitRepository.load()
+        publishHabitUpdatedEvent(updatedHabit)
 
-        // Evolve personality traits
+        var evolvedTraits: PetTrait? = null
         if (traits != null) {
-            val evolvedTraits = personalityEngine.evolve(traits, recentEpisodes)
+            evolvedTraits = personalityEngine.evolve(traits, recentEpisodes)
             if (evolvedTraits != traits) {
                 traitRepository.save(evolvedTraits)
+                publishTraitDriftedEvent(before = traits, after = evolvedTraits)
                 Log.d(TAG, "Personality traits evolved for petId=${traits.petId}")
             }
         }
 
         // Refresh context after inference
-        val updatedHabit = habitRepository.load()
         val ctx = _evolutionContext.value
         if (ctx != null) {
             _evolutionContext.value = ctx.copy(
@@ -303,8 +403,10 @@ class EvolutionCoordinator(
             )
         }
 
-        publishBondUpdatedEvent(updatedBond)
-        Log.d(TAG, "Post-session inference complete. bond=${updatedBond.label()}")
+        Log.d(
+            TAG,
+            "Post-session inference complete. bond=${updatedBond.label()} semanticFacts=${semanticFactsAfter.size} traitDrifted=${evolvedTraits != null && evolvedTraits != traits}"
+        )
     }
 
     private suspend fun publishReunionEvent(
@@ -326,6 +428,66 @@ class EvolutionCoordinator(
         eventBus.publish(
             EventEnvelope.create(
                 type = EventType.EVOLUTION_BOND_UPDATED,
+                payloadJson = payload
+            )
+        )
+    }
+
+    private suspend fun publishEpisodeSavedEvent(episode: MemoryEpisode) {
+        val payload = """
+            {
+              "episodeId":"${episode.id}",
+              "durationMs":${episode.durationMs},
+              "interactionCount":${episode.interactionCount},
+              "careScoreDelta":${episode.careScoreDelta},
+              "importanceScore":${episode.importanceScore}
+            }
+        """.trimIndent()
+        eventBus.publish(
+            EventEnvelope.create(
+                type = EventType.EVOLUTION_EPISODE_SAVED,
+                payloadJson = payload
+            )
+        )
+    }
+
+    private suspend fun publishSemanticFactsUpdatedEvent(beforeCount: Int, afterCount: Int) {
+        val payload = """{"beforeCount":$beforeCount,"afterCount":$afterCount}"""
+        eventBus.publish(
+            EventEnvelope.create(
+                type = EventType.EVOLUTION_SEMANTIC_FACTS_UPDATED,
+                payloadJson = payload
+            )
+        )
+    }
+
+    private suspend fun publishHabitUpdatedEvent(habit: UserHabitProfile) {
+        val payload =
+            """{"strongestDaypart":"${habit.strongestDaypart}","consistency":${habit.recentConsistencyScore},"avgSessionLengthMs":${habit.avgSessionLengthMs},"avgSessionsPerDay":${habit.avgSessionsPerDay}}"""
+        eventBus.publish(
+            EventEnvelope.create(
+                type = EventType.EVOLUTION_HABIT_UPDATED,
+                payloadJson = payload
+            )
+        )
+    }
+
+    private suspend fun publishTraitDriftedEvent(before: PetTrait, after: PetTrait) {
+        val payload = """
+            {
+              "petId":"${after.petId}",
+              "playfulDelta":${after.playful - before.playful},
+              "socialDelta":${after.social - before.social},
+              "curiousDelta":${after.curious - before.curious},
+              "attachmentDelta":${after.attachment - before.attachment},
+              "patienceDelta":${after.patience - before.patience},
+              "energyProfileDelta":${after.energyProfile - before.energyProfile},
+              "lazyDelta":${after.lazy - before.lazy}
+            }
+        """.trimIndent()
+        eventBus.publish(
+            EventEnvelope.create(
+                type = EventType.EVOLUTION_TRAIT_DRIFTED,
                 payloadJson = payload
             )
         )

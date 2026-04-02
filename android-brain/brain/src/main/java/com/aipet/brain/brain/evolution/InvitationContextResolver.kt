@@ -1,10 +1,9 @@
 package com.aipet.brain.brain.evolution
 
+import com.aipet.brain.brain.evolution.domain.BondStateV2
 import com.aipet.brain.brain.personality.PetTrait
 import com.aipet.brain.brain.pet.PetCondition
 import com.aipet.brain.brain.pet.PetState
-import com.aipet.brain.brain.evolution.domain.BondStateV2
-import com.aipet.brain.brain.evolution.domain.UserHabitProfile
 
 /**
  * Resolves what type of invitation the pet should emit, or whether to suppress entirely.
@@ -29,48 +28,28 @@ class InvitationContextResolver {
         conditions: Set<PetCondition>,
         traits: PetTrait?,
         bond: BondStateV2,
-        habitProfile: UserHabitProfile,
         dayPhase: DayPhase,
         reunionType: ReunionType,
         expectationState: ExpectedReturnWindowResolver.ExpectationState,
         ignoredCount: Int,
-        msSinceLastInvitation: Long,
-        nowMs: Long
+        msSinceLastInvitation: Long
     ): InvitationDecision {
-        // Hard cooldown
-        if (msSinceLastInvitation < HARD_COOLDOWN_MS) {
-            return suppressed("cooldown")
-        }
-
-        // Night suppression unless dependency is very high
-        if (dayPhase == DayPhase.NIGHT && bond.dependency < HIGH_DEPENDENCY_THRESHOLD) {
-            return suppressed("night_phase")
-        }
-
-        // Hard state suppression
-        if (conditions.contains(PetCondition.SLEEPY) || state.energy < MIN_ENERGY) {
-            return suppressed("sleepy_or_low_energy")
-        }
-        if (conditions.contains(PetCondition.OVERSTIMULATED)) {
-            return suppressed("overstimulated")
-        }
-        if (conditions.contains(PetCondition.DISTANT)) {
-            return suppressed("distant")
-        }
-
-        // Trust minimum — pet won't initiate if trust is very low
-        if (bond.trust < MIN_TRUST_TO_INVITE) {
-            return suppressed("trust_too_low")
+        val suppressionReason = resolveSuppressionReason(
+            state = state,
+            conditions = conditions,
+            bond = bond,
+            dayPhase = dayPhase,
+            msSinceLastInvitation = msSinceLastInvitation
+        )
+        if (suppressionReason != null) {
+            return suppressed(suppressionReason)
         }
 
         // Suppression from ignored invitations (confidence degrades)
-        val suppressionPenalty = when {
-            ignoredCount >= 4 -> return suppressed("ignored_too_many_times")
-            ignoredCount >= 3 -> 0.5f
-            ignoredCount >= 2 -> 0.3f
-            ignoredCount == 1 -> 0.1f
-            else -> 0f
+        if (ignoredCount >= InvitationSuppressionRules.HARD_SUPPRESSION_IGNORED_COUNT) {
+            return suppressed("ignored_too_many_times")
         }
+        val suppressionPenalty = InvitationSuppressionRules.penaltyForIgnoredCount(ignoredCount)
 
         val confidenceScore = computeConfidence(state, bond, traits, expectationState) - suppressionPenalty
         if (confidenceScore < MIN_CONFIDENCE_TO_INVITE) {
@@ -84,6 +63,41 @@ class InvitationContextResolver {
             suppressionReason = null,
             confidenceScore = confidenceScore
         )
+    }
+
+    private fun resolveSuppressionReason(
+        state: PetState,
+        conditions: Set<PetCondition>,
+        bond: BondStateV2,
+        dayPhase: DayPhase,
+        msSinceLastInvitation: Long
+    ): String? {
+        // Hard cooldown
+        if (msSinceLastInvitation < HARD_COOLDOWN_MS) {
+            return "cooldown"
+        }
+
+        // Night suppression unless dependency is very high
+        if (dayPhase == DayPhase.NIGHT && bond.dependency < HIGH_DEPENDENCY_THRESHOLD) {
+            return "night_phase"
+        }
+
+        // Hard state suppression
+        if (conditions.contains(PetCondition.SLEEPY) || state.energy < MIN_ENERGY) {
+            return "sleepy_or_low_energy"
+        }
+        if (conditions.contains(PetCondition.OVERSTIMULATED)) {
+            return "overstimulated"
+        }
+        if (conditions.contains(PetCondition.DISTANT)) {
+            return "distant"
+        }
+
+        // Trust minimum: pet will not initiate if trust is very low
+        if (bond.trust < MIN_TRUST_TO_INVITE) {
+            return "trust_too_low"
+        }
+        return null
     }
 
     private fun computeConfidence(
@@ -116,7 +130,7 @@ class InvitationContextResolver {
         }
         // Night / low energy: quiet
         if (dayPhase == DayPhase.NIGHT) return InvitationIntentType.QUIET_PRESENCE
-        // Expectant — waiting was fulfilled
+        // Expectant: waiting was fulfilled
         if (expectationState == ExpectedReturnWindowResolver.ExpectationState.ON_TIME &&
             bond.dependency > 0.5f
         ) {

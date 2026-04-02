@@ -169,13 +169,7 @@ class EvolutionBehaviorScorer(
 
     private fun computeSuppressionPenalty(ctx: ScoringContext, cat: BehaviorCategory): Float {
         if (cat != BehaviorCategory.INVITATION) return 0f
-        val ignoredCount = ctx.invitationIgnoredCount
-        return when {
-            ignoredCount >= 3 -> 0.5f
-            ignoredCount == 2 -> 0.3f
-            ignoredCount == 1 -> 0.1f
-            else -> 0f
-        }
+        return InvitationSuppressionRules.penaltyForIgnoredCount(ctx.invitationIgnoredCount)
     }
 
     private fun computeCooldownPenalty(ctx: ScoringContext, cat: BehaviorCategory): Float {

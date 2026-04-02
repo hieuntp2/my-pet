@@ -108,6 +108,8 @@ internal fun PersonsScreen(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
+
+
             .testTag(PersonsTestTags.PERSONS_SCREEN_ROOT)
     ) {
         Text(text = "Persons", style = MaterialTheme.typography.headlineSmall)

@@ -118,7 +118,7 @@ class BehaviorExperienceBinder(
             else -> null
         } ?: return null
 
-        val cooldownKey = "behavior_${plan.intention.name.lowercase()}_${category.name.lowercase()}"
+        val cooldownKey = "behavior_audio_${category.name.lowercase()}"
         return AudioDirective(
             category = category,
             cooldownKey = cooldownKey,
