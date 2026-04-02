@@ -12,7 +12,8 @@ import kotlinx.coroutines.flow.collect
 
 internal class AudioResponseDispatcher(
     private val eventBus: EventBus,
-    private val playbackEngine: AudioPlaybackEngine
+    private val playbackEngine: AudioPlaybackEngine,
+    private val isSoundEnabled: () -> Boolean = { true }
 ) {
     suspend fun observeRequestsAndDispatch() {
         eventBus.observe().collect { event ->
@@ -62,6 +63,20 @@ internal class AudioResponseDispatcher(
                 "interruptPolicy=${request.interruptPolicy ?: "-"}, " +
                 "cooldownKey=${request.cooldownKey ?: "-"}"
         )
+
+        if (!isSoundEnabled()) {
+            Log.d(
+                TAG,
+                "Suppressed ${EventType.AUDIO_RESPONSE_REQUESTED.name} because pet sound is disabled. " +
+                    "eventId=${event.eventId}, category=${request.category}"
+            )
+            publishDispatcherSkippedEvent(
+                requestEvent = event,
+                rawCategory = request.category,
+                reason = DispatcherSkipReason.SOUND_DISABLED
+            )
+            return
+        }
 
         val playbackResult = playbackEngine.playRandomClipWithDetails(
             category = category,
@@ -132,5 +147,6 @@ internal class AudioResponseDispatcher(
 
 private enum class DispatcherSkipReason {
     MALFORMED_REQUEST,
-    UNKNOWN_CATEGORY
+    UNKNOWN_CATEGORY,
+    SOUND_DISABLED
 }

@@ -112,6 +112,7 @@ import com.aipet.brain.app.ui.traits.TraitsScreen
 import com.aipet.brain.app.settings.CameraSelection
 import com.aipet.brain.app.settings.CameraSelectionStore
 import com.aipet.brain.app.settings.KeywordSpottingConfigStore
+import com.aipet.brain.app.settings.PetSoundSettingsStore
 import com.aipet.brain.brain.events.CameraFrameReceivedPayload
 import com.aipet.brain.brain.events.CandidatePersonReadyForTeachPayload
 import com.aipet.brain.brain.events.CareActionAppliedPayload
@@ -248,6 +249,7 @@ fun PetBrainApp() {
     var hasAppliedAppOpenLifecycle by rememberSaveable { mutableStateOf(false) }
     var teachSessionId by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }
     var petNameDraft by rememberSaveable { mutableStateOf(PetProfileRepository.DEFAULT_PET_NAME) }
+    var isResettingPetData by rememberSaveable { mutableStateOf(false) }
     val currentScreen = currentScreenName.toAppScreen()
     val avatarDebugEnabled = BuildConfig.DEBUG
     val resolvedScreen = if (currentScreen == AppScreen.AvatarDebug && !avatarDebugEnabled) {
@@ -433,6 +435,11 @@ fun PetBrainApp() {
             eventBus = eventBus
         )
     }
+    val petSoundSettingsStore = remember(appContext) {
+        PetSoundSettingsStore.create(appContext)
+    }
+    val isPetSoundEnabled by petSoundSettingsStore.soundEnabled.collectAsState(initial = true)
+    val latestSoundEnabled by rememberUpdatedState(isPetSoundEnabled)
     val audioPlaybackEngine = remember(appContext, eventBus) {
         AudioPlaybackEngine(
             context = appContext,
@@ -442,7 +449,8 @@ fun PetBrainApp() {
     val audioResponseDispatcher = remember(eventBus, audioPlaybackEngine) {
         AudioResponseDispatcher(
             eventBus = eventBus,
-            playbackEngine = audioPlaybackEngine
+            playbackEngine = audioPlaybackEngine,
+            isSoundEnabled = { latestSoundEnabled }
         )
     }
     val personSeenEventPublisher = remember(eventBus) {
@@ -1018,8 +1026,12 @@ fun PetBrainApp() {
         petGreetingResolver,
         petDayBoundaryResolver,
         eventBus,
-        hasAppliedAppOpenLifecycle
+        hasAppliedAppOpenLifecycle,
+        isResettingPetData
     ) {
+        if (isResettingPetData) {
+            return@LaunchedEffect
+        }
         val hasHydratedRuntimeState =
             currentPetState != null &&
                 activePetProfile != null &&
@@ -1895,6 +1907,67 @@ fun PetBrainApp() {
         )
     }
 
+    suspend fun resetPetDataToFreshState() {
+        if (isResettingPetData) {
+            return
+        }
+        isResettingPetData = true
+        try {
+            transientClearJobHolder[0]?.cancel()
+            transientReactionIntent = null
+            transientReactionActiveUntilMs = 0L
+            behaviorDrivenIntent = null
+            behaviorTalkDirective = null
+            behaviorExperienceDebugState = BehaviorExperienceDebugState.EMPTY
+            appOpenGreeting = null
+            activeAppOpenGreeting = null
+            activeAppOpenGreetingExpiresAtMs = 0L
+            latestAudioOutputStartedAtMs = 0L
+            lastAudioRequestDispatchAtMs = 0L
+            lastAudioRequestDispatchCategory = null
+            pendingInvitationUntilMs = 0L
+            invitationIgnoredCount = 0
+            invitationUiTriggerToken = 0L
+            lastInvitationMs = 0L
+            lastLifecycleStopAtMs = 0L
+            latestEvent = null
+            latestOwnerSeenEvent = null
+            latestOwnerGreetingEvent = null
+            recognizedPersonLabel = null
+            recognitionProbeSummary = "not_run"
+            activeTeachTarget = null
+            perceptionLookingUntilMs = 0L
+            perceptionAskingUntilMs = 0L
+            currentPetState = null
+            currentPetEmotion = PetEmotion.IDLE
+            currentPetTraits = null
+            currentPetConditions = emptySet()
+            currentAbsenceBucket = null
+            currentGreetingStyle = null
+            currentRelationshipStage = null
+            currentDayBoundaryType = null
+            currentSummaryDate = java.time.LocalDate.now()
+            homeInteractionFeedback = null
+            latestBehaviorDecisionSource = null
+            latestBehaviorDecision = null
+            petNameDraft = PetProfileRepository.DEFAULT_PET_NAME
+            activePetProfile = null
+            editingPersonId = null
+            selectedPersonId = null
+            currentScreenName = AppScreen.Home.name
+            hasAppliedAppOpenLifecycle = false
+            sessionInteractionTracker.resetForNewSession()
+            petIntentionExecutor.resetRuntimeState()
+            withContext(Dispatchers.IO) {
+                database.clearAllTables()
+                petOnboardingStore.clear()
+            }
+            teachSessionId = UUID.randomUUID().toString()
+        } finally {
+            isResettingPetData = false
+        }
+    }
+
     suspend fun markPendingInvitationIgnored(
         timestampMs: Long = System.currentTimeMillis()
     ) {
@@ -2708,9 +2781,21 @@ fun PetBrainApp() {
 
                 AppScreen.Settings -> SettingsScreen(
                     selectedCamera = selectedCamera,
+                    soundEnabled = isPetSoundEnabled,
+                    isResetInProgress = isResettingPetData,
                     onSelectCamera = { selection ->
                         coroutineScope.launch {
                             cameraSelectionStore.setSelectedCamera(selection)
+                        }
+                    },
+                    onSoundEnabledChange = { enabled ->
+                        coroutineScope.launch {
+                            petSoundSettingsStore.setSoundEnabled(enabled)
+                        }
+                    },
+                    onResetPetData = {
+                        coroutineScope.launch {
+                            resetPetDataToFreshState()
                         }
                     },
                     onNavigateBack = { currentScreenName = AppScreen.Debug.name }
