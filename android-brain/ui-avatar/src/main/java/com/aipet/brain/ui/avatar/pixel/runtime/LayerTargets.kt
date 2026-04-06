@@ -1,4 +1,4 @@
-package com.aipet.brain.ui.avatar.pixel.runtime
+﻿package com.aipet.brain.ui.avatar.pixel.runtime
 
 /**
  * Normalized floating-point targets for each animation layer.
@@ -25,10 +25,12 @@ internal data class LayerTargets(
  * Additive modifiers that state leakage applies continuously on top of beat targets.
  */
 internal data class LayerLeakModifiers(
-    /** Added to topLid targets (sleepiness → drooped lids). */
+    /** Added to topLid targets (sleepiness -> drooped lids). */
     val topLidAdd: Float = 0f,
-    /** Added to brow Y targets (hunger/lonely → concerned brow). */
+    /** Added to brow Y targets (hunger/lonely -> concerned brow). */
     val browYAdd: Float = 0f,
-    /** Multiplies all transition speeds (low energy / sleepiness → sluggish motion). */
+    /** Minimum warmth floor from long-term bond and social comfort. */
+    val browWarmthFloor: Float = 0f,
+    /** Multiplies all transition speeds (low energy / sleepiness -> sluggish motion). */
     val speedMultiplier: Float = 1f
 )

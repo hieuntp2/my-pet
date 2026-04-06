@@ -121,7 +121,8 @@ fun HomeScreen(
         appOpenGreeting = appOpenGreeting,
         feedbackMessage = homeInteractionUiState.feedbackMessage,
         feedbackToken = homeInteractionUiState.feedbackToken,
-        conditions = homeUiModel.currentConditions
+        conditions = homeUiModel.currentConditions,
+        todaySummary = homeUiModel.todaySummary
     )
 
 

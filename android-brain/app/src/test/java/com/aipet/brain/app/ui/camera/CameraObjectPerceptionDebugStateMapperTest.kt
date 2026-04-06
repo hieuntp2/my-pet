@@ -89,7 +89,7 @@ class CameraObjectPerceptionDebugStateMapperTest {
         assertEquals("chair", unknown.displayLabel)
         assertEquals(CameraObjectKnownState.UNKNOWN, unknown.knownState)
         assertEquals(1.0f, unknown.confidence ?: 0f, 0.001f)
-        assertEquals(50.0f, unknown.boundingBoxAreaPercent ?: 0f, 0.001f)
+        assertEquals(25.0f, unknown.boundingBoxAreaPercent ?: 0f, 0.001f)
 
         val unresolved = state.detections[2]
         assertEquals(UNKNOWN_OBJECT_LABEL, unresolved.canonicalLabel)

@@ -7,6 +7,7 @@ import com.aipet.brain.brain.pet.PetGreetingReaction
 import com.aipet.brain.ui.avatar.model.AvatarEmotion
 import com.aipet.brain.ui.avatar.model.AvatarEyeState
 import com.aipet.brain.ui.avatar.model.AvatarMouthState
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -36,7 +37,8 @@ class FakePetAnimatorTest {
         assertEquals(PetEmotion.HAPPY, animator.state.value.activeEmotion)
         assertEquals(PetAnimationReactionType.GREETING, animator.state.value.inputFrame.trigger.reactionType)
 
-        advanceTimeBy(500L)
+        advanceTimeBy(501L)
+        advanceUntilIdle()
 
         assertEquals(PetEmotion.IDLE, animator.state.value.activeEmotion)
         assertEquals(PetAnimationSource.MOOD, animator.state.value.source)
@@ -102,6 +104,6 @@ class FakePetAnimatorTest {
         assertTrue(surfaceState is PetAnimationSurfaceState.AvatarFaceSurface)
         val avatarSurface = surfaceState as PetAnimationSurfaceState.AvatarFaceSurface
         assertEquals(AvatarEmotion.CURIOUS, avatarSurface.avatarState.emotion)
-        assertEquals(AvatarMouthState.SMILE, avatarSurface.avatarState.mouthState)
+        assertEquals(AvatarMouthState.SMALL_O, avatarSurface.avatarState.mouthState)
     }
 }

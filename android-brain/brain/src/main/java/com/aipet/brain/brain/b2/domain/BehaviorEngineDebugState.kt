@@ -8,6 +8,7 @@ data class BehaviorEngineDebugState(
     val activePlanId: String,
     val activePlanLabel: String,
     val topCandidates: List<IntentionCandidateDebugEntry>,
+    val recentMemory: RecentMemorySummary,
     val emotionMomentum: EmotionMomentum,
     val relationshipState: RelationshipState,
     val cooldownState: CooldownState,

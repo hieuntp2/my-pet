@@ -22,6 +22,7 @@ class FrameAnalyzer(
     private val onDiagnostics: ((FrameDiagnostics) -> Unit)? = null,
     private val objectDetectionEngine: ObjectDetectionEngine? = null,
     private val minObjectDetectionIntervalMs: Long = DEFAULT_OBJECT_DETECTION_INTERVAL_MS,
+    private val minObjectDetectionIntervalProvider: (() -> Long)? = null,
     private val onObjectDetectionResult: ((Result<ObjectDetectionResult>) -> Unit)? = null,
     private val onFrameSnapshotCaptured: ((Bitmap) -> Unit)? = null
 ) : ImageAnalysis.Analyzer {
@@ -82,7 +83,10 @@ class FrameAnalyzer(
         val engine = objectDetectionEngine ?: return
         val callback = onObjectDetectionResult ?: return
         val now = SystemClock.elapsedRealtime()
-        if (now - lastObjectDetectionAtMs < minObjectDetectionIntervalMs) {
+        val minimumObjectIntervalMs = (
+            minObjectDetectionIntervalProvider?.invoke() ?: minObjectDetectionIntervalMs
+            ).coerceAtLeast(0L)
+        if (now - lastObjectDetectionAtMs < minimumObjectIntervalMs) {
             return
         }
         lastObjectDetectionAtMs = now

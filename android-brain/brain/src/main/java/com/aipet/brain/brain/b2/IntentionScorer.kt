@@ -133,6 +133,13 @@ class IntentionScorer {
             reasons += "evolution=%.2f".format(evoDelta)
         }
 
+        // Short-term/episodic memory modifier
+        val memoryDelta = memoryModifier(intention, ctx)
+        if (memoryDelta != 0f) {
+            score += memoryDelta
+            reasons += "memory=%.2f".format(memoryDelta)
+        }
+
         // Fatigue penalty
         val fatigue = ctx.attention.fatigue
         if (fatigue > 0.5f) {
@@ -479,6 +486,72 @@ class IntentionScorer {
             else -> 0f
         }
         return delta.coerceIn(EVOLUTION_DELTA_MIN, EVOLUTION_DELTA_MAX)
+    }
+
+    // â”€â”€â”€ Memory modifier â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    private fun memoryModifier(
+        intention: PetIntention,
+        ctx: WorkingContext
+    ): Float {
+        val nowMs = ctx.snapshotAtMs
+        val memory = ctx.recentMemory
+        val relationship = ctx.relationship
+        var delta = 0f
+
+        // Known person continuity: warmer and less hesitant social behavior.
+        val hasRecognizedPerson = !memory.lastRecognizedPersonId.isNullOrBlank()
+        if (hasRecognizedPerson && relationship.familiarity >= 0.55f) {
+            delta += when (intention) {
+                PetIntention.STAY_NEAR -> 0.18f
+                PetIntention.RESPOND_TO_USER -> 0.12f
+                PetIntention.SEEK_ATTENTION -> -0.08f
+                PetIntention.INVESTIGATE -> -0.05f
+                else -> 0f
+            }
+        }
+
+        // Unknown repeated social exposure: curiosity first, not instant familiarity.
+        if (!hasRecognizedPerson && memory.userEnteredWithinMs(25_000L, nowMs)) {
+            delta += when (intention) {
+                PetIntention.INVESTIGATE -> 0.10f
+                PetIntention.OBSERVE -> 0.06f
+                PetIntention.STAY_NEAR -> -0.05f
+                else -> 0f
+            }
+        }
+
+        // Known object repetition should cool novelty.
+        if (memory.knownObjectExposureCount >= 3 && memory.sawKnownObjectWithinMs(45_000L, nowMs)) {
+            delta += when (intention) {
+                PetIntention.INVESTIGATE -> -0.12f
+                PetIntention.OBSERVE -> 0.05f
+                PetIntention.STAY_NEAR -> 0.04f
+                else -> 0f
+            }
+        }
+
+        // Unknown object repetition should increase curiosity and investigation.
+        if (memory.unknownObjectExposureCount >= 2 && memory.sawUnknownObjectWithinMs(45_000L, nowMs)) {
+            delta += when (intention) {
+                PetIntention.INVESTIGATE -> 0.18f
+                PetIntention.OBSERVE -> 0.07f
+                PetIntention.REST -> -0.05f
+                else -> 0f
+            }
+        }
+
+        // Long absence with strong bond increases reunion-style social pull.
+        if (memory.lastAbsenceDurationMs >= 30L * 60L * 1000L && relationship.trust >= 0.55f) {
+            delta += when (intention) {
+                PetIntention.SEEK_ATTENTION -> 0.14f
+                PetIntention.STAY_NEAR -> 0.12f
+                PetIntention.WITHDRAW -> -0.08f
+                else -> 0f
+            }
+        }
+
+        return delta.coerceIn(-0.3f, 0.3f)
     }
 
     private fun extractEvolutionSignals(evo: EvolutionContext): EvolutionSignals {

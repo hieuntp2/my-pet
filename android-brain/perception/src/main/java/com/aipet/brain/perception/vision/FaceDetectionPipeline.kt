@@ -19,6 +19,7 @@ class FaceDetectionPipeline(
     private val onDetectorFailure: ((Throwable) -> Unit)? = null,
     private val onLiveFaceCropReady: ((faceCropBitmap: Bitmap, timestampMs: Long, cameraRotation: Int) -> Unit)? = null,
     private val liveFaceCropIntervalMs: Long = LIVE_CROP_INTERVAL_MS,
+    private val liveFaceCropIntervalProvider: (() -> Long)? = null,
 ) {
     private val detectorExecutor: ExecutorService = Executors.newSingleThreadExecutor()
     private val faceDetector = FaceDetector(callbackExecutor = detectorExecutor)
@@ -166,7 +167,10 @@ class FaceDetectionPipeline(
     ) {
         val callback = onLiveFaceCropReady ?: return
         if (faces.isEmpty()) return
-        if (timestampMs - lastLiveCropTimestampMs < liveFaceCropIntervalMs) return
+        val cropIntervalMs = (
+            liveFaceCropIntervalProvider?.invoke() ?: liveFaceCropIntervalMs
+            ).coerceAtLeast(0L)
+        if (timestampMs - lastLiveCropTimestampMs < cropIntervalMs) return
         val primaryFace = faces.maxByOrNull { it.boundingBox.area() } ?: return
         val cropResult = faceCropper.cropFromNv21Frame(
             nv21Bytes = frameData.nv21Bytes,

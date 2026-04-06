@@ -1,5 +1,7 @@
 package com.aipet.brain.app.avatar
 
+import com.aipet.brain.brain.attention.AttentionMode
+import com.aipet.brain.brain.b2.domain.PetIntention
 import com.aipet.brain.ui.avatar.pixel.bridge.PixelPetAvatarIntent
 
 class HomePixelPetAvatarIntentResolver(
@@ -10,9 +12,15 @@ class HomePixelPetAvatarIntentResolver(
         previousResolution: HomePixelPetAvatarIntentResolution? = null
     ): HomePixelPetAvatarIntentResolution {
         if (bridgeInput.behaviorDrivenIntent != null) {
+            val tunedBehaviorIntent = tuneBehaviorDrivenIntent(
+                baseIntent = bridgeInput.behaviorDrivenIntent,
+                sourceIntention = bridgeInput.behaviorSourceIntention,
+                attentionMode = bridgeInput.behaviorAttentionMode,
+                attentionIntensity = bridgeInput.behaviorAttentionIntensity
+            )
             return HomePixelPetAvatarIntentResolution(
-                intent = bridgeInput.behaviorDrivenIntent,
-                decisionReason = "behavior_intention_active",
+                intent = tunedBehaviorIntent.intent,
+                decisionReason = tunedBehaviorIntent.reason,
                 sourceSummary = bridgeInput.sourceSummary,
                 policySummary = priorityPolicy.policySummary
             )
@@ -161,6 +169,43 @@ class HomePixelPetAvatarIntentResolver(
             )
         }
     }
+
+    private fun tuneBehaviorDrivenIntent(
+        baseIntent: PixelPetAvatarIntent,
+        sourceIntention: PetIntention?,
+        attentionMode: AttentionMode?,
+        attentionIntensity: Float
+    ): HomePixelPetAvatarIntentCandidate {
+        val tuned = when {
+            sourceIntention == PetIntention.STARTLE_RECOVER || attentionMode == AttentionMode.ALERT -> {
+                PixelPetAvatarIntent.SURPRISED to "behavior_intention_alert_escalation"
+            }
+            attentionMode == AttentionMode.LISTENING &&
+                attentionIntensity >= 0.55f &&
+                baseIntent in setOf(
+                    PixelPetAvatarIntent.NEUTRAL,
+                    PixelPetAvatarIntent.ATTENTIVE,
+                    PixelPetAvatarIntent.LOOKING
+                ) -> {
+                PixelPetAvatarIntent.PROCESSING to "behavior_intention_listening_focus"
+            }
+            attentionMode == AttentionMode.CURIOUS_INSPECTION &&
+                attentionIntensity >= 0.45f &&
+                baseIntent in setOf(PixelPetAvatarIntent.NEUTRAL, PixelPetAvatarIntent.ATTENTIVE) -> {
+                PixelPetAvatarIntent.LOOKING to "behavior_intention_curious_inspection"
+            }
+            attentionMode == AttentionMode.PLAY_FOCUS &&
+                attentionIntensity >= 0.45f &&
+                baseIntent == PixelPetAvatarIntent.NEUTRAL -> {
+                PixelPetAvatarIntent.ENGAGED to "behavior_intention_play_focus"
+            }
+            else -> baseIntent to "behavior_intention_active"
+        }
+        return HomePixelPetAvatarIntentCandidate(
+            intent = tuned.first,
+            reason = tuned.second
+        )
+    }
 }
 
 data class HomePixelPetAvatarIntentResolution(
@@ -192,7 +237,7 @@ class HomePixelPetAvatarIntentPriorityPolicy {
     )
 
     val policySummary: String =
-        "behavior_intention>greeting>transient>sound>processing>engaged>excited>asking>looking>hungry_need>low_energy>sad>lonely_need>attentive>neutral; keep_previous_over_neutral=true"
+        "behavior_intention(attention_tuned)>greeting>transient>sound>processing>engaged>excited>asking>looking>hungry_need>low_energy>sad>lonely_need>attentive>neutral; keep_previous_over_neutral=true"
 
     fun selectCandidate(candidates: List<HomePixelPetAvatarIntentCandidate>): HomePixelPetAvatarIntentCandidate {
         return candidates.maxWithOrNull(

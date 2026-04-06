@@ -1,5 +1,7 @@
 package com.aipet.brain.app.avatar
 
+import com.aipet.brain.brain.attention.AttentionMode
+import com.aipet.brain.brain.b2.domain.PetIntention
 import com.aipet.brain.brain.events.EventType
 import com.aipet.brain.brain.logic.audio.KeywordStimulus
 import com.aipet.brain.brain.logic.audio.KeywordStimulusKind
@@ -277,5 +279,51 @@ class RealPixelPetBridgeStateAdapterTest {
         assertEquals(PixelPetAvatarIntent.ENGAGED, greetingState.intent)
         assertEquals("greeting_active_boost", greetingState.debugMetadata?.priorityReason)
         assertTrue(greetingState.debugMetadata?.sourceSummary?.contains("greeting_active") == true)
+    }
+
+    @Test
+    fun `behavior intent is tuned to processing during high listening focus`() {
+        val adapter = RealPixelPetBridgeStateAdapter()
+
+        val bridgeState = adapter.map(
+            HomePixelPetAvatarSignal(
+                petEmotion = PetEmotion.IDLE,
+                conditions = emptySet(),
+                brainState = BrainState.IDLE,
+                behaviorDrivenIntent = PixelPetAvatarIntent.ATTENTIVE,
+                behaviorSourceIntention = PetIntention.LISTEN,
+                behaviorAttentionMode = AttentionMode.LISTENING,
+                behaviorAttentionIntensity = 0.92f
+            )
+        )
+
+        assertEquals(PixelPetAvatarIntent.PROCESSING, bridgeState.intent)
+        assertEquals(
+            "behavior_intention_listening_focus",
+            bridgeState.debugMetadata?.priorityReason
+        )
+    }
+
+    @Test
+    fun `behavior intent escalates to surprised on alert attention mode`() {
+        val adapter = RealPixelPetBridgeStateAdapter()
+
+        val bridgeState = adapter.map(
+            HomePixelPetAvatarSignal(
+                petEmotion = PetEmotion.IDLE,
+                conditions = emptySet(),
+                brainState = BrainState.IDLE,
+                behaviorDrivenIntent = PixelPetAvatarIntent.ENGAGED,
+                behaviorSourceIntention = PetIntention.STARTLE_RECOVER,
+                behaviorAttentionMode = AttentionMode.ALERT,
+                behaviorAttentionIntensity = 0.8f
+            )
+        )
+
+        assertEquals(PixelPetAvatarIntent.SURPRISED, bridgeState.intent)
+        assertEquals(
+            "behavior_intention_alert_escalation",
+            bridgeState.debugMetadata?.priorityReason
+        )
     }
 }

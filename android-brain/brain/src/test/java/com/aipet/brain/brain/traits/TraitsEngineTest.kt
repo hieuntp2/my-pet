@@ -3,6 +3,8 @@ package com.aipet.brain.brain.traits
 import com.aipet.brain.brain.events.EventBus
 import com.aipet.brain.brain.events.EventEnvelope
 import com.aipet.brain.brain.events.EventType
+import com.aipet.brain.brain.events.BrainStateChangedEventPayload
+import com.aipet.brain.brain.state.BrainState
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -140,7 +142,7 @@ class TraitsEngineTest {
     }
 
     @Test
-    fun sleepyTransition_decreasesEnergy() = runTest {
+    fun sleepyInactivityTransition_decreasesSociability() = runTest {
         val eventBus = FakeEventBus()
         val repository = FakeTraitsSnapshotRepository(
             TraitsSnapshot(
@@ -167,14 +169,19 @@ class TraitsEngineTest {
             EventEnvelope.create(
                 type = EventType.BRAIN_STATE_CHANGED,
                 timestampMs = 3_000L,
-                payloadJson = "{\"toState\":\"SLEEPY\"}"
+                payloadJson = BrainStateChangedEventPayload(
+                    fromState = BrainState.CURIOUS,
+                    toState = BrainState.SLEEPY,
+                    reason = "INACTIVITY_TIMEOUT",
+                    changedAtMs = 3_000L
+                ).toJson()
             )
         )
         advanceUntilIdle()
 
         val updated = engine.observeTraits().value
         assertNotNull(updated)
-        assertTrue(updated!!.energy < 0.8f)
+        assertTrue(updated!!.sociability < 0.5f)
 
         job.cancel()
     }

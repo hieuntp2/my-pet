@@ -30,11 +30,10 @@ internal class LocalAudioIntentCommandRule(
             }
             val localIntentEvent = LocalAudioIntentEvent.fromJson(event.payloadJson)
             if (localIntentEvent == null) {
-                Log.w(TAG, "Ignored ${event.type.name}: invalid payload.")
+                logWarn("Ignored ${event.type.name}: invalid payload.")
                 return@collect
             }
-            Log.d(
-                TAG,
+            logDebug(
                 "Local audio intent received. intent=${localIntentEvent.intent.name} " +
                     "rawText=\"${localIntentEvent.rawText}\" confidence=${localIntentEvent.confidence}"
             )
@@ -277,12 +276,23 @@ internal class LocalAudioIntentCommandRule(
     }
 
     private fun logTrace(trace: VoiceInteractionTrace) {
-        Log.d(
-            TAG,
+        logDebug(
             "voice_trace raw=\"${trace.rawText}\" normalized=\"${trace.normalizedText}\" " +
                 "intent=${trace.intent.name} accepted=${trace.accepted} action=${trace.action} " +
                 "audioPlayed=${trace.audioPlayed} avatarPlayed=${trace.avatarPlayed}"
         )
+    }
+
+    private fun logDebug(message: String) {
+        runCatching {
+            Log.d(TAG, message)
+        }
+    }
+
+    private fun logWarn(message: String) {
+        runCatching {
+            Log.w(TAG, message)
+        }
     }
 
     private data class VoiceInteractionTrace(

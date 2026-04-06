@@ -209,6 +209,17 @@ private class FakePersonDao : PersonDao {
         return listAll().take(limit.coerceAtLeast(0))
     }
 
+    override fun observeBySeenCount(): kotlinx.coroutines.flow.Flow<List<PersonEntity>> {
+        return kotlinx.coroutines.flow.flowOf(
+            personsById.values.sortedWith(
+                compareByDescending<PersonEntity> { it.seenCount }
+                    .thenByDescending { it.familiarityScore }
+                    .thenByDescending { it.updatedAtMs }
+                    .thenBy { it.personId }
+            )
+        )
+    }
+
     override suspend fun getOwner(): PersonEntity? {
         return personsById.values
             .filter { it.isOwner }

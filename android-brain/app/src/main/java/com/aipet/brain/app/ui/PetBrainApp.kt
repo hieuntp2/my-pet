@@ -1,8 +1,10 @@
 package com.aipet.brain.app.ui
 
+import android.Manifest
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.content.pm.PackageManager
 import android.util.Base64
 import android.util.Log
 import com.aipet.brain.app.BuildConfig
@@ -20,6 +22,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.room.Room
 import com.aipet.brain.app.audio.AudioCaptureLifecycleEventPublisher
 import com.aipet.brain.app.audio.AudioResponseDispatcher
@@ -32,8 +35,10 @@ import com.aipet.brain.app.behavior.experience.BehaviorExperienceBinder
 import com.aipet.brain.app.behavior.experience.BehaviorExperienceDebugState
 import com.aipet.brain.app.behavior.experience.ChannelDecision
 import com.aipet.brain.app.behavior.experience.ChannelExecutionResult
+import com.aipet.brain.app.behavior.experience.EmotionInertiaDebugState
 import com.aipet.brain.app.behavior.experience.PetIntentionExecutor
 import com.aipet.brain.app.behavior.experience.TalkDirective
+import com.aipet.brain.app.debug.AppCrashReporter
 import com.aipet.brain.app.gameplay.PetGameplayAction
 import com.aipet.brain.app.gameplay.PetGameplayAudioMapper
 import com.aipet.brain.app.gameplay.PetGameplayCooldownGate
@@ -43,6 +48,9 @@ import com.aipet.brain.app.onboarding.PetNamingOnboardingScreen
 import com.aipet.brain.app.onboarding.PetOnboardingStore
 import com.aipet.brain.app.reactions.OwnerSeenReactionEngine
 import com.aipet.brain.app.reactions.PersonSeenEventPublisher
+import com.aipet.brain.app.runtime.sensing.RuntimeAudioAwarenessController
+import com.aipet.brain.app.runtime.sensing.RuntimeSensingCoordinator
+import com.aipet.brain.app.runtime.sensing.RuntimeSensingSubsystem
 import com.aipet.brain.app.ui.audio.AudioDebugScreen
 import com.aipet.brain.app.ui.audio.AudioPlaybackEngine
 import com.aipet.brain.app.ui.camera.CameraScreen
@@ -51,6 +59,7 @@ import com.aipet.brain.app.ui.debug.BehaviorIntelligenceDebugScreen
 import com.aipet.brain.brain.attention.AttentionArbitrator
 import com.aipet.brain.brain.attention.AttentionEngine
 import com.aipet.brain.brain.attention.AttentionFatigueTracker
+import com.aipet.brain.brain.attention.AttentionMode
 import com.aipet.brain.brain.attention.AttentionModeResolver
 import com.aipet.brain.brain.attention.AttentionStateRepository
 import com.aipet.brain.brain.attention.AttentionTargetEvaluator
@@ -61,6 +70,7 @@ import com.aipet.brain.brain.b2.EmotionMomentumEngine
 import com.aipet.brain.brain.b2.IntentionArbitrator
 import com.aipet.brain.brain.b2.IntentionScorer
 import com.aipet.brain.brain.b2.RelationshipStateBuilder
+import com.aipet.brain.brain.b2.domain.PetIntention
 import com.aipet.brain.brain.b2.domain.RecentMemorySummary
 import com.aipet.brain.brain.b2.domain.SessionContext
 import com.aipet.brain.brain.fusion.AudioInterpreter
@@ -120,12 +130,18 @@ import com.aipet.brain.brain.events.EventEnvelope
 import com.aipet.brain.brain.events.EventType
 import com.aipet.brain.brain.events.InMemoryEventBus
 import com.aipet.brain.brain.events.ObjectDetectedEventPayload
+import com.aipet.brain.brain.events.AttentionTargetEventPayload
+import com.aipet.brain.brain.events.BehaviorPlanEventPayload
 import com.aipet.brain.brain.events.PetActivityAppliedEventPayload
 import com.aipet.brain.brain.events.PetGreetedEventPayload
+import com.aipet.brain.brain.events.PetIdleActivityPayload
+import com.aipet.brain.brain.events.PetIntentionChangedEventPayload
 import com.aipet.brain.brain.events.UserInteractedPetEventPayload
+import com.aipet.brain.brain.events.UserTaughtObjectEventPayload
 import com.aipet.brain.brain.events.UserTaughtPersonEventPayload
 import com.aipet.brain.brain.events.audio.AudioResponseRequestPayload
 import com.aipet.brain.brain.events.audio.AudioIntent
+import com.aipet.brain.brain.events.audio.SoundEnergyPayload
 import com.aipet.brain.brain.events.vision.FaceBoundingBoxPayload
 import com.aipet.brain.brain.events.vision.FacesDetectedEventPayload
 import com.aipet.brain.brain.interaction.PetInteractionStateReducer
@@ -206,6 +222,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.random.Random
 import com.aipet.brain.app.ui.audio.model.AudioCategory
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import com.aipet.brain.app.perception.BackgroundPerceptionOrchestrator
@@ -263,6 +280,16 @@ fun PetBrainApp() {
     var lastPublishedFaceCount by remember { mutableStateOf(0) }
     var recognizedPersonLabel by remember { mutableStateOf<String?>(null) }
     var recognitionProbeSummary by remember { mutableStateOf("not_run") }
+    var unknownPersonFamiliarityScore by remember { mutableStateOf(0f) }
+    var unknownPersonSeenCount by remember { mutableStateOf(0) }
+    var lastUnknownPersonSeenAtMs by remember { mutableStateOf(0L) }
+    var lastPersonTeachPromptAtMs by remember { mutableStateOf(0L) }
+    var unknownObjectCuriosityScore by remember { mutableStateOf(0f) }
+    var unknownObjectSeenCount by remember { mutableStateOf(0) }
+    var lastUnknownObjectLabel by remember { mutableStateOf<String?>(null) }
+    var lastUnknownObjectSeenAtMs by remember { mutableStateOf(0L) }
+    var lastObjectTeachPromptAtMs by remember { mutableStateOf(0L) }
+    var runtimeHandledErrorSummary by remember { mutableStateOf<String?>(null) }
     // Unknown entity dialog state
     var activeTeachTarget by remember { mutableStateOf<TeachUnknownTarget?>(null) }
     var perceptionLookingUntilMs by remember { mutableStateOf(0L) }
@@ -715,6 +742,38 @@ fun PetBrainApp() {
             touchInterpreter = touchInterpreter
         )
     }
+    val runtimeSensingCoordinator = remember { RuntimeSensingCoordinator() }
+    val runtimeSensingState by runtimeSensingCoordinator.state.collectAsState()
+    val runtimeAudioAwarenessController = remember(
+        appContext,
+        audioCaptureLifecycleEventPublisher,
+        runtimeSensingCoordinator,
+        coroutineScope
+    ) {
+        RuntimeAudioAwarenessController(
+            context = appContext,
+            lifecyclePublisher = audioCaptureLifecycleEventPublisher,
+            onEnergySample = {
+                coroutineScope.launch {
+                    runtimeSensingCoordinator.reportSubsystemRecovered(RuntimeSensingSubsystem.AUDIO)
+                }
+            },
+            onVoiceActivityChanged = {
+                coroutineScope.launch {
+                    runtimeSensingCoordinator.reportSubsystemRecovered(RuntimeSensingSubsystem.AUDIO)
+                }
+            },
+            onFailure = { message ->
+                coroutineScope.launch {
+                    runtimeHandledErrorSummary = message
+                    runtimeSensingCoordinator.reportSubsystemFailure(
+                        subsystem = RuntimeSensingSubsystem.AUDIO,
+                        message = message
+                    )
+                }
+            }
+        )
+    }
     val attentionStateRepository = remember { AttentionStateRepository() }
     val emotionMomentumEngine = remember { EmotionMomentumEngine() }
     val cooldownTracker = remember { CooldownTracker() }
@@ -784,6 +843,11 @@ fun PetBrainApp() {
     var behaviorDrivenIntent by remember { mutableStateOf<com.aipet.brain.ui.avatar.pixel.bridge.PixelPetAvatarIntent?>(null) }
     var behaviorTalkDirective by remember { mutableStateOf<TalkDirective?>(null) }
     var behaviorExperienceDebugState by remember { mutableStateOf(BehaviorExperienceDebugState.EMPTY) }
+    var emotionInertiaDebugState by remember { mutableStateOf(EmotionInertiaDebugState.DEFAULT) }
+    var lastPublishedBehaviorPlanId by remember { mutableStateOf<String?>(null) }
+    var lastPublishedIntention by remember { mutableStateOf<PetIntention?>(null) }
+    var lastAttentionEventSnapshot by remember { mutableStateOf<AttentionEventSnapshot?>(null) }
+    var nextIdleActivityEmitAtMs by remember { mutableStateOf(0L) }
     var transientReactionIntent by remember { mutableStateOf<com.aipet.brain.ui.avatar.pixel.bridge.PixelPetAvatarIntent?>(null) }
     // Invitation system state
     var lastInvitationMs by remember { mutableStateOf(0L) }
@@ -875,6 +939,9 @@ fun PetBrainApp() {
         isPerceptionAsking,
         isBehaviorExperienceAuthoritative,
         behaviorDrivenIntent,
+        attentionDebugState?.currentMode,
+        attentionDebugState?.intensity,
+        behaviorExperienceDebugState.sourceIntention,
         startupGreetingForVisual,
         transientReactionIntent
     ) {
@@ -889,6 +956,21 @@ fun PetBrainApp() {
                 behaviorDrivenIntent
             } else {
                 null
+            },
+            behaviorSourceIntention = if (isBehaviorExperienceAuthoritative) {
+                behaviorExperienceDebugState.sourceIntention
+            } else {
+                null
+            },
+            behaviorAttentionMode = if (isBehaviorExperienceAuthoritative) {
+                attentionDebugState?.currentMode
+            } else {
+                null
+            },
+            behaviorAttentionIntensity = if (isBehaviorExperienceAuthoritative) {
+                attentionDebugState?.intensity ?: 0f
+            } else {
+                0f
             },
             greetingBoostIntent = if (!isBehaviorExperienceAuthoritative || behaviorDrivenIntent == null) {
                 startupGreetingForVisual?.let {
@@ -1084,6 +1166,7 @@ fun PetBrainApp() {
             appOpenGreeting = null
             activeAppOpenGreeting = null
             activeAppOpenGreetingExpiresAtMs = 0L
+            nextIdleActivityEmitAtMs = 0L
             latestBehaviorDecisionSource = "runtime_rehydrate"
             latestBehaviorDecision = null
             sessionInteractionTracker.resetForNewSession()
@@ -1187,6 +1270,10 @@ fun PetBrainApp() {
         activeAppOpenGreetingExpiresAtMs = resolvedState.greetedAtMs + APP_OPEN_GREETING_WINDOW_MS
         currentPetTraits = resolvedState.traits
         currentPetConditions = resolvedState.conditions
+        recentMemorySummary = recentMemorySummary.copy(
+            lastAbsenceDurationMs = resolvedState.evolutionAbsenceMs.coerceAtLeast(0L),
+            updatedAtMs = resolvedState.greetedAtMs
+        )
         homeInteractionFeedback = null
         latestBehaviorDecisionSource = "greeting"
         latestBehaviorDecision = resolvedState.greetingDecision
@@ -1271,6 +1358,11 @@ fun PetBrainApp() {
         behaviorDrivenIntent = null
         behaviorTalkDirective = null
         behaviorExperienceDebugState = BehaviorExperienceDebugState.EMPTY
+        emotionInertiaDebugState = EmotionInertiaDebugState.DEFAULT
+        lastPublishedBehaviorPlanId = null
+        lastPublishedIntention = null
+        lastAttentionEventSnapshot = null
+        nextIdleActivityEmitAtMs = 0L
         lastAudioRequestDispatchAtMs = 0L
         lastAudioRequestDispatchCategory = null
         petIntentionExecutor.resetRuntimeState()
@@ -1310,42 +1402,107 @@ fun PetBrainApp() {
     LaunchedEffect(eventBus) {
         eventBus.observe().collect { event ->
             latestEvent = event
+            val eventTimestampMs = event.timestampMs.takeIf { it > 0L } ?: System.currentTimeMillis()
+            recentMemorySummary = updateRecentMemoryFromEvent(
+                current = recentMemorySummary,
+                event = event,
+                eventTimestampMs = eventTimestampMs
+            )
             when (event.type) {
                 EventType.OWNER_SEEN_DETECTED -> latestOwnerSeenEvent = event
                 EventType.ROBOT_GREETING_OWNER_TRIGGERED -> latestOwnerGreetingEvent = event
                 EventType.CANDIDATE_PERSON_READY_FOR_TEACH -> {
-                    perceptionLookingUntilMs = maxOf(perceptionLookingUntilMs, event.timestampMs + PERCEPTION_LOOKING_HOLD_MS)
-                    perceptionAskingUntilMs = maxOf(perceptionAskingUntilMs, event.timestampMs + PERCEPTION_ASKING_HOLD_MS)
-                    if (activeTeachTarget == null) {
-                        val payload = CandidatePersonReadyForTeachPayload.fromJson(event.payloadJson)
-                        if (payload != null) {
-                            val previewBitmap = payload.previewImageBase64?.toBitmapFromBase64()
-                            activeTeachTarget = TeachUnknownTarget.UnknownFace(
-                                candidateId = payload.candidateId,
-                                centroidEmbedding = payload.centroidEmbedding.toFiniteEmbedding(),
-                                sampleCount = payload.sampleCount,
-                                stableScore = payload.stableScore,
-                                seenFrameCount = payload.seenFrameCount,
-                                seenEncounterCount = payload.seenEncounterCount,
-                                averageQualityScore = payload.averageQualityScore,
-                                closestKnownPersonId = payload.closestKnownPersonId,
-                                closestKnownSimilarity = payload.closestKnownSimilarity,
-                                thumbnail = previewBitmap
-                            )
-                        }
+                    perceptionLookingUntilMs = maxOf(
+                        perceptionLookingUntilMs,
+                        eventTimestampMs + PERCEPTION_LOOKING_HOLD_MS
+                    )
+                    val payload = CandidatePersonReadyForTeachPayload.fromJson(event.payloadJson)
+                    if (payload != null) {
+                        val encounterBoost = (
+                            0.16f +
+                                payload.stableScore.coerceIn(0f, 1f) * 0.26f +
+                                payload.averageQualityScore.coerceIn(0f, 1f) * 0.18f
+                            ).coerceIn(0f, 0.48f)
+                        unknownPersonSeenCount = maxOf(
+                            unknownPersonSeenCount + 1,
+                            payload.seenEncounterCount.coerceAtLeast(1)
+                        )
+                        unknownPersonFamiliarityScore = (
+                            unknownPersonFamiliarityScore + encounterBoost
+                            ).coerceIn(0f, 1f)
+                        lastUnknownPersonSeenAtMs = eventTimestampMs
+                    }
+                    val shouldPromptPerson = shouldPromptForUnknownPerson(
+                        hasActiveTeachFlow = activeTeachTarget != null,
+                        nowMs = eventTimestampMs,
+                        familiarityScore = unknownPersonFamiliarityScore,
+                        seenCount = unknownPersonSeenCount,
+                        lastPromptAtMs = lastPersonTeachPromptAtMs,
+                        attentionDebugState = attentionDebugState,
+                        behaviorDebugState = behaviorExperienceDebugState,
+                        currentScreenName = currentScreenName
+                    )
+                    if (payload != null && shouldPromptPerson) {
+                        perceptionAskingUntilMs = maxOf(
+                            perceptionAskingUntilMs,
+                            eventTimestampMs + PERCEPTION_ASKING_HOLD_MS
+                        )
+                        val previewBitmap = payload.previewImageBase64?.toBitmapFromBase64()
+                        activeTeachTarget = TeachUnknownTarget.UnknownFace(
+                            candidateId = payload.candidateId,
+                            centroidEmbedding = payload.centroidEmbedding.toFiniteEmbedding(),
+                            sampleCount = payload.sampleCount,
+                            stableScore = payload.stableScore,
+                            seenFrameCount = payload.seenFrameCount,
+                            seenEncounterCount = payload.seenEncounterCount,
+                            averageQualityScore = payload.averageQualityScore,
+                            closestKnownPersonId = payload.closestKnownPersonId,
+                            closestKnownSimilarity = payload.closestKnownSimilarity,
+                            thumbnail = previewBitmap
+                        )
+                        lastPersonTeachPromptAtMs = eventTimestampMs
+                        unknownPersonFamiliarityScore = 0f
+                        unknownPersonSeenCount = 0
                     }
                 }
-                EventType.PERSON_RECOGNIZED,
+                EventType.PERSON_RECOGNIZED -> {
+                    perceptionLookingUntilMs = maxOf(
+                        perceptionLookingUntilMs,
+                        eventTimestampMs + PERCEPTION_LOOKING_HOLD_MS
+                    )
+                    val payload = com.aipet.brain.brain.events.PersonRecognizedPayload
+                        .fromJson(event.payloadJson)
+                    val recognizedPersonId = payload?.personId
+                    if (!recognizedPersonId.isNullOrBlank()) {
+                        coroutineScope.launch {
+                            runCatching {
+                                perceptionFusionCoordinator.onPersonRecognized(recognizedPersonId)
+                                runtimeSensingCoordinator.reportSubsystemRecovered(RuntimeSensingSubsystem.CAMERA)
+                            }.onFailure { error ->
+                                runtimeHandledErrorSummary =
+                                    "person_recognition_fusion_failed: ${error.message ?: "unknown"}"
+                                AppCrashReporter.persistHandledException(
+                                    context = appContext,
+                                    throwable = error,
+                                    source = "person_recognition_fusion"
+                                )
+                            }
+                        }
+                    }
+                    unknownPersonFamiliarityScore = 0f
+                    unknownPersonSeenCount = 0
+                    lastUnknownPersonSeenAtMs = 0L
+                }
                 EventType.PERSON_UNKNOWN,
                 EventType.FACE_DETECTED,
                 EventType.FACES_DETECTED,
-                EventType.OBJECT_DETECTED -> {
-                    perceptionLookingUntilMs = maxOf(perceptionLookingUntilMs, event.timestampMs + PERCEPTION_LOOKING_HOLD_MS)
-                }
+                EventType.OBJECT_DETECTED,
                 EventType.UNKNOWN_FACE_CANDIDATE_READY_TO_ASK,
                 EventType.UNKNOWN_OBJECT_DETECTED -> {
-                    perceptionLookingUntilMs = maxOf(perceptionLookingUntilMs, event.timestampMs + PERCEPTION_LOOKING_HOLD_MS)
-                    perceptionAskingUntilMs = maxOf(perceptionAskingUntilMs, event.timestampMs + PERCEPTION_ASKING_HOLD_MS)
+                    perceptionLookingUntilMs = maxOf(
+                        perceptionLookingUntilMs,
+                        eventTimestampMs + PERCEPTION_LOOKING_HOLD_MS
+                    )
                 }
                 EventType.PET_INVITATION_EMITTED -> {
                     invitationUiTriggerToken = if (event.timestampMs > 0L) {
@@ -1358,7 +1515,24 @@ fun PetBrainApp() {
                 EventType.USER_INTERACTED_PET,
                 EventType.AFFECTION_INTERACTION,
                 EventType.PET_LONG_PRESSED -> {
-                    if (pendingInvitationUntilMs > 0L && event.timestampMs <= pendingInvitationUntilMs) {
+                    coroutineScope.launch {
+                        runCatching {
+                            if (event.type == EventType.PET_LONG_PRESSED || event.type == EventType.AFFECTION_INTERACTION) {
+                                perceptionFusionCoordinator.onLongPress()
+                            } else {
+                                perceptionFusionCoordinator.onTap()
+                            }
+                        }.onFailure { error ->
+                            runtimeHandledErrorSummary =
+                                "touch_fusion_update_failed: ${error.message ?: "unknown"}"
+                            AppCrashReporter.persistHandledException(
+                                context = appContext,
+                                throwable = error,
+                                source = "touch_fusion_update"
+                            )
+                        }
+                    }
+                    if (pendingInvitationUntilMs > 0L && eventTimestampMs <= pendingInvitationUntilMs) {
                         coroutineScope.launch {
                             eventBus.publish(
                                 com.aipet.brain.brain.events.EventEnvelope.create(
@@ -1368,6 +1542,60 @@ fun PetBrainApp() {
                         }
                         invitationIgnoredCount = 0
                         pendingInvitationUntilMs = 0L
+                    }
+                }
+                EventType.SOUND_ENERGY_CHANGED -> {
+                    val payload = SoundEnergyPayload.fromJson(event.payloadJson)
+                    if (payload != null) {
+                        coroutineScope.launch {
+                            runCatching {
+                                perceptionFusionCoordinator.onAudioEnergyUpdate(
+                                    ambientLevel = payload.smoothedEnergy.toFloat(),
+                                    peakLevel = payload.peak.toFloat()
+                                )
+                                runtimeSensingCoordinator.reportSubsystemRecovered(RuntimeSensingSubsystem.AUDIO)
+                            }.onFailure { error ->
+                                runtimeHandledErrorSummary =
+                                    "sound_energy_fusion_failed: ${error.message ?: "unknown"}"
+                                AppCrashReporter.persistHandledException(
+                                    context = appContext,
+                                    throwable = error,
+                                    source = "sound_energy_fusion"
+                                )
+                            }
+                        }
+                    }
+                }
+                EventType.VOICE_ACTIVITY_STARTED -> {
+                    coroutineScope.launch {
+                        runCatching {
+                            perceptionFusionCoordinator.onVoiceActivityStarted()
+                            runtimeSensingCoordinator.reportSubsystemRecovered(RuntimeSensingSubsystem.AUDIO)
+                        }.onFailure { error ->
+                            runtimeHandledErrorSummary =
+                                "voice_activity_start_fusion_failed: ${error.message ?: "unknown"}"
+                            AppCrashReporter.persistHandledException(
+                                context = appContext,
+                                throwable = error,
+                                source = "voice_activity_start_fusion"
+                            )
+                        }
+                    }
+                }
+                EventType.VOICE_ACTIVITY_ENDED -> {
+                    coroutineScope.launch {
+                        runCatching {
+                            perceptionFusionCoordinator.onVoiceActivityEnded()
+                            runtimeSensingCoordinator.reportSubsystemRecovered(RuntimeSensingSubsystem.AUDIO)
+                        }.onFailure { error ->
+                            runtimeHandledErrorSummary =
+                                "voice_activity_end_fusion_failed: ${error.message ?: "unknown"}"
+                            AppCrashReporter.persistHandledException(
+                                context = appContext,
+                                throwable = error,
+                                source = "voice_activity_end_fusion"
+                            )
+                        }
                     }
                 }
                 EventType.AUDIO_RESPONSE_STARTED -> {
@@ -1427,7 +1655,8 @@ fun PetBrainApp() {
             }
             val ps = currentPetState
             if (ps != null) {
-                val nowMs = System.currentTimeMillis()
+                runCatching {
+                    val nowMs = System.currentTimeMillis()
                 if (transientReactionIntent != null && nowMs >= transientReactionActiveUntilMs) {
                     transientReactionIntent = null
                     transientReactionActiveUntilMs = 0L
@@ -1439,6 +1668,7 @@ fun PetBrainApp() {
                     activeAppOpenGreeting = null
                     activeAppOpenGreetingExpiresAtMs = 0L
                 }
+                    emotionMomentumEngine.applySlowDecay(nowMs)
                 val ctx = WorkingContextBuilder(
                     fusionRepository = perceptionFusionRepo,
                     attentionStateRepository = attentionStateRepository,
@@ -1459,6 +1689,23 @@ fun PetBrainApp() {
                     evolutionContext = evolutionContext
                 )
                 attentionEngine.update(ctx)
+                    val updatedAttentionState = attentionStateRepository.current()
+                    val nextAttentionSnapshot = AttentionEventSnapshot(
+                        targetType = updatedAttentionState.activeTarget.type.name,
+                        targetId = updatedAttentionState.activeTarget.id,
+                        mode = updatedAttentionState.mode.name,
+                        intensity = updatedAttentionState.intensity,
+                        shiftReason = attentionDebugState?.lastShiftReason ?: "runtime_cycle",
+                        timestampMs = nowMs
+                    )
+                    val attentionEvent = buildAttentionOwnershipEvent(
+                        previous = lastAttentionEventSnapshot,
+                        current = nextAttentionSnapshot
+                    )
+                    if (attentionEvent != null) {
+                        eventBus.publish(attentionEvent)
+                    }
+                    lastAttentionEventSnapshot = nextAttentionSnapshot
                 val resolvedPlan = behaviorEngine.runDecisionCycle(
                     petState = ps,
                     conditions = currentPetConditions,
@@ -1469,10 +1716,26 @@ fun PetBrainApp() {
                     recentMemory = recentMemorySummary,
                     evolutionContext = evolutionContext
                 )
+                    publishBehaviorPlanEvents(
+                        eventBus = eventBus,
+                        plan = resolvedPlan,
+                        nowMs = nowMs,
+                        previousPlanId = lastPublishedBehaviorPlanId,
+                        previousIntention = lastPublishedIntention
+                    )
+                    lastPublishedBehaviorPlanId = resolvedPlan.id
+                    lastPublishedIntention = resolvedPlan.intention
+                    val baseEmotion = petEmotionResolver.resolve(ps, currentPetConditions)
+                    val inertiaResolved = resolveEmotionInertiaState(
+                        baseEmotion = baseEmotion,
+                        momentum = emotionMomentumEngine.current()
+                    )
+                    emotionInertiaDebugState = inertiaResolved
+                    currentPetEmotion = inertiaResolved.finalEmotion
                 if (isBehaviorExperienceAuthoritative) {
                     val experienceBundle = behaviorExperienceBinder.resolve(
                         plan = resolvedPlan,
-                        currentEmotion = currentPetEmotion,
+                        currentEmotion = inertiaResolved.finalEmotion,
                         currentConditions = currentPetConditions,
                         appOpenGreeting = appOpenGreetingForExecution
                     )
@@ -1549,10 +1812,68 @@ fun PetBrainApp() {
                         }
                     }
                     behaviorExperienceDebugState = executionDebugState
+
+                    val lastDirectInteractionAtMs =
+                        ps.lastMeaningfulInteractionAt.takeIf { it > 0L } ?: ps.lastUpdatedAt
+                    val msSinceDirectInteraction = (nowMs - lastDirectInteractionAtMs).coerceAtLeast(0L)
+                    val sourceIntention = executionDebugState.sourceIntention
+                    val attentionMode = attentionDebugState?.currentMode
+                    val attentionIntensity = attentionDebugState?.intensity ?: 0f
+                    val hasRecentAudioOutput =
+                        latestAudioOutputStartedAtMs > 0L &&
+                            (nowMs - latestAudioOutputStartedAtMs) < IDLE_ACTIVITY_AUDIO_SUPPRESS_MS
+                    val idleActivityEligible =
+                        currentScreenName == AppScreen.Home.name &&
+                            executionDebugState.accepted &&
+                            !transientVisualActive &&
+                            appOpenGreetingForExecution == null &&
+                            pendingInvitationUntilMs == 0L &&
+                            isIdleActivityIntention(sourceIntention) &&
+                            !hasRecentAudioOutput &&
+                            msSinceDirectInteraction >= IDLE_ACTIVITY_MIN_QUIET_MS &&
+                            attentionMode != AttentionMode.ALERT &&
+                            attentionIntensity <= IDLE_ACTIVITY_MAX_ATTENTION_INTENSITY
+
+                    if (idleActivityEligible) {
+                        if (nextIdleActivityEmitAtMs <= 0L) {
+                            nextIdleActivityEmitAtMs = nowMs + nextIdleActivityDelayMs(
+                                state = ps,
+                                conditions = currentPetConditions
+                            )
+                        } else if (nowMs >= nextIdleActivityEmitAtMs) {
+                            val activeVisualIntent =
+                                execution.activeVisualIntent ?: com.aipet.brain.ui.avatar.pixel.bridge.PixelPetAvatarIntent.NEUTRAL
+                            eventBus.publish(
+                                EventEnvelope.create(
+                                    type = EventType.PET_IDLE_ACTIVITY,
+                                    timestampMs = nowMs,
+                                    payloadJson = PetIdleActivityPayload(
+                                        emittedAtMs = nowMs,
+                                        visualIntent = activeVisualIntent.name,
+                                        sourceIntention = sourceIntention.name,
+                                        attentionMode = attentionMode?.name,
+                                        attentionIntensity = attentionIntensity,
+                                        reason = resolveIdleActivityReason(
+                                            sourceIntention = sourceIntention,
+                                            attentionMode = attentionMode,
+                                            conditions = currentPetConditions
+                                        )
+                                    ).toJson()
+                                )
+                            )
+                            nextIdleActivityEmitAtMs = nowMs + nextIdleActivityDelayMs(
+                                state = ps,
+                                conditions = currentPetConditions
+                            )
+                        }
+                    } else {
+                        nextIdleActivityEmitAtMs = 0L
+                    }
                 } else {
                     behaviorDrivenIntent = null
                     behaviorTalkDirective = null
                     behaviorExperienceDebugState = BehaviorExperienceDebugState.EMPTY
+                    nextIdleActivityEmitAtMs = 0L
                 }
 
                 // Invitation system: expire pending invitations and emit new ones
@@ -1596,6 +1917,18 @@ fun PetBrainApp() {
                     petState = ps,
                     traits = currentPetTraits
                 )
+                }.onFailure { error ->
+                    runtimeHandledErrorSummary = "behavior_runtime_cycle_failed: ${error.message ?: "unknown"}"
+                    AppCrashReporter.persistHandledException(
+                        context = appContext,
+                        throwable = error,
+                        source = "behavior_runtime_cycle"
+                    )
+                    behaviorDrivenIntent = null
+                    behaviorTalkDirective = null
+                    behaviorExperienceDebugState = BehaviorExperienceDebugState.EMPTY
+                    nextIdleActivityEmitAtMs = 0L
+                }
             }
             kotlinx.coroutines.delay(750L)
         }
@@ -1655,6 +1988,31 @@ fun PetBrainApp() {
             lastPublishedFaceCount = 0
             recognizedPersonLabel = null
         }
+    }
+
+    LaunchedEffect(
+        hasRequestedCameraPermission,
+        hasRequestedMicrophonePermission,
+        currentScreenName,
+        runtimeSensingCoordinator
+    ) {
+        runtimeSensingCoordinator.onPermissions(
+            cameraGranted = isCameraPermissionGranted(appContext),
+            microphoneGranted = isMicrophonePermissionGranted(appContext)
+        )
+    }
+
+    LaunchedEffect(
+        attentionDebugState?.currentMode,
+        attentionDebugState?.intensity,
+        attentionDebugState?.activeTarget?.type,
+        runtimeSensingCoordinator
+    ) {
+        runtimeSensingCoordinator.onAttentionSignal(
+            mode = attentionDebugState?.currentMode,
+            intensity = attentionDebugState?.intensity ?: 0f,
+            targetType = attentionDebugState?.activeTarget?.type
+        )
     }
 
     DisposableEffect(audioPlaybackEngine, faceEmbeddingEngine) {
@@ -1730,6 +2088,10 @@ fun PetBrainApp() {
         currentRelationshipStage = snapshot.relationshipStage
         currentDayBoundaryType = snapshot.dayBoundaryType
         currentSummaryDate = snapshot.summaryDate
+        recentMemorySummary = recentMemorySummary.copy(
+            lastAbsenceDurationMs = absenceMs.coerceAtLeast(0L),
+            updatedAtMs = resumedAtMs
+        )
         pendingInvitationUntilMs = 0L
         invitationUiTriggerToken = 0L
         homeInteractionFeedback = null
@@ -1745,6 +2107,11 @@ fun PetBrainApp() {
         behaviorDrivenIntent = null
         behaviorTalkDirective = null
         behaviorExperienceDebugState = BehaviorExperienceDebugState.EMPTY
+        emotionInertiaDebugState = EmotionInertiaDebugState.DEFAULT
+        lastPublishedBehaviorPlanId = null
+        lastPublishedIntention = null
+        lastAttentionEventSnapshot = null
+        nextIdleActivityEmitAtMs = 0L
         lastAudioRequestDispatchAtMs = 0L
         lastAudioRequestDispatchCategory = null
         petIntentionExecutor.resetRuntimeState()
@@ -1780,9 +2147,17 @@ fun PetBrainApp() {
 
     // Finalize episode on app background (ON_STOP) for reliable session capture
     val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner, runtimeSensingCoordinator) {
+        runtimeSensingCoordinator.onLifecycleActive(
+            lifecycleOwner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
+        )
+    }
     DisposableEffect(lifecycleOwner, evolutionCoordinator) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_STOP) {
+                coroutineScope.launch {
+                    runtimeSensingCoordinator.onLifecycleActive(false)
+                }
                 lastLifecycleStopAtMs = System.currentTimeMillis()
                 transientClearJobHolder[0]?.cancel()
                 transientReactionIntent = null
@@ -1790,6 +2165,11 @@ fun PetBrainApp() {
                 behaviorDrivenIntent = null
                 behaviorTalkDirective = null
                 behaviorExperienceDebugState = BehaviorExperienceDebugState.EMPTY
+                emotionInertiaDebugState = EmotionInertiaDebugState.DEFAULT
+                lastPublishedBehaviorPlanId = null
+                lastPublishedIntention = null
+                lastAttentionEventSnapshot = null
+                nextIdleActivityEmitAtMs = 0L
                 appOpenGreeting = null
                 activeAppOpenGreeting = null
                 activeAppOpenGreetingExpiresAtMs = 0L
@@ -1804,6 +2184,9 @@ fun PetBrainApp() {
                     evolutionCoordinator.onSessionEnded(petState = state, traits = currentPetTraits)
                 }
             } else if (event == androidx.lifecycle.Lifecycle.Event.ON_START) {
+                coroutineScope.launch {
+                    runtimeSensingCoordinator.onLifecycleActive(true)
+                }
                 if (!hasAppliedAppOpenLifecycle) {
                     lastLifecycleStopAtMs = 0L
                     return@LifecycleEventObserver
@@ -1849,6 +2232,9 @@ fun PetBrainApp() {
     val objectDetectionEngineForBackground = remember(appContext) {
         runCatching { RealObjectDetectionEngine(appContext.assets) }.getOrNull()
     }
+    val latestAttentionDebugForLearning by rememberUpdatedState(attentionDebugState)
+    val latestBehaviorDebugForLearning by rememberUpdatedState(behaviorExperienceDebugState)
+    val latestScreenNameForLearning by rememberUpdatedState(currentScreenName)
     val backgroundOrchestrator = remember(
         appContext,
         lifecycleOwner,
@@ -1874,21 +2260,176 @@ fun PetBrainApp() {
             objectRepository = objectRepository,
             unknownFaceCandidateStore = unknownFaceCandidateStore,
             faceProfileStore = faceProfileStore,
+            onPresenceObserved = { faceCount, recognizedPersonId, confidence, observedAtMs ->
+                coroutineScope.launch {
+                    runCatching {
+                        perceptionFusionCoordinator.onCameraFrame(
+                            faceCount = faceCount,
+                            recognizedPersonId = recognizedPersonId,
+                            faceConfidence = confidence
+                        )
+                        if (!recognizedPersonId.isNullOrBlank()) {
+                            perceptionFusionCoordinator.onPersonRecognized(recognizedPersonId)
+                        }
+                        runtimeSensingCoordinator.reportSubsystemRecovered(RuntimeSensingSubsystem.CAMERA)
+                    }.onFailure { error ->
+                        runtimeHandledErrorSummary = "camera_presence_fusion_failed: ${error.message ?: "unknown"}"
+                        AppCrashReporter.persistHandledException(
+                            context = appContext,
+                            throwable = error,
+                            source = "runtime_camera_presence_fusion"
+                        )
+                    }
+                }
+            },
             onUnknownObjectDetected = { thumbnail, label, confidence, _ ->
-                if (activeTeachTarget == null) {
-                    activeTeachTarget = TeachUnknownTarget.UnknownObject(label, confidence, thumbnail)
+                coroutineScope.launch {
+                    val observedAtMs = System.currentTimeMillis()
+                    val normalizedLabel = label.trim().lowercase()
+                    if (
+                        normalizedLabel == lastUnknownObjectLabel &&
+                        observedAtMs - lastUnknownObjectSeenAtMs <= UNKNOWN_OBJECT_CURIOSITY_WINDOW_MS
+                    ) {
+                        unknownObjectSeenCount += 1
+                        unknownObjectCuriosityScore = (
+                            unknownObjectCuriosityScore +
+                                0.18f +
+                                (confidence.coerceIn(0f, 1f) * 0.12f)
+                            ).coerceIn(0f, 1f)
+                    } else {
+                        lastUnknownObjectLabel = normalizedLabel
+                        lastUnknownObjectSeenAtMs = observedAtMs
+                        unknownObjectSeenCount = 1
+                        unknownObjectCuriosityScore = (0.22f + confidence.coerceIn(0f, 1f) * 0.15f)
+                            .coerceIn(0f, 1f)
+                    }
+                    lastUnknownObjectSeenAtMs = observedAtMs
+                    val shouldPromptObject = shouldPromptForUnknownObject(
+                        hasActiveTeachFlow = activeTeachTarget != null,
+                        nowMs = observedAtMs,
+                        curiosityScore = unknownObjectCuriosityScore,
+                        seenCount = unknownObjectSeenCount,
+                        lastPromptAtMs = lastObjectTeachPromptAtMs,
+                        attentionDebugState = latestAttentionDebugForLearning,
+                        behaviorDebugState = latestBehaviorDebugForLearning,
+                        currentScreenName = latestScreenNameForLearning
+                    )
+                    if (shouldPromptObject) {
+                        activeTeachTarget = TeachUnknownTarget.UnknownObject(label, confidence, thumbnail)
+                        lastObjectTeachPromptAtMs = observedAtMs
+                    }
+                }
+            },
+            onRuntimeFailure = { message, error ->
+                coroutineScope.launch {
+                    runtimeHandledErrorSummary = message
+                    runtimeSensingCoordinator.reportSubsystemFailure(
+                        subsystem = RuntimeSensingSubsystem.CAMERA,
+                        message = message
+                    )
+                }
+                if (error != null) {
+                    AppCrashReporter.persistHandledException(
+                        context = appContext,
+                        throwable = error,
+                        source = "background_perception_runtime"
+                    )
                 }
             }
         )
     }
 
-    LaunchedEffect(hasRequestedCameraPermission) {
-        backgroundOrchestrator.start()
+    LaunchedEffect(
+        runtimeSensingState.cameraEnabled,
+        runtimeSensingState.audioEnabled,
+        runtimeSensingState.cadence.faceCropIntervalMs,
+        runtimeSensingState.cadence.objectDetectionIntervalMs,
+        runtimeSensingState.cadence.audioEnabled,
+        backgroundOrchestrator,
+        runtimeAudioAwarenessController,
+        runtimeSensingCoordinator
+    ) {
+        if (runtimeSensingState.cameraEnabled) {
+            runCatching {
+                backgroundOrchestrator.start()
+                backgroundOrchestrator.updateCadence(
+                    faceCropIntervalMs = runtimeSensingState.cadence.faceCropIntervalMs,
+                    objectDetectionIntervalMs = runtimeSensingState.cadence.objectDetectionIntervalMs
+                )
+                if (backgroundOrchestrator.isRunning()) {
+                    runtimeSensingCoordinator.reportSubsystemRecovered(RuntimeSensingSubsystem.CAMERA)
+                }
+            }.onFailure { error ->
+                val message = "runtime_camera_control_failed: ${error.message ?: "unknown"}"
+                runtimeHandledErrorSummary = message
+                runtimeSensingCoordinator.reportSubsystemFailure(
+                    subsystem = RuntimeSensingSubsystem.CAMERA,
+                    message = message
+                )
+                AppCrashReporter.persistHandledException(
+                    context = appContext,
+                    throwable = error,
+                    source = "runtime_camera_control"
+                )
+            }
+        } else {
+            runCatching {
+                backgroundOrchestrator.stop()
+            }.onFailure { error ->
+                val message = "runtime_camera_stop_failed: ${error.message ?: "unknown"}"
+                runtimeHandledErrorSummary = message
+                AppCrashReporter.persistHandledException(
+                    context = appContext,
+                    throwable = error,
+                    source = "runtime_camera_stop"
+                )
+            }
+        }
+
+        val shouldRunAudio = runtimeSensingState.audioEnabled && runtimeSensingState.cadence.audioEnabled
+        if (shouldRunAudio) {
+            val started = runCatching {
+                runtimeAudioAwarenessController.startPassiveAwareness()
+            }.getOrElse { error ->
+                val message = "runtime_audio_control_failed: ${error.message ?: "unknown"}"
+                runtimeHandledErrorSummary = message
+                runtimeSensingCoordinator.reportSubsystemFailure(
+                    subsystem = RuntimeSensingSubsystem.AUDIO,
+                    message = message
+                )
+                AppCrashReporter.persistHandledException(
+                    context = appContext,
+                    throwable = error,
+                    source = "runtime_audio_control"
+                )
+                false
+            }
+            if (started) {
+                runtimeSensingCoordinator.reportSubsystemRecovered(RuntimeSensingSubsystem.AUDIO)
+            }
+        } else {
+            runCatching {
+                runtimeAudioAwarenessController.stopPassiveAwareness()
+            }.onFailure { error ->
+                val message = "runtime_audio_stop_failed: ${error.message ?: "unknown"}"
+                runtimeHandledErrorSummary = message
+                AppCrashReporter.persistHandledException(
+                    context = appContext,
+                    throwable = error,
+                    source = "runtime_audio_stop"
+                )
+            }
+        }
     }
 
-    DisposableEffect(backgroundOrchestrator, objectDetectionEngineForBackground) {
+    DisposableEffect(
+        backgroundOrchestrator,
+        objectDetectionEngineForBackground,
+        runtimeAudioAwarenessController
+    ) {
         onDispose {
             backgroundOrchestrator.release()
+            runtimeAudioAwarenessController.release()
             objectDetectionEngineForBackground?.close()
         }
     }
@@ -1919,6 +2460,7 @@ fun PetBrainApp() {
             behaviorDrivenIntent = null
             behaviorTalkDirective = null
             behaviorExperienceDebugState = BehaviorExperienceDebugState.EMPTY
+            nextIdleActivityEmitAtMs = 0L
             appOpenGreeting = null
             activeAppOpenGreeting = null
             activeAppOpenGreetingExpiresAtMs = 0L
@@ -1935,6 +2477,19 @@ fun PetBrainApp() {
             latestOwnerGreetingEvent = null
             recognizedPersonLabel = null
             recognitionProbeSummary = "not_run"
+            unknownPersonFamiliarityScore = 0f
+            unknownPersonSeenCount = 0
+            lastUnknownPersonSeenAtMs = 0L
+            lastPersonTeachPromptAtMs = 0L
+            unknownObjectCuriosityScore = 0f
+            unknownObjectSeenCount = 0
+            lastUnknownObjectLabel = null
+            lastUnknownObjectSeenAtMs = 0L
+            lastObjectTeachPromptAtMs = 0L
+            runtimeHandledErrorSummary = null
+            lastAttentionEventSnapshot = null
+            lastPublishedBehaviorPlanId = null
+            lastPublishedIntention = null
             activeTeachTarget = null
             perceptionLookingUntilMs = 0L
             perceptionAskingUntilMs = 0L
@@ -1942,6 +2497,7 @@ fun PetBrainApp() {
             currentPetEmotion = PetEmotion.IDLE
             currentPetTraits = null
             currentPetConditions = emptySet()
+            recentMemorySummary = RecentMemorySummary.DEFAULT
             currentAbsenceBucket = null
             currentGreetingStyle = null
             currentRelationshipStage = null
@@ -1950,6 +2506,7 @@ fun PetBrainApp() {
             homeInteractionFeedback = null
             latestBehaviorDecisionSource = null
             latestBehaviorDecision = null
+            emotionInertiaDebugState = EmotionInertiaDebugState.DEFAULT
             petNameDraft = PetProfileRepository.DEFAULT_PET_NAME
             activePetProfile = null
             editingPersonId = null
@@ -2165,6 +2722,7 @@ fun PetBrainApp() {
         if (isBehaviorExperienceAuthoritative) {
             behaviorDrivenIntent = null
         }
+        nextIdleActivityEmitAtMs = 0L
         queueTransientReaction(
             intent = TapReactionPresentationMapper.mapToAvatarIntent(
                 resultingEmotion = resolvedInteraction.emotion,
@@ -2322,6 +2880,7 @@ fun PetBrainApp() {
             behaviorDrivenIntent = null
         }
         sessionInteractionTracker.recordInteraction()
+        nextIdleActivityEmitAtMs = 0L
         queueTransientReaction(
             intent = ActivityReactionPresentationMapper.mapToAvatarIntent(
                 activityType = resolvedActivity.result.activityType,
@@ -3154,6 +3713,9 @@ fun PetBrainApp() {
                     behaviorExperienceDebugState = behaviorExperienceDebugState,
                     attentionDebugState = attentionDebugState,
                     fusionSnapshot = fusionSnapshot,
+                    runtimeSensingState = runtimeSensingState,
+                    emotionInertiaDebugState = emotionInertiaDebugState,
+                    runtimeHandledErrorSummary = runtimeHandledErrorSummary,
                     onNavigateToHome = { currentScreenName = AppScreen.Home.name },
                     onNavigateToDiary = { currentScreenName = AppScreen.Diary.name },
                     onNavigateToDebug = { currentScreenName = AppScreen.Debug.name }
@@ -3305,11 +3867,32 @@ fun PetBrainApp() {
                                                 seedEmbedding = seedEmbedding
                                             )
                                     }
+                                    lastPersonTeachPromptAtMs = System.currentTimeMillis()
+                                    unknownPersonFamiliarityScore = 0f
+                                    unknownPersonSeenCount = 0
+                                    lastUnknownPersonSeenAtMs = 0L
                                 }
                                 is TeachUnknownTarget.UnknownObject -> {
                                     withContext(Dispatchers.IO) {
-                                        objectRepository.createObject(name.trim())
+                                        val taughtAtMs = System.currentTimeMillis()
+                                        val createdObject = objectRepository.createObject(name.trim())
+                                        if (createdObject != null) {
+                                            eventBus.publish(
+                                                EventEnvelope.create(
+                                                    type = EventType.USER_TAUGHT_OBJECT,
+                                                    timestampMs = taughtAtMs,
+                                                    payloadJson = UserTaughtObjectEventPayload(
+                                                        objectId = createdObject.objectId,
+                                                        objectName = createdObject.name,
+                                                        taughtAtMs = taughtAtMs
+                                                    ).toJson()
+                                                )
+                                            )
+                                        }
                                     }
+                                    lastObjectTeachPromptAtMs = System.currentTimeMillis()
+                                    unknownObjectCuriosityScore = 0f
+                                    unknownObjectSeenCount = 0
                                 }
                             }
                             activeTeachTarget = null
@@ -3317,10 +3900,17 @@ fun PetBrainApp() {
                     },
                     onDismiss = {
                         if (target is TeachUnknownTarget.UnknownFace) {
+                            lastPersonTeachPromptAtMs = System.currentTimeMillis()
+                            unknownPersonFamiliarityScore = 0f
+                            unknownPersonSeenCount = 0
                             backgroundOrchestrator.suppressUnknownFaceCandidate(
                                 candidateId = target.candidateId,
                                 reason = "user_skipped_dialog"
                             )
+                        } else if (target is TeachUnknownTarget.UnknownObject) {
+                            lastObjectTeachPromptAtMs = System.currentTimeMillis()
+                            unknownObjectCuriosityScore = 0f
+                            unknownObjectSeenCount = 0
                         }
                         activeTeachTarget = null
                     }
@@ -3405,6 +3995,369 @@ private fun buildAudioStimulusDebugSummary(
     return "source=${currentStimulus.sourceEventType.name}, ts=${currentStimulus.timestampMs}"
 }
 
+private fun isIdleActivityIntention(intention: PetIntention): Boolean {
+    return intention in IDLE_ACTIVITY_ELIGIBLE_INTENTIONS
+}
+
+private fun nextIdleActivityDelayMs(
+    state: PetState,
+    conditions: Set<PetCondition>
+): Long {
+    val (minMs, maxMs) = when {
+        PetCondition.SLEEPY in conditions -> 5_500L to 9_000L
+        PetCondition.HUNGRY in conditions || PetCondition.LONELY in conditions -> 6_500L to 10_500L
+        state.energy >= 70 -> 6_000L to 9_500L
+        state.energy <= 30 -> 8_500L to 13_500L
+        else -> 7_000L to 11_500L
+    }
+    return Random.nextLong(from = minMs, until = maxMs + 1L)
+}
+
+private fun resolveIdleActivityReason(
+    sourceIntention: PetIntention,
+    attentionMode: AttentionMode?,
+    conditions: Set<PetCondition>
+): String {
+    val candidates = buildList {
+        when (sourceIntention) {
+            PetIntention.DOZE -> {
+                add("idle_micro_doze")
+                add("idle_slow_blink")
+            }
+            PetIntention.OBSERVE -> {
+                add("idle_observe_shift")
+                add("idle_look_around")
+            }
+            PetIntention.INVESTIGATE -> {
+                add("idle_curious_scan")
+                add("idle_focus_adjust")
+            }
+            PetIntention.STAY_NEAR -> {
+                add("idle_companion_settle")
+                add("idle_soft_attention")
+            }
+            PetIntention.REST -> {
+                add("idle_rest_settle")
+                add("idle_breathing_pause")
+            }
+            else -> add("idle_low_intensity_life")
+        }
+        if (attentionMode == AttentionMode.IDLE_SCANNING || attentionMode == AttentionMode.CURIOUS_INSPECTION) {
+            add("idle_attention_shift")
+        }
+        if (PetCondition.HUNGRY in conditions) {
+            add("idle_food_seek_glance")
+        }
+        if (PetCondition.LONELY in conditions) {
+            add("idle_social_scan")
+        }
+        if (PetCondition.SLEEPY in conditions) {
+            add("idle_heavy_lids")
+        }
+    }
+    return candidates.random()
+}
+
+private fun isCameraPermissionGranted(context: android.content.Context): Boolean {
+    return ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.CAMERA
+    ) == PackageManager.PERMISSION_GRANTED
+}
+
+private fun isMicrophonePermissionGranted(context: android.content.Context): Boolean {
+    return ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.RECORD_AUDIO
+    ) == PackageManager.PERMISSION_GRANTED
+}
+
+private fun updateRecentMemoryFromEvent(
+    current: RecentMemorySummary,
+    event: EventEnvelope,
+    eventTimestampMs: Long
+): RecentMemorySummary {
+    val nowMs = eventTimestampMs
+    val decayedKnownCount = if (
+        current.lastKnownObjectSeenMs > 0L &&
+            nowMs - current.lastKnownObjectSeenMs <= RECENT_OBJECT_MEMORY_WINDOW_MS
+    ) {
+        current.knownObjectExposureCount
+    } else {
+        0
+    }
+    val decayedUnknownCount = if (
+        current.lastUnknownObjectSeenMs > 0L &&
+            nowMs - current.lastUnknownObjectSeenMs <= RECENT_OBJECT_MEMORY_WINDOW_MS
+    ) {
+        current.unknownObjectExposureCount
+    } else {
+        0
+    }
+    var updated = current.copy(
+        knownObjectExposureCount = decayedKnownCount,
+        unknownObjectExposureCount = decayedUnknownCount,
+        updatedAtMs = nowMs
+    )
+
+    when (event.type) {
+        EventType.PERSON_RECOGNIZED -> {
+            val payload = com.aipet.brain.brain.events.PersonRecognizedPayload.fromJson(event.payloadJson)
+            updated = updated.copy(
+                userEnteredRecentlyMs = nowMs,
+                userLastSeenMs = nowMs,
+                lastRecognizedPersonId = payload?.personId ?: updated.lastRecognizedPersonId
+            )
+        }
+
+        EventType.PERSON_UNKNOWN,
+        EventType.FACE_DETECTED,
+        EventType.FACES_DETECTED,
+        EventType.CANDIDATE_PERSON_READY_FOR_TEACH,
+        EventType.UNKNOWN_FACE_CANDIDATE_READY_TO_ASK -> {
+            updated = updated.copy(
+                userEnteredRecentlyMs = nowMs,
+                userLastSeenMs = nowMs
+            )
+        }
+
+        EventType.USER_PRESENT_LEFT -> {
+            updated = updated.copy(userLastSeenMs = nowMs)
+        }
+
+        EventType.OBJECT_DETECTED -> {
+            val payload = ObjectDetectedEventPayload.fromJson(event.payloadJson)
+            val isKnownObject = !payload?.objectId.isNullOrBlank()
+            if (isKnownObject) {
+                updated = updated.copy(
+                    lastKnownObjectSeenMs = nowMs,
+                    knownObjectExposureCount = (updated.knownObjectExposureCount + 1)
+                        .coerceAtMost(RECENT_OBJECT_EXPOSURE_CAP)
+                )
+            } else {
+                updated = updated.copy(
+                    lastUnknownObjectSeenMs = nowMs,
+                    unknownObjectExposureCount = (updated.unknownObjectExposureCount + 1)
+                        .coerceAtMost(RECENT_OBJECT_EXPOSURE_CAP)
+                )
+            }
+        }
+
+        EventType.UNKNOWN_OBJECT_DETECTED -> {
+            updated = updated.copy(
+                lastUnknownObjectSeenMs = nowMs,
+                unknownObjectExposureCount = (updated.unknownObjectExposureCount + 1)
+                    .coerceAtMost(RECENT_OBJECT_EXPOSURE_CAP)
+            )
+        }
+
+        EventType.SOUND_DETECTED -> {
+            updated = updated.copy(loudSoundRecentlyMs = nowMs)
+        }
+
+        EventType.USER_INTERACTED_PET,
+        EventType.PET_LONG_PRESSED,
+        EventType.AFFECTION_INTERACTION -> {
+            updated = updated.copy(lastTouchMs = nowMs)
+        }
+
+        EventType.LOCAL_AUDIO_INTENT_DETECTED,
+        EventType.KEYWORD_DETECTED,
+        EventType.WAKE_WORD_DETECTED,
+        EventType.VOICE_ACTIVITY_STARTED -> {
+            updated = updated.copy(lastVoiceCommandMs = nowMs)
+        }
+
+        else -> Unit
+    }
+
+    return updated.copy(updatedAtMs = nowMs)
+}
+
+private suspend fun publishBehaviorPlanEvents(
+    eventBus: com.aipet.brain.brain.events.EventBus,
+    plan: BehaviorPlan,
+    nowMs: Long,
+    previousPlanId: String?,
+    previousIntention: PetIntention?
+) {
+    if (previousPlanId != plan.id) {
+        eventBus.publish(
+            EventEnvelope.create(
+                type = EventType.BEHAVIOR_PLAN_STARTED,
+                timestampMs = nowMs,
+                payloadJson = BehaviorPlanEventPayload(
+                    planId = plan.id,
+                    intention = plan.intention.name,
+                    debugLabel = plan.debugLabel,
+                    animationFamily = plan.animationFamily.name,
+                    interruptPriority = plan.interruptPriority,
+                    source = "behavior_engine_v2",
+                    timestampMs = nowMs
+                ).toJson()
+            )
+        )
+    }
+    if (previousIntention != plan.intention) {
+        eventBus.publish(
+            EventEnvelope.create(
+                type = EventType.PET_INTENTION_CHANGED,
+                timestampMs = nowMs,
+                payloadJson = PetIntentionChangedEventPayload(
+                    previousIntention = previousIntention?.name,
+                    newIntention = plan.intention.name,
+                    planId = plan.id,
+                    reason = plan.debugLabel,
+                    timestampMs = nowMs
+                ).toJson()
+            )
+        )
+    }
+}
+
+private fun buildAttentionOwnershipEvent(
+    previous: AttentionEventSnapshot?,
+    current: AttentionEventSnapshot
+): EventEnvelope? {
+    val previousActive = previous?.targetType != null && previous.targetType != "NONE"
+    val currentActive = current.targetType != "NONE"
+    val type = when {
+        !previousActive && currentActive -> EventType.ATTENTION_TARGET_ACQUIRED
+        previousActive && !currentActive -> EventType.ATTENTION_TARGET_LOST
+        previousActive && currentActive &&
+            (previous?.targetType != current.targetType || previous?.targetId != current.targetId) ->
+            EventType.ATTENTION_TARGET_SHIFTED
+        else -> null
+    } ?: return null
+
+    return EventEnvelope.create(
+        type = type,
+        timestampMs = current.timestampMs,
+        payloadJson = AttentionTargetEventPayload(
+            targetType = current.targetType,
+            targetId = current.targetId,
+            previousTargetType = previous?.targetType,
+            previousTargetId = previous?.targetId,
+            mode = current.mode,
+            intensity = current.intensity.coerceIn(0f, 1f),
+            shiftReason = current.shiftReason,
+            timestampMs = current.timestampMs
+        ).toJson()
+    )
+}
+
+private fun resolveEmotionInertiaState(
+    baseEmotion: PetEmotion,
+    momentum: com.aipet.brain.brain.b2.domain.EmotionMomentum
+): EmotionInertiaDebugState {
+    val startledStrength = momentum.startledLevel
+    val withdrawnStrength = maxOf(momentum.irritation, momentum.caution, momentum.moodWithdrawn)
+    val drowsyStrength = maxOf(momentum.drowsiness, momentum.moodDrowsy)
+    val needyStrength = maxOf(momentum.neediness, momentum.moodNeedy)
+    val happyStrength = maxOf(
+        momentum.joy,
+        momentum.comfort * 0.9f,
+        momentum.moodWarm * 0.95f,
+        momentum.moodPlayful * 0.9f
+    )
+    val curiousStrength = momentum.curiosity
+
+    val candidates = listOf(
+        "startled" to (PetEmotion.STARTLED to startledStrength),
+        "withdrawn" to (PetEmotion.WITHDRAWN to withdrawnStrength),
+        "sleepy" to (PetEmotion.SLEEPY to drowsyStrength),
+        "needy" to (PetEmotion.NEEDY to needyStrength),
+        "happy" to (PetEmotion.HAPPY to happyStrength),
+        "curious" to (PetEmotion.CURIOUS to curiousStrength)
+    )
+    val dominant = candidates.maxByOrNull { it.second.second }
+    val dominantStrength = dominant?.second?.second?.coerceIn(0f, 1f) ?: 0f
+    val dominantEmotion = dominant?.second?.first ?: baseEmotion
+    val highNeedBaseEmotion = baseEmotion == PetEmotion.HUNGRY || baseEmotion == PetEmotion.SLEEPY
+    val canOverrideBase = dominantStrength >= EMOTION_INERTIA_OVERRIDE_THRESHOLD &&
+        (!highNeedBaseEmotion || dominantStrength >= EMOTION_INERTIA_NEED_OVERRIDE_THRESHOLD)
+    val finalEmotion = if (canOverrideBase) dominantEmotion else baseEmotion
+
+    return EmotionInertiaDebugState(
+        baseEmotion = baseEmotion,
+        momentumDriver = dominant?.first ?: "none",
+        momentumStrength = dominantStrength,
+        finalEmotion = finalEmotion
+    )
+}
+
+private fun shouldPromptForUnknownPerson(
+    hasActiveTeachFlow: Boolean,
+    nowMs: Long,
+    familiarityScore: Float,
+    seenCount: Int,
+    lastPromptAtMs: Long,
+    attentionDebugState: com.aipet.brain.brain.attention.AttentionDebugState?,
+    behaviorDebugState: BehaviorExperienceDebugState,
+    currentScreenName: String
+): Boolean {
+    if (hasActiveTeachFlow) return false
+    if (nowMs - lastPromptAtMs < UNKNOWN_PERSON_PROMPT_COOLDOWN_MS) return false
+    if (seenCount < UNKNOWN_PERSON_MIN_SEEN_COUNT) return false
+    if (familiarityScore < UNKNOWN_PERSON_FAMILIARITY_THRESHOLD) return false
+    if (!isLearningContextEligible(attentionDebugState, behaviorDebugState, currentScreenName)) return false
+    return true
+}
+
+private fun shouldPromptForUnknownObject(
+    hasActiveTeachFlow: Boolean,
+    nowMs: Long,
+    curiosityScore: Float,
+    seenCount: Int,
+    lastPromptAtMs: Long,
+    attentionDebugState: com.aipet.brain.brain.attention.AttentionDebugState?,
+    behaviorDebugState: BehaviorExperienceDebugState,
+    currentScreenName: String
+): Boolean {
+    if (hasActiveTeachFlow) return false
+    if (nowMs - lastPromptAtMs < UNKNOWN_OBJECT_PROMPT_COOLDOWN_MS) return false
+    if (seenCount < UNKNOWN_OBJECT_MIN_SEEN_COUNT) return false
+    if (curiosityScore < UNKNOWN_OBJECT_CURIOSITY_THRESHOLD) return false
+    if (!isLearningContextEligible(attentionDebugState, behaviorDebugState, currentScreenName)) return false
+    val mode = attentionDebugState?.currentMode
+    val intensity = attentionDebugState?.intensity ?: 0f
+    val objectAttentionEligible = mode in setOf(
+        AttentionMode.CURIOUS_INSPECTION,
+        AttentionMode.LISTENING,
+        AttentionMode.PASSIVE_COMPANION,
+        AttentionMode.IDLE_SCANNING
+    ) || intensity >= 0.40f
+    return objectAttentionEligible
+}
+
+private fun isLearningContextEligible(
+    attentionDebugState: com.aipet.brain.brain.attention.AttentionDebugState?,
+    behaviorDebugState: BehaviorExperienceDebugState,
+    currentScreenName: String
+): Boolean {
+    if (currentScreenName != AppScreen.Home.name && currentScreenName != AppScreen.Camera.name) {
+        return false
+    }
+    val blockedIntention = behaviorDebugState.accepted && behaviorDebugState.sourceIntention in setOf(
+        PetIntention.RESPOND_TO_USER,
+        PetIntention.STARTLE_RECOVER,
+        PetIntention.PLAY,
+        PetIntention.CELEBRATE
+    )
+    if (blockedIntention) {
+        return false
+    }
+    val mode = attentionDebugState?.currentMode
+    val intensity = attentionDebugState?.intensity ?: 0f
+    return mode in setOf(
+        AttentionMode.SOCIAL_LOCK,
+        AttentionMode.CURIOUS_INSPECTION,
+        AttentionMode.LISTENING,
+        AttentionMode.PASSIVE_COMPANION,
+        AttentionMode.IDLE_SCANNING
+    ) || intensity >= 0.38f
+}
+
 private const val DEBUG_AUDIO_REQUEST_CATEGORY = "ACKNOWLEDGMENT"
 private const val DEBUG_AUDIO_REQUEST_COOLDOWN_KEY = "debug_audio_stimulus_request"
 private const val DEBUG_RECOGNITION_TAG = "RecognitionProbe"
@@ -3423,6 +4376,17 @@ private const val APP_OPEN_GREETING_DEDUPE_KEY = "app_open_greeting"
 private const val RESUME_EVOLUTION_MIN_ABSENCE_MS = 1_000L
 private const val RUNTIME_AUDIO_GLOBAL_MIN_INTERVAL_MS = 1_200L
 private const val RUNTIME_AUDIO_SAME_CATEGORY_MIN_INTERVAL_MS = 2_200L
+private const val RECENT_OBJECT_MEMORY_WINDOW_MS = 75_000L
+private const val RECENT_OBJECT_EXPOSURE_CAP = 8
+private const val EMOTION_INERTIA_OVERRIDE_THRESHOLD = 0.62f
+private const val EMOTION_INERTIA_NEED_OVERRIDE_THRESHOLD = 0.86f
+private const val UNKNOWN_PERSON_FAMILIARITY_THRESHOLD = 0.58f
+private const val UNKNOWN_PERSON_MIN_SEEN_COUNT = 2
+private const val UNKNOWN_PERSON_PROMPT_COOLDOWN_MS = 15L * 60L * 1000L
+private const val UNKNOWN_OBJECT_CURIOSITY_THRESHOLD = 0.62f
+private const val UNKNOWN_OBJECT_MIN_SEEN_COUNT = 2
+private const val UNKNOWN_OBJECT_CURIOSITY_WINDOW_MS = 90_000L
+private const val UNKNOWN_OBJECT_PROMPT_COOLDOWN_MS = 12L * 60L * 1000L
 
 // Auto-learning: minimum recognition score (cosine similarity) before a live frame
 // embedding is added to the person's profile automatically.
@@ -3431,6 +4395,17 @@ private const val PERCEPTION_LOOKING_HOLD_MS = 2_500L
 private const val PERCEPTION_ASKING_HOLD_MS = 4_500L
 // Time the user has to interact after an invitation before it is counted as ignored
 private const val INVITATION_RESPONSE_WINDOW_MS = 30_000L
+private const val IDLE_ACTIVITY_MIN_QUIET_MS = 3_500L
+private const val IDLE_ACTIVITY_MAX_ATTENTION_INTENSITY = 0.72f
+private const val IDLE_ACTIVITY_AUDIO_SUPPRESS_MS = 2_600L
+
+private val IDLE_ACTIVITY_ELIGIBLE_INTENTIONS = setOf(
+    PetIntention.REST,
+    PetIntention.DOZE,
+    PetIntention.OBSERVE,
+    PetIntention.INVESTIGATE,
+    PetIntention.STAY_NEAR
+)
 
 // Cap total auto-learned embeddings per-person to avoid unbounded DB growth.
 private const val AUTO_LEARN_MAX_EMBEDDINGS_PER_PERSON = 20
@@ -3474,6 +4449,15 @@ private fun rotateBitmapForPortrait(bitmap: Bitmap, cameraRotation: Int): Bitmap
     bitmap.recycle()
     return rotated
 }
+
+private data class AttentionEventSnapshot(
+    val targetType: String,
+    val targetId: String?,
+    val mode: String,
+    val intensity: Float,
+    val shiftReason: String,
+    val timestampMs: Long
+)
 
 private data class RuntimeRehydrateSnapshot(
     val profile: PetProfile,

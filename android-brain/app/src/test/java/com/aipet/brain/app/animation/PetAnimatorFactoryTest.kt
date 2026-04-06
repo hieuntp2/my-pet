@@ -7,11 +7,11 @@ import org.junit.Test
 
 class PetAnimatorFactoryTest {
     @Test
-    fun `default factory returns fake animator runtime`() = runTest {
+    fun `default factory returns pixel animator runtime`() = runTest {
         val animator = DefaultPetAnimatorFactory().create(backgroundScope)
 
-        assertTrue(animator is FakePetAnimator)
-        assertEquals(PetAnimationRuntimeMode.FAKE, animator.state.value.runtimeMode)
+        assertTrue(animator is PixelPetAnimator)
+        assertEquals(PetAnimationRuntimeMode.PIXEL, animator.state.value.runtimeMode)
     }
 
     @Test

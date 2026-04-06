@@ -154,6 +154,7 @@ class BehaviorEngine(
                         isWinner = c.intention == result.winner
                     )
                 },
+                recentMemory = recentMemory,
                 emotionMomentum = emotion,
                 relationshipState = relationship,
                 cooldownState = cooldowns,

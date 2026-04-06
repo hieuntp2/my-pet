@@ -1,6 +1,8 @@
 package com.aipet.brain.app.ui.debug
 
 import com.aipet.brain.app.behavior.experience.BehaviorExperienceDebugState
+import com.aipet.brain.app.behavior.experience.EmotionInertiaDebugState
+import com.aipet.brain.app.runtime.sensing.RuntimeSensingState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,6 +28,9 @@ fun BehaviorIntelligenceDebugScreen(
     behaviorExperienceDebugState: BehaviorExperienceDebugState?,
     attentionDebugState: AttentionDebugState?,
     fusionSnapshot: PerceptionFusionSnapshot,
+    runtimeSensingState: RuntimeSensingState,
+    emotionInertiaDebugState: EmotionInertiaDebugState,
+    runtimeHandledErrorSummary: String?,
     onNavigateToHome: () -> Unit,
     onNavigateToDiary: () -> Unit,
     onNavigateToDebug: () -> Unit
@@ -46,6 +51,13 @@ fun BehaviorIntelligenceDebugScreen(
         ) {
             Text("Behavior Intelligence Debug", style = MaterialTheme.typography.titleLarge)
 
+            RuntimeSensingSection(
+                runtimeSensingState = runtimeSensingState,
+                runtimeHandledErrorSummary = runtimeHandledErrorSummary
+            )
+
+            Divider()
+
             // ── Behavior Engine v2 ────────────────────────────────────────────
             BehaviorEngineSection(behaviorDebugState)
 
@@ -60,8 +72,37 @@ fun BehaviorIntelligenceDebugScreen(
 
             Divider()
 
+            EmotionInertiaSection(emotionInertiaDebugState)
+
+            Divider()
+
             // ── Perception Fusion ─────────────────────────────────────────────
             PerceptionFusionSection(fusionSnapshot)
+        }
+    }
+}
+
+@Composable
+private fun RuntimeSensingSection(
+    runtimeSensingState: RuntimeSensingState,
+    runtimeHandledErrorSummary: String?
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text("Runtime Sensing", style = MaterialTheme.typography.titleMedium)
+            DebugRow("Mode", runtimeSensingState.mode.name)
+            DebugRow("Camera Enabled", runtimeSensingState.cameraEnabled.toString())
+            DebugRow("Audio Enabled", runtimeSensingState.audioEnabled.toString())
+            DebugRow(
+                "Cadence",
+                "face=${runtimeSensingState.cadence.faceCropIntervalMs}ms object=${runtimeSensingState.cadence.objectDetectionIntervalMs}ms"
+            )
+            DebugRow("Degraded", runtimeSensingState.degraded.toString())
+            DebugRow("Degrade Reason", runtimeSensingState.degradationReason.name)
+            DebugRow("Transition Reason", runtimeSensingState.lastTransitionReason)
+            DebugRow("Transition Count", runtimeSensingState.transitionCount.toString())
+            DebugRow("Last Runtime Error", runtimeSensingState.lastErrorSummary ?: "-")
+            DebugRow("Last Handled Error", runtimeHandledErrorSummary ?: "-")
         }
     }
 }
@@ -96,6 +137,12 @@ private fun BehaviorEngineSection(state: BehaviorEngineDebugState?) {
                 "W=%.2f N=%.2f".format(state.relationshipState.recentWarmth, state.relationshipState.recentNeglect))
             DebugRow("Invitation Streak", "${state.cooldownState.invitationIgnoredStreak}")
             DebugRow("Recent Taps", "${state.cooldownState.recentTapCount}")
+            DebugRow("Last Recognized Person", state.recentMemory.lastRecognizedPersonId ?: "-")
+            DebugRow(
+                "Known/Unknown Objects",
+                "${state.recentMemory.knownObjectExposureCount}/${state.recentMemory.unknownObjectExposureCount}"
+            )
+            DebugRow("Last Absence", "${state.recentMemory.lastAbsenceDurationMs}ms")
 
             Text("Top 5 Candidates:", style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.padding(top = 8.dp))
@@ -112,6 +159,19 @@ private fun BehaviorEngineSection(state: BehaviorEngineDebugState?) {
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun EmotionInertiaSection(state: EmotionInertiaDebugState) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Text("Emotional Inertia", style = MaterialTheme.typography.titleMedium)
+            DebugRow("Base Emotion", state.baseEmotion.name)
+            DebugRow("Momentum Driver", state.momentumDriver)
+            DebugRow("Momentum Strength", "%.2f".format(state.momentumStrength))
+            DebugRow("Final Emotion", state.finalEmotion.name)
         }
     }
 }

@@ -96,8 +96,7 @@ class WorkingMemoryUpdater(
 
     private fun handleAudioStimulusMemoryUpdate(event: EventEnvelope) {
         val stimulus = audioStimulusMapper.map(event) ?: run {
-            Log.w(
-                TAG,
+            logWarn(
                 "Ignored audio event for working memory update due to invalid payload. " +
                     "eventType=${event.type.name}, eventId=${event.eventId}"
             )
@@ -105,8 +104,7 @@ class WorkingMemoryUpdater(
         }
         val meaningfulStimulus = audioMeaningfulStimulusPolicy.evaluate(stimulus)
         if (meaningfulStimulus == null) {
-            Log.d(
-                TAG,
+            logDebug(
                 "Audio stimulus ignored for lastStimulusTs update. source=${stimulus.sourceEventType.name}, " +
                     "stimulusTs=${stimulus.timestampMs}"
             )
@@ -122,8 +120,7 @@ class WorkingMemoryUpdater(
             }
         }
         val updatedStimulusTs = workingMemoryStore.currentSnapshot().lastStimulusTs
-        Log.d(
-            TAG,
+        logDebug(
             "Meaningful audio stimulus updated working memory. source=${meaningfulStimulus.sourceEventType.name}, " +
                 "reason=${meaningfulStimulus.reason}, lastStimulusTs=$previousStimulusTs -> $updatedStimulusTs"
         )
@@ -131,8 +128,7 @@ class WorkingMemoryUpdater(
 
     private fun handleLocalAudioIntentMemoryUpdate(event: EventEnvelope) {
         val payload = LocalAudioIntentEvent.fromJson(event.payloadJson) ?: run {
-            Log.w(
-                TAG,
+            logWarn(
                 "Ignored ${EventType.LOCAL_AUDIO_INTENT_DETECTED.name} for working memory update due to invalid payload."
             )
             return
@@ -147,11 +143,22 @@ class WorkingMemoryUpdater(
             }
         }
         val updatedStimulusTs = workingMemoryStore.currentSnapshot().lastStimulusTs
-        Log.d(
-            TAG,
+        logDebug(
             "Local audio intent updated working memory. intent=${payload.intent.name}, " +
                 "lastStimulusTs=$previousStimulusTs -> $updatedStimulusTs"
         )
+    }
+
+    private fun logDebug(message: String) {
+        runCatching {
+            Log.d(TAG, message)
+        }
+    }
+
+    private fun logWarn(message: String) {
+        runCatching {
+            Log.w(TAG, message)
+        }
     }
 
     companion object {

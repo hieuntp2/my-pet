@@ -21,6 +21,16 @@ data class RecentMemorySummary(
     val lastGameEndMs: Long = 0L,
     /** ms since last time pet belly was rubbed / long press. */
     val lastLongPressMs: Long = 0L,
+    /** Most recent known object observation. */
+    val lastKnownObjectSeenMs: Long = 0L,
+    /** Most recent unknown object observation. */
+    val lastUnknownObjectSeenMs: Long = 0L,
+    /** Rolling known-object evidence count in the short memory window. */
+    val knownObjectExposureCount: Int = 0,
+    /** Rolling unknown-object evidence count in the short memory window. */
+    val unknownObjectExposureCount: Int = 0,
+    /** Last measured absence duration that the runtime observed. */
+    val lastAbsenceDurationMs: Long = 0L,
     val updatedAtMs: Long = 0L
 ) {
     fun userEnteredWithinMs(windowMs: Long, nowMs: Long): Boolean =
@@ -34,6 +44,12 @@ data class RecentMemorySummary(
 
     fun hadLoudSoundWithinMs(windowMs: Long, nowMs: Long): Boolean =
         loudSoundRecentlyMs > 0L && (nowMs - loudSoundRecentlyMs) < windowMs
+
+    fun sawKnownObjectWithinMs(windowMs: Long, nowMs: Long): Boolean =
+        lastKnownObjectSeenMs > 0L && (nowMs - lastKnownObjectSeenMs) < windowMs
+
+    fun sawUnknownObjectWithinMs(windowMs: Long, nowMs: Long): Boolean =
+        lastUnknownObjectSeenMs > 0L && (nowMs - lastUnknownObjectSeenMs) < windowMs
 
     companion object {
         val DEFAULT = RecentMemorySummary()

@@ -180,7 +180,7 @@ class FaceAnimationRuntime {
         targetGazeAsymmetry = t.gazeAsymmetry
         targetLeftBrowY = (t.leftBrowY + leakage.browYAdd).coerceIn(-1f, 1f)
         targetRightBrowY = (t.rightBrowY + leakage.browYAdd).coerceIn(-1f, 1f)
-        targetBrowWarmth = t.browWarmth
+        targetBrowWarmth = maxOf(t.browWarmth, leakage.browWarmthFloor)
         targetExtraHighlight = t.extraHighlight
         activeTransition = beat.transitionProfile
     }
@@ -196,7 +196,7 @@ class FaceAnimationRuntime {
         targetGazeAsymmetry = t.gazeAsymmetry
         targetLeftBrowY = t.leftBrowY
         targetRightBrowY = t.rightBrowY
-        targetBrowWarmth = t.browWarmth
+        targetBrowWarmth = maxOf(t.browWarmth, leakage.browWarmthFloor)
         targetExtraHighlight = t.extraHighlight
         activeTransition = directive.profile
     }

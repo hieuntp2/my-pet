@@ -67,6 +67,11 @@ class RealPixelPetBridgeStateAdapter(
             if (hasLonelyNeed) add("lonely_need")
             if (hasSadEmotion) add("sad")
             if (signal.behaviorDrivenIntent != null) add("behavior_intention")
+            signal.behaviorSourceIntention?.let { add("behavior_source_${it.name.lowercase()}") }
+            signal.behaviorAttentionMode?.let { add("behavior_attention_${it.name.lowercase()}") }
+            if (signal.behaviorAttentionIntensity > 0f) {
+                add("behavior_attention_intensity=${"%.2f".format(signal.behaviorAttentionIntensity)}")
+            }
             if (signal.greetingBoostIntent != null) add("greeting_active")
             if (signal.transientReactionIntent != null) add("tap_reaction")
             if (signal.soundReactionIntent != null) add("sound_reaction")
@@ -87,6 +92,9 @@ class RealPixelPetBridgeStateAdapter(
             hasPerceptionLooking = signal.isPerceptionLooking,
             hasPerceptionAsking = signal.isPerceptionAsking,
             behaviorDrivenIntent = signal.behaviorDrivenIntent,
+            behaviorSourceIntention = signal.behaviorSourceIntention,
+            behaviorAttentionMode = signal.behaviorAttentionMode,
+            behaviorAttentionIntensity = signal.behaviorAttentionIntensity,
             greetingBoostIntent = signal.greetingBoostIntent,
             transientReactionIntent = signal.transientReactionIntent,
             soundReactionIntent = signal.soundReactionIntent,

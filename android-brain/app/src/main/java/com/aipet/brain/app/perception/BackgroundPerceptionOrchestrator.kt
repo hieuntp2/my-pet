@@ -59,12 +59,14 @@ class BackgroundPerceptionOrchestrator(
     private val objectRepository: ObjectRepository,
     private val unknownFaceCandidateStore: UnknownFaceCandidateStore,
     private val faceProfileStore: FaceProfileStore,
+    private val onPresenceObserved: ((faceCount: Int, recognizedPersonId: String?, confidence: Float, observedAtMs: Long) -> Unit)? = null,
     private val onUnknownObjectDetected: (
         thumbnail: Bitmap?,
         canonicalLabel: String,
         confidence: Float,
         detectedAtMs: Long
-    ) -> Unit
+    ) -> Unit,
+    private val onRuntimeFailure: ((String, Throwable?) -> Unit)? = null
 ) {
 
     private val unknownObjectCooldowns = ConcurrentHashMap<String, Long>()
@@ -81,7 +83,8 @@ class BackgroundPerceptionOrchestrator(
         objectDetectionEngine = objectDetectionEngine,
         onFaceDetectionResult = { result -> handleFaceDetectionResult(result) },
         onObjectDetectionResult = { result -> handleObjectDetectionResult(result) },
-        onLiveFaceCropReady = { bitmap, ts, rotation -> handleLiveFaceCrop(bitmap, ts, rotation) }
+        onLiveFaceCropReady = { bitmap, ts, rotation -> handleLiveFaceCrop(bitmap, ts, rotation) },
+        onRuntimeFailure = { message, error -> onRuntimeFailure?.invoke(message, error) }
     )
 
     fun start() {
@@ -98,6 +101,22 @@ class BackgroundPerceptionOrchestrator(
     fun release() {
         controller.release()
     }
+
+    fun stop() {
+        controller.stop()
+    }
+
+    fun updateCadence(
+        faceCropIntervalMs: Long,
+        objectDetectionIntervalMs: Long
+    ) {
+        controller.updateCadence(
+            faceCropIntervalMs = faceCropIntervalMs,
+            objectDetectionIntervalMs = objectDetectionIntervalMs
+        )
+    }
+
+    fun isRunning(): Boolean = controller.isRunning()
 
     fun inspectUnknownObjectPromptSuppression(
         canonicalLabel: String?,
@@ -226,6 +245,12 @@ class BackgroundPerceptionOrchestrator(
     }
 
     private fun handleFaceDetectionResult(result: FaceDetectionResult) {
+        onPresenceObserved?.invoke(
+            result.faces.size,
+            null,
+            if (result.faces.isNotEmpty()) 0.7f else 0f,
+            result.timestampMs
+        )
         if (result.faces.isNotEmpty()) {
             controller.boostScanRate()
         }
@@ -255,6 +280,10 @@ class BackgroundPerceptionOrchestrator(
                     }
                     .onFailure { error ->
                         Log.w(TAG, "Background face embedding failed: ${error.message}")
+                        onRuntimeFailure?.invoke(
+                            "Background face embedding failed: ${error.message ?: "unknown error"}",
+                            error
+                        )
                     }
             } finally {
                 bitmap.recycle()
@@ -270,6 +299,12 @@ class BackgroundPerceptionOrchestrator(
     ) {
         val recognitionResult = personRecognitionService.recognize(embedding)
         recognitionDecisionEventPublisher.publish(recognitionResult)
+        onPresenceObserved?.invoke(
+            1,
+            recognitionResult.bestPersonId?.takeIf { recognitionResult.accepted },
+            recognitionResult.bestScore.coerceIn(0f, 1f),
+            timestampMs
+        )
 
         val closestProbe = resolveClosestKnownProbe(
             embedding = embedding,
@@ -732,6 +767,12 @@ class BackgroundPerceptionOrchestrator(
     }
 
     private fun handleObjectDetectionResult(result: Result<ObjectDetectionResult>) {
+        result.exceptionOrNull()?.let { error ->
+            onRuntimeFailure?.invoke(
+                "Background object detection failed: ${error.message ?: "unknown error"}",
+                error
+            )
+        }
         val detectionResult = result.getOrNull()
         val topDetection = detectionResult?.detections
             ?.firstOrNull { detection ->

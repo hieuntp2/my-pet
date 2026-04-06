@@ -4,6 +4,7 @@ import com.aipet.brain.brain.behavior.PetBehaviorContext
 import com.aipet.brain.brain.behavior.PetBehaviorDecision
 import com.aipet.brain.brain.behavior.PetBehaviorWeightResolver
 import com.aipet.brain.brain.personality.PetTrait
+import kotlin.math.absoluteValue
 
 data class PetGreetingReaction(
     val message: String,
@@ -157,28 +158,98 @@ class PetGreetingResolver(
         style: PetGreetingStyle
     ): PetGreetingReaction {
         val conditions = context.conditions
-        val message = when {
+        val messageCandidates = when {
             conditions.contains(PetCondition.HUNGRY) -> {
-                if (decision.selectedBehavior == PetEmotion.CURIOUS) "sniff... is there food?" else "*nuzzle* wants food"
+                if (decision.selectedBehavior == PetEmotion.CURIOUS) {
+                    listOf(
+                        "sniff... is there food?",
+                        "is it snack time already?",
+                        "i smell food... maybe?"
+                    )
+                } else {
+                    listOf(
+                        "*nuzzle* wants food",
+                        "i am really hungry",
+                        "food would help right now"
+                    )
+                }
             }
             conditions.contains(PetCondition.SLEEPY) -> {
-                if (decision.selectedBehavior == PetEmotion.IDLE) "still waking up" else "*yawn* waking up"
+                if (decision.selectedBehavior == PetEmotion.IDLE) {
+                    listOf(
+                        "still waking up",
+                        "slow start right now",
+                        "mmm... still waking up"
+                    )
+                } else {
+                    listOf(
+                        "*yawn* waking up",
+                        "waking up... give me a second",
+                        "*yawn* eyes still heavy"
+                    )
+                }
             }
-            style == PetGreetingStyle.DISTANT -> "...oh, you're back"
-            style == PetGreetingStyle.HESITANT -> "oh... hi"
-            style == PetGreetingStyle.RELIEVED -> "you came back"
-            style == PetGreetingStyle.NEEDY -> "missed you so much"
+            style == PetGreetingStyle.DISTANT -> listOf(
+                "...oh, you're back",
+                "...you came back",
+                "you're back."
+            )
+            style == PetGreetingStyle.HESITANT -> listOf(
+                "oh... hi",
+                "h-hi...",
+                "um... hi"
+            )
+            style == PetGreetingStyle.RELIEVED -> listOf(
+                "you came back",
+                "i am glad you came back",
+                "you are back... thank you"
+            )
+            style == PetGreetingStyle.NEEDY -> listOf(
+                "missed you so much",
+                "i really missed you",
+                "stay close with me, please"
+            )
             conditions.contains(PetCondition.LONELY) -> {
-                if (decision.selectedBehavior == PetEmotion.HAPPY) "missed you a lot" else "missed you"
+                if (decision.selectedBehavior == PetEmotion.HAPPY) {
+                    listOf(
+                        "missed you a lot",
+                        "i've been waiting for you",
+                        "happy you're here with me"
+                    )
+                } else {
+                    listOf(
+                        "missed you",
+                        "felt a bit alone",
+                        "i wanted you here"
+                    )
+                }
             }
-            conditions.contains(PetCondition.CALM) -> "glad you're here"
+            // Keep calm baseline stable for tests and for a recognizable home identity.
+            conditions.contains(PetCondition.CALM) -> listOf("glad you're here")
             else -> when (decision.selectedBehavior) {
-                PetEmotion.EXCITED -> "so happy to see you!"
-                PetEmotion.HAPPY -> "so happy to see you!"
-                PetEmotion.CURIOUS -> "oh, you're here!"
-                else -> "hello there"
+                PetEmotion.EXCITED,
+                PetEmotion.HAPPY -> listOf(
+                    "so happy to see you!",
+                    "yay, you're here!",
+                    "this made me really happy!"
+                )
+                PetEmotion.CURIOUS -> listOf(
+                    "oh, you're here!",
+                    "hey, what are we doing now?",
+                    "hmm, you're back."
+                )
+                else -> listOf(
+                    "hello there",
+                    "hi there",
+                    "hey, i'm here"
+                )
             }
         }
+        val message = pickGreetingMessage(
+            context = context,
+            decision = decision,
+            candidates = messageCandidates
+        )
 
         val emotion = when {
             conditions.contains(PetCondition.HUNGRY) -> PetEmotion.HUNGRY
@@ -199,6 +270,38 @@ class PetGreetingResolver(
             reason = decision.selectedLabel,
             greetingStyle = style
         )
+    }
+
+    private fun pickGreetingMessage(
+        context: PetGreetingContext,
+        decision: PetBehaviorDecision<PetEmotion>,
+        candidates: List<String>
+    ): String {
+        if (candidates.isEmpty()) {
+            return "hello there"
+        }
+        if (candidates.size == 1) {
+            return candidates.first()
+        }
+        val seed = buildString(capacity = 96) {
+            append(context.absenceBucket.name)
+            append("|")
+            append(decision.selectedBehavior.name)
+            append("|")
+            append(context.state.lastUpdatedAt / 1_000L)
+            append("|")
+            append(context.state.lastOpenAt / 1_000L)
+            append("|")
+            append(context.state.lastMeaningfulInteractionAt / 1_000L)
+            append("|")
+            append(context.state.bond)
+            append("|")
+            append(context.state.social)
+            append("|")
+            append(context.conditions.sortedBy { it.name }.joinToString(separator = ",") { it.name })
+        }
+        val index = seed.hashCode().absoluteValue % candidates.size
+        return candidates[index]
     }
 }
 

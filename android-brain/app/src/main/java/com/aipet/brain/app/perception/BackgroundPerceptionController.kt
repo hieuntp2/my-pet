@@ -18,6 +18,8 @@ import com.aipet.brain.perception.vision.objectdetection.model.ObjectDetectionRe
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
+import kotlin.math.min
 
 /**
  * Runs camera analysis in the background (no preview surface) bound to the given
@@ -37,7 +39,8 @@ class BackgroundPerceptionController(
     private val objectDetectionEngine: ObjectDetectionEngine?,
     private val onFaceDetectionResult: (FaceDetectionResult) -> Unit,
     private val onObjectDetectionResult: (Result<ObjectDetectionResult>) -> Unit,
-    private val onLiveFaceCropReady: ((android.graphics.Bitmap, Long, Int) -> Unit)?
+    private val onLiveFaceCropReady: ((android.graphics.Bitmap, Long, Int) -> Unit)?,
+    private val onRuntimeFailure: ((String, Throwable?) -> Unit)? = null
 ) {
 
     private val started = AtomicBoolean(false)
@@ -48,6 +51,8 @@ class BackgroundPerceptionController(
         private set
 
     @Volatile private var boostUntilMs: Long = 0L
+    private val configuredFaceCropIntervalMs = AtomicLong(BASE_FACE_CROP_INTERVAL_MS)
+    private val configuredObjectDetectionIntervalMs = AtomicLong(BASE_OBJECT_DETECTION_INTERVAL_MS)
 
     /** Temporarily boost scan rate (called when a person event is seen). */
     fun boostScanRate() {
@@ -55,18 +60,37 @@ class BackgroundPerceptionController(
         Log.d(TAG, "Scan rate boosted for ${BOOST_DURATION_MS}ms.")
     }
 
+    fun updateCadence(
+        faceCropIntervalMs: Long,
+        objectDetectionIntervalMs: Long
+    ) {
+        configuredFaceCropIntervalMs.set(faceCropIntervalMs.coerceAtLeast(MIN_INTERVAL_MS))
+        configuredObjectDetectionIntervalMs.set(objectDetectionIntervalMs.coerceAtLeast(MIN_INTERVAL_MS))
+        Log.d(
+            TAG,
+            "Runtime cadence updated. face=${configuredFaceCropIntervalMs.get()}ms, " +
+                "object=${configuredObjectDetectionIntervalMs.get()}ms"
+        )
+    }
+
     private val currentFaceCropIntervalMs: Long
-        get() = if (System.currentTimeMillis() < boostUntilMs) {
-            ACTIVE_FACE_CROP_INTERVAL_MS
-        } else {
-            BASE_FACE_CROP_INTERVAL_MS
+        get() {
+            val configured = configuredFaceCropIntervalMs.get().coerceAtLeast(MIN_INTERVAL_MS)
+            return if (System.currentTimeMillis() < boostUntilMs) {
+                min(configured, ACTIVE_FACE_CROP_INTERVAL_MS)
+            } else {
+                configured
+            }
         }
 
     private val currentObjectDetectionIntervalMs: Long
-        get() = if (System.currentTimeMillis() < boostUntilMs) {
-            ACTIVE_OBJECT_DETECTION_INTERVAL_MS
-        } else {
-            BASE_OBJECT_DETECTION_INTERVAL_MS
+        get() {
+            val configured = configuredObjectDetectionIntervalMs.get().coerceAtLeast(MIN_INTERVAL_MS)
+            return if (System.currentTimeMillis() < boostUntilMs) {
+                min(configured, ACTIVE_OBJECT_DETECTION_INTERVAL_MS)
+            } else {
+                configured
+            }
         }
 
     private var faceDetectionPipeline: FaceDetectionPipeline? = null
@@ -75,6 +99,10 @@ class BackgroundPerceptionController(
     fun start() {
         if (!isCameraPermissionGranted()) {
             Log.w(TAG, "Camera permission not granted. BackgroundPerceptionController not started.")
+            onRuntimeFailure?.invoke(
+                "Camera permission not granted for runtime sensing.",
+                null
+            )
             return
         }
         if (!started.compareAndSet(false, true)) {
@@ -85,14 +113,14 @@ class BackgroundPerceptionController(
         val pipeline = FaceDetectionPipeline(
             onFacesDetected = { result -> onFaceDetectionResult(result) },
             onLiveFaceCropReady = onLiveFaceCropReady,
-            liveFaceCropIntervalMs = currentFaceCropIntervalMs
+            liveFaceCropIntervalProvider = { currentFaceCropIntervalMs }
         )
         faceDetectionPipeline = pipeline
 
         val frameAnalyzer = FrameAnalyzer(
             faceDetectionPipeline = pipeline,
             objectDetectionEngine = objectDetectionEngine,
-            minObjectDetectionIntervalMs = currentObjectDetectionIntervalMs,
+            minObjectDetectionIntervalProvider = { currentObjectDetectionIntervalMs },
             onObjectDetectionResult = { result -> onObjectDetectionResult(result) },
             onFrameSnapshotCaptured = { snapshot ->
                 latestFrameSnapshot?.recycle()
@@ -131,6 +159,10 @@ class BackgroundPerceptionController(
                 Log.i(TAG, "Background camera analysis started (no preview).")
             }.onFailure { error ->
                 Log.e(TAG, "Failed to bind background camera: ${error.message}", error)
+                onRuntimeFailure?.invoke(
+                    "Background camera bind failed: ${error.message ?: "unknown error"}",
+                    error
+                )
                 started.set(false)
             }
         }, ContextCompat.getMainExecutor(context))
@@ -153,6 +185,8 @@ class BackgroundPerceptionController(
         stop()
         analysisExecutor.shutdown()
     }
+
+    fun isRunning(): Boolean = started.get()
 
     private fun isCameraPermissionGranted(): Boolean {
         return ContextCompat.checkSelfPermission(
@@ -178,5 +212,7 @@ class BackgroundPerceptionController(
 
         /** How long a boost from [boostScanRate] lasts. */
         const val BOOST_DURATION_MS = 24_000L
+
+        private const val MIN_INTERVAL_MS = 300L
     }
 }
